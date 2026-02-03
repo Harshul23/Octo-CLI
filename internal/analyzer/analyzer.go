@@ -39,6 +39,9 @@ var signalFiles = []signalFile{
 	{"build.gradle", "Java"},
 	{"requirements.txt", "Python"},
 	{"pyproject.toml", "Python"},
+	{"go.mod", "Go"},
+	{"Cargo.toml", "Rust"},
+	{"Gemfile", "Ruby"},
 }
 
 // Analyze performs a minimal analysis of the provided directory.
