@@ -42,7 +42,7 @@ func Write(path string, bp Blueprint) error {
 	defer f.Close()
 
 	// Write YAML content
-	_, err = fmt.Fprintf(f, "name: %s\n", bp.Name)
+	_, err = fmt.Fprintf(f, "name: %q\n", bp.Name)
 	if err != nil {
 		return err
 	}
