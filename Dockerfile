@@ -20,13 +20,13 @@ FROM alpine:3.19
 # Install basic system tools often needed for local dev (like git/curl)
 RUN apk --no-cache add ca-certificates git curl
 
-WORKDIR /root/
+WORKDIR /app
 
 # Copy only the compiled binary from the builder stage
-COPY --from=builder /app/octo .
+COPY --from=builder /app/octo /usr/local/bin/octo
 
 # Ensure the binary is executable
-RUN chmod +x ./octo
+RUN chmod +x /usr/local/bin/octo
 
 # Set the binary as the entrypoint
-ENTRYPOINT ["./octo"]
+ENTRYPOINT ["octo"]
