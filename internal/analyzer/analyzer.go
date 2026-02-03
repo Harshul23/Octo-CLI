@@ -112,6 +112,12 @@ func AnalyzeProject(path string) (ProjectInfo, error) {
 				projectInfo = analyzePythonProject(abs, projectInfo, "requirements")
 			case "pyproject.toml":
 				projectInfo = analyzePythonProject(abs, projectInfo, "pyproject")
+			case "go.mod":
+				projectInfo = analyzeGoProject(abs, projectInfo)
+			case "Cargo.toml":
+				projectInfo = analyzeRustProject(abs, projectInfo)
+			case "Gemfile":
+				projectInfo = analyzeRubyProject(abs, projectInfo)
 			}
 
 			// Stop after first match (priority order)
@@ -153,8 +159,9 @@ func analyzeNodeProject(projectPath string, info ProjectInfo) ProjectInfo {
 	}
 
 	// Look for start script
-	if startScript, ok := pkg.Scripts["start"]; ok {
-		info.RunCommand = startScript
+	// Use npm/yarn commands instead of raw script content to ensure node_modules/.bin is in PATH
+	if _, ok := pkg.Scripts["start"]; ok {
+		info.RunCommand = "npm start"
 	} else if _, ok := pkg.Scripts["dev"]; ok {
 		info.RunCommand = "npm run dev"
 	} else {
@@ -168,9 +175,9 @@ func analyzeNodeProject(projectPath string, info ProjectInfo) ProjectInfo {
 func analyzeJavaProject(projectPath string, info ProjectInfo, buildTool string) ProjectInfo {
 	switch buildTool {
 	case "maven":
-		info.RunCommand = "mvn spring-boot:run"
-		// Try to detect Java version from pom.xml (simplified)
+		// Try to detect Java version and Spring Boot from pom.xml
 		pomPath := filepath.Join(projectPath, "pom.xml")
+		isSpringBoot := false
 		if data, err := os.ReadFile(pomPath); err == nil {
 			content := string(data)
 			// Simple version detection (look for java.version property)
@@ -179,13 +186,52 @@ func analyzeJavaProject(projectPath string, info ProjectInfo, buildTool string) 
 			} else if contains(content, "<maven.compiler.source>") {
 				info.Version = extractBetween(content, "<maven.compiler.source>", "</maven.compiler.source>")
 			}
+			// Detect Spring Boot indicators
+			if contains(content, "org.springframework.boot") || 
+			   contains(content, "spring-boot-starter") || 
+			   contains(content, "spring-boot-maven-plugin") {
+				isSpringBoot = true
+			}
+		}
+		// Set run command based on Spring Boot detection
+		if isSpringBoot {
+			info.RunCommand = "mvn spring-boot:run"
+		} else {
+			info.RunCommand = "mvn package && java -jar target/*.jar"
 		}
 	case "gradle":
-		info.RunCommand = "./gradlew bootRun"
 		// Check for gradlew
 		gradlewPath := filepath.Join(projectPath, "gradlew")
+		hasGradlew := true
 		if _, err := os.Stat(gradlewPath); os.IsNotExist(err) {
-			info.RunCommand = "gradle bootRun"
+			hasGradlew = false
+		}
+		
+		// Try to detect Spring Boot from build.gradle
+		buildGradlePath := filepath.Join(projectPath, "build.gradle")
+		isSpringBoot := false
+		if data, err := os.ReadFile(buildGradlePath); err == nil {
+			content := string(data)
+			// Detect Spring Boot indicators
+			if contains(content, "org.springframework.boot") || 
+			   contains(content, "spring-boot") {
+				isSpringBoot = true
+			}
+		}
+		
+		// Set run command based on Spring Boot detection and wrapper presence
+		if isSpringBoot {
+			if hasGradlew {
+				info.RunCommand = "./gradlew bootRun"
+			} else {
+				info.RunCommand = "gradle bootRun"
+			}
+		} else {
+			if hasGradlew {
+				info.RunCommand = "./gradlew build && java -jar build/libs/*.jar"
+			} else {
+				info.RunCommand = "gradle build && java -jar build/libs/*.jar"
+			}
 		}
 	}
 
@@ -223,6 +269,95 @@ func analyzePythonProject(projectPath string, info ProjectInfo, configType strin
 		}
 	}
 
+	return info
+}
+
+// analyzeGoProject extracts info for Go projects
+func analyzeGoProject(projectPath string, info ProjectInfo) ProjectInfo {
+	goModPath := filepath.Join(projectPath, "go.mod")
+	if data, err := os.ReadFile(goModPath); err == nil {
+		content := string(data)
+		// Extract Go version
+		if contains(content, "go ") {
+			info.Version = extractGoVersion(content)
+		}
+		// Extract module name for better project name
+		if contains(content, "module ") {
+			moduleName := extractGoModule(content)
+			if moduleName != "" {
+				// Use last part of module path as name
+				parts := splitString(moduleName, "/")
+				if len(parts) > 0 {
+					info.Name = parts[len(parts)-1]
+				}
+			}
+		}
+	}
+	
+	// Check for common entry points
+	if _, err := os.Stat(filepath.Join(projectPath, "main.go")); err == nil {
+		info.RunCommand = "go run main.go"
+	} else if _, err := os.Stat(filepath.Join(projectPath, "cmd")); err == nil {
+		// Check for cmd directory structure
+		info.RunCommand = "go run ./cmd/..."
+	} else {
+		info.RunCommand = "go run ."
+	}
+	
+	return info
+}
+
+// analyzeRustProject extracts info for Rust projects
+func analyzeRustProject(projectPath string, info ProjectInfo) ProjectInfo {
+	cargoTomlPath := filepath.Join(projectPath, "Cargo.toml")
+	if data, err := os.ReadFile(cargoTomlPath); err == nil {
+		content := string(data)
+		// Extract package name
+		if contains(content, "name = ") {
+			pkgName := extractTomlStringValue(content, "name = ")
+			if pkgName != "" {
+				info.Name = pkgName
+			}
+		}
+		// Extract version
+		if contains(content, "version = ") {
+			info.Version = extractTomlStringValue(content, "version = ")
+		}
+	}
+	
+	// Default Rust run command
+	info.RunCommand = "cargo run"
+	
+	return info
+}
+
+// analyzeRubyProject extracts info for Ruby projects
+func analyzeRubyProject(projectPath string, info ProjectInfo) ProjectInfo {
+	// Check for common Ruby frameworks and entry points
+	if _, err := os.Stat(filepath.Join(projectPath, "config.ru")); err == nil {
+		// Rack application
+		info.RunCommand = "bundle exec rackup"
+	} else if _, err := os.Stat(filepath.Join(projectPath, "config", "application.rb")); err == nil {
+		// Rails application
+		info.RunCommand = "bundle exec rails server"
+	} else if _, err := os.Stat(filepath.Join(projectPath, "app.rb")); err == nil {
+		// Sinatra or simple Ruby app
+		info.RunCommand = "bundle exec ruby app.rb"
+	} else if _, err := os.Stat(filepath.Join(projectPath, "main.rb")); err == nil {
+		info.RunCommand = "bundle exec ruby main.rb"
+	} else {
+		// Generic Ruby execution
+		info.RunCommand = "bundle exec ruby main.rb"
+	}
+	
+	// Try to extract Ruby version from .ruby-version file
+	rubyVersionPath := filepath.Join(projectPath, ".ruby-version")
+	if data, err := os.ReadFile(rubyVersionPath); err == nil {
+		info.Version = string(data)
+		// Trim whitespace
+		info.Version = trimWhitespace(info.Version)
+	}
+	
 	return info
 }
 
@@ -275,4 +410,91 @@ func extractPythonVersion(content string) string {
 		}
 	}
 	return ""
+}
+
+func extractGoVersion(content string) string {
+	// Look for "go 1.x" line
+	lines := splitString(content, "\n")
+	for _, line := range lines {
+		line = trimWhitespace(line)
+		if len(line) > 3 && line[:3] == "go " {
+			return trimWhitespace(line[3:])
+		}
+	}
+	return ""
+}
+
+func extractGoModule(content string) string {
+	// Look for "module <name>" line
+	lines := splitString(content, "\n")
+	for _, line := range lines {
+		line = trimWhitespace(line)
+		if len(line) > 7 && line[:7] == "module " {
+			return trimWhitespace(line[7:])
+		}
+	}
+	return ""
+}
+
+func extractTomlStringValue(content, key string) string {
+	// Look for key = "value" pattern
+	idx := findSubstring(content, key)
+	if idx < 0 {
+		return ""
+	}
+	idx += len(key)
+	// Find the quoted value
+	for idx < len(content) && (content[idx] == ' ' || content[idx] == '\t') {
+		idx++
+	}
+	if idx < len(content) && (content[idx] == '"' || content[idx] == '\'') {
+		quote := content[idx]
+		idx++
+		endIdx := idx
+		for endIdx < len(content) && content[endIdx] != quote {
+			endIdx++
+		}
+		if endIdx > idx {
+			return content[idx:endIdx]
+		}
+	}
+	return ""
+}
+
+func splitString(s, sep string) []string {
+	if s == "" {
+		return []string{}
+	}
+	if sep == "" {
+		return []string{s}
+	}
+	
+	var result []string
+	start := 0
+	for i := 0; i <= len(s)-len(sep); i++ {
+		if s[i:i+len(sep)] == sep {
+			result = append(result, s[start:i])
+			start = i + len(sep)
+			i = start - 1
+		}
+	}
+	result = append(result, s[start:])
+	return result
+}
+
+func trimWhitespace(s string) string {
+	start := 0
+	end := len(s)
+	
+	// Trim leading whitespace
+	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
+		start++
+	}
+	
+	// Trim trailing whitespace
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
+		end--
+	}
+	
+	return s[start:end]
 }

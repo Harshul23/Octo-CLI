@@ -15,7 +15,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o octo ./cmd
 
 # Stage 2: Final lightweight image
-FROM alpine:latest
+FROM alpine:3.19
 
 # Install basic system tools often needed for local dev (like git/curl)
 RUN apk --no-cache add ca-certificates git curl

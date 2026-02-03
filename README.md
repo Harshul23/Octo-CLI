@@ -1,4 +1,4 @@
-# Octo CLI 
+# Octo CLI
 
 **Automate local deployment of any software with zero configuration.**
 
@@ -84,34 +84,18 @@ Flags:
 The `.octo.yaml` file structure:
 
 ```yaml
-version: "1.0"
 name: my-project
-
-runtime:
-  type: shell # docker, nix, or shell
-  language: Go
-  version: "1.21"
-
-build:
-  command: go build -o main .
-
-run:
-  command: ./main
-  entrypoint: main.go
-  ports:
-    - 8080
-
-services:
-  - name: postgres
-    image: postgres:15
-    ports:
-      - 5432
-    environment:
-      POSTGRES_PASSWORD: secret
-
-environment:
-  DATABASE_URL: postgres://localhost:5432/mydb
+language: Go
+version: "1.21"
+run: go run main.go
 ```
+
+**Fields:**
+
+- `name` - The project name (required)
+- `language` - The detected programming language (e.g., Node, Java, Python, Go, Rust, Ruby)
+- `version` - The language/runtime version
+- `run` - The command to execute the application
 
 ## Supported Languages & Frameworks
 

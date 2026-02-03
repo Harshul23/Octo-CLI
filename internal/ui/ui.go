@@ -29,7 +29,25 @@ func (s *Spinner) Stop() {
 		return
 	}
 	s.running = false
-	fmt.Println("Done")
+	// Neutral stop - no status indicator
+}
+
+func (s *Spinner) StopWithStatus(status, message string) {
+	if s == nil || !s.running {
+		return
+	}
+	s.running = false
+	if message != "" {
+		fmt.Println(status, message)
+	}
+}
+
+func (s *Spinner) Success(msg string) {
+	s.StopWithStatus("✅", msg)
+}
+
+func (s *Spinner) Fail(msg string) {
+	s.StopWithStatus("❌", msg)
 }
 
 func Success(msg string) {
