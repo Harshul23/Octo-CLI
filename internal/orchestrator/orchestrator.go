@@ -1,205 +1,107 @@
 package orchestrator
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-}	return nil	// TODO: Cleanup Nix environmentfunc (r *NixRunner) Cleanup() error {}	return nil	// TODO: Run application in Nix shellfunc (r *NixRunner) Run(command string) error {}	return nil	// TODO: Run build command in Nix shellfunc (r *NixRunner) Build(command string) error {}	return nil	// TODO: Setup Nix environmentfunc (r *NixRunner) Setup() error {}	}		options:   opts,		blueprint: bp,	return &NixRunner{func NewNixRunner(bp *blueprint.Blueprint, opts Options) *NixRunner {// NewNixRunner creates a new Nix-based runner}	options   Options	blueprint *blueprint.Blueprinttype NixRunner struct {// NixRunner executes commands in a Nix environment}	return nil	// TODO: Stop and remove Docker containerfunc (r *DockerRunner) Cleanup() error {}	return nil	// TODO: Run application in Docker containerfunc (r *DockerRunner) Run(command string) error {}	return nil	// TODO: Run build command in Docker containerfunc (r *DockerRunner) Build(command string) error {}	return nil	// TODO: Build or pull Docker imagefunc (r *DockerRunner) Setup() error {}	}		options:   opts,		blueprint: bp,	return &DockerRunner{func NewDockerRunner(bp *blueprint.Blueprint, opts Options) *DockerRunner {// NewDockerRunner creates a new Docker-based runner}	options   Options	blueprint *blueprint.Blueprinttype DockerRunner struct {// DockerRunner executes commands in a Docker container}	return cmd.Run()	cmd.Stdin = os.Stdin	cmd.Stderr = os.Stderr	cmd.Stdout = os.Stdout	cmd.Dir = r.options.WorkDir	cmd := exec.Command("sh", "-c", command)func (r *ShellRunner) executeCommand(command string) error {}	return nilfunc (r *ShellRunner) Cleanup() error {}	return r.executeCommand(command)func (r *ShellRunner) Run(command string) error {}	return r.executeCommand(command)func (r *ShellRunner) Build(command string) error {}	return nil	}		os.Setenv(key, value)	for key, value := range r.blueprint.Environment {	// Set environment variablesfunc (r *ShellRunner) Setup() error {}	}		options:   opts,		blueprint: bp,	return &ShellRunner{func NewShellRunner(bp *blueprint.Blueprint, opts Options) *ShellRunner {// NewShellRunner creates a new shell-based runner}	options   Options	blueprint *blueprint.Blueprinttype ShellRunner struct {// ShellRunner executes commands in a shell environment}	return o.runner.Cleanup()func (o *Orchestrator) Stop() error {// Stop stops the running application}	return nil	}		return fmt.Errorf("run failed: %w", err)	if err := o.runner.Run(o.blueprint.Run.Command); err != nil {	// Run the application	}		}			return fmt.Errorf("build failed: %w", err)		if err := o.runner.Build(o.blueprint.Build.Command); err != nil {	if o.options.RunBuild && o.blueprint.Build.Command != "" {	// Run build step if enabled	}		return fmt.Errorf("setup failed: %w", err)	if err := o.runner.Setup(); err != nil {	// Setup the environmentfunc (o *Orchestrator) Run() error {// Run executes the application}	return orch, nil	}		orch.runner = NewShellRunner(bp, opts)	default:		orch.runner = NewShellRunner(bp, opts)	case "shell":		orch.runner = NewNixRunner(bp, opts)	case "nix":		orch.runner = NewDockerRunner(bp, opts)	case "docker":	switch bp.Runtime.Type {	// Select the appropriate runner based on runtime type	}		options:   opts,		blueprint: bp,	orch := &Orchestrator{func New(bp *blueprint.Blueprint, opts Options) (*Orchestrator, error) {// New creates a new Orchestrator based on the blueprint and options}	Cleanup() error	Run(command string) error	Build(command string) error	Setup() errortype Runner interface {// Runner interface for different execution backends}	runner    Runner	options   Options	blueprint *blueprint.Blueprinttype Orchestrator struct {// Orchestrator manages application execution}	Detach bool	// Detach runs the process in the background	Watch bool	// Watch enables file watching for automatic restarts	RunBuild bool	// RunBuild determines if build step should run	Environment string	// Environment specifies the environment (development, production)	WorkDir string	// WorkDir is the working directory for executiontype Options struct {// Options configures the orchestrator behavior)	"github.com/harshul/octo-cli/internal/blueprint"	"os/exec"	"os"	"fmt"import (package orchestrator// Package orchestrator manages the execution environment for running applications
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+
+	"github.com/harshul/octo-cli/internal/blueprint"
+)
+
+// Options controls how the orchestrator runs the application.
+type Options struct {
+	WorkDir     string
+	Environment string
+	RunBuild    bool
+	Watch       bool
+	Detach      bool
+}
+
+type Orchestrator struct {
+	bp   blueprint.Blueprint
+	opts Options
+}
+
+func New(bp blueprint.Blueprint, opts Options) (*Orchestrator, error) {
+	return &Orchestrator{bp: bp, opts: opts}, nil
+}
+
+// runtimeCommands maps language names to their runtime check commands.
+var runtimeCommands = map[string]string{
+	"node":       "node",
+	"nodejs":     "node",
+	"javascript": "node",
+	"typescript": "node",
+	"java":       "java",
+	"python":     "python3",
+	"go":         "go",
+	"golang":     "go",
+	"ruby":       "ruby",
+	"rust":       "cargo",
+}
+
+// checkRuntime checks if the required runtime is available on the host machine.
+func (o *Orchestrator) checkRuntime() {
+	if o.bp.Language == "" {
+		return
+	}
+
+	lang := strings.ToLower(o.bp.Language)
+	runtimeCmd, ok := runtimeCommands[lang]
+	if !ok {
+		// Unknown language, skip the check
+		return
+	}
+
+	_, err := exec.LookPath(runtimeCmd)
+	if err != nil {
+		fmt.Printf("⚠️  Warning: %s not found. Please install it.\n", o.bp.Language)
+	}
+}
+
+func (o *Orchestrator) Run() error {
+	fmt.Printf("🚀 Starting %s (env=%s, build=%v, watch=%v, detach=%v)\n",
+		o.bp.Name, o.opts.Environment, o.opts.RunBuild, o.opts.Watch, o.opts.Detach)
+
+	// Handle options that are currently not implemented to avoid silently ignoring them.
+	if o.opts.RunBuild {
+		fmt.Println("⚠️  Warning: RunBuild option is not implemented yet; proceeding without a build step.")
+	}
+	if o.opts.Watch {
+		fmt.Println("⚠️  Warning: Watch option is not implemented yet; changes will not be watched automatically.")
+	}
+	if o.opts.Detach {
+		fmt.Println("⚠️  Warning: Detach option is not implemented yet; the process will run in the foreground.")
+	}
+	// Check if the required runtime is available
+	o.checkRuntime()
+
+	// Check if we have a run command
+	if o.bp.RunCommand == "" {
+		return fmt.Errorf("no run command specified in configuration")
+	}
+
+	// Parse and execute the run command
+	// Use shell to handle complex commands with pipes, redirects, etc.
+	cmd := exec.Command("sh", "-c", o.bp.RunCommand)
+
+	// Set the working directory
+	if o.opts.WorkDir != "" {
+		cmd.Dir = o.opts.WorkDir
+	}
+
+	// Pipe stdout and stderr directly to the user's terminal
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	fmt.Printf("📦 Executing: %s\n", o.bp.RunCommand)
+
+	// Run the command
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("command failed: %w", err)
+	}
+
+	return nil
+}
