@@ -1,21 +1,19 @@
 package blueprint
 
 import (
-	"bufio"
 	"errors"
-	"fmt"
 	"os"
-	"strings"
 
 	"github.com/harshul/octo-cli/internal/analyzer"
+	"gopkg.in/yaml.v3"
 )
 
 // Blueprint is a configuration derived from project analysis.
 type Blueprint struct {
-	Name       string
-	Language   string
-	Version    string
-	RunCommand string
+	Name       string `yaml:"name"`
+	Language   string `yaml:"language,omitempty"`
+	Version    string `yaml:"version,omitempty"`
+	RunCommand string `yaml:"run,omitempty"`
 }
 
 // FromAnalysis converts an analysis result into a basic blueprint.
@@ -41,62 +39,26 @@ func Write(path string, bp Blueprint) error {
 	}
 	defer f.Close()
 
-	// Write YAML content
-	_, err = fmt.Fprintf(f, "name: %q\n", bp.Name)
+	// Marshal the blueprint to YAML
+	data, err := yaml.Marshal(&bp)
 	if err != nil {
 		return err
 	}
 
-	if bp.Language != "" {
-		_, err = fmt.Fprintf(f, "language: %s\n", bp.Language)
-		if err != nil {
-			return err
-		}
-	}
-
-	if bp.Version != "" {
-		_, err = fmt.Fprintf(f, "version: %s\n", bp.Version)
-		if err != nil {
-			return err
-		}
-	}
-
-	if bp.RunCommand != "" {
-		_, err = fmt.Fprintf(f, "run: %s\n", bp.RunCommand)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	// Write the YAML content
+	_, err = f.Write(data)
+	return err
 }
 
 // Read reads a YAML-like file and extracts the blueprint fields.
 func Read(path string) (Blueprint, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return Blueprint{}, err
 	}
-	defer f.Close()
 
-	bp := Blueprint{}
-	s := bufio.NewScanner(f)
-
-	for s.Scan() {
-		line := strings.TrimSpace(s.Text())
-
-		if strings.HasPrefix(strings.ToLower(line), "name:") {
-			bp.Name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
-		} else if strings.HasPrefix(strings.ToLower(line), "language:") {
-			bp.Language = strings.TrimSpace(strings.TrimPrefix(line, "language:"))
-		} else if strings.HasPrefix(strings.ToLower(line), "version:") {
-			bp.Version = strings.TrimSpace(strings.TrimPrefix(line, "version:"))
-		} else if strings.HasPrefix(strings.ToLower(line), "run:") {
-			bp.RunCommand = strings.TrimSpace(strings.TrimPrefix(line, "run:"))
-		}
-	}
-
-	if err := s.Err(); err != nil {
+	var bp Blueprint
+	if err := yaml.Unmarshal(data, &bp); err != nil {
 		return Blueprint{}, err
 	}
 

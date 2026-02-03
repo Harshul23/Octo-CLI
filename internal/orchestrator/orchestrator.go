@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/harshul/octo-cli/internal/blueprint"
@@ -84,7 +85,12 @@ func (o *Orchestrator) Run() error {
 
 	// Parse and execute the run command
 	// Use shell to handle complex commands with pipes, redirects, etc.
-	cmd := exec.Command("sh", "-c", o.bp.RunCommand)
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/C", o.bp.RunCommand)
+	} else {
+		cmd = exec.Command("sh", "-c", o.bp.RunCommand)
+	}
 
 	// Set the working directory
 	if o.opts.WorkDir != "" {

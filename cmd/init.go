@@ -62,11 +62,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Analyze the project using the new AnalyzeProject function
 	projectInfo, err := analyzer.AnalyzeProject(cwd)
 	if err != nil {
-		spinner.Stop()
+		spinner.Fail("Analysis failed")
 		return fmt.Errorf("analysis failed: %w", err)
 	}
 
-	spinner.Stop()
+	spinner.Success("Analysis complete")
 
 	// Display detected project information
 	ui.Info(fmt.Sprintf("Detected language: %s", projectInfo.Language))
