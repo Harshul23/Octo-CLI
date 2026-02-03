@@ -197,23 +197,23 @@ func analyzePythonProject(projectPath string, info ProjectInfo, configType strin
 	switch configType {
 	case "requirements":
 		// Default Python run command
-		info.RunCommand = "python main.py"
+		info.RunCommand = "python3 main.py"
 		// Check for common entry points
 		if _, err := os.Stat(filepath.Join(projectPath, "app.py")); err == nil {
-			info.RunCommand = "python app.py"
+			info.RunCommand = "python3 app.py"
 		} else if _, err := os.Stat(filepath.Join(projectPath, "main.py")); err == nil {
-			info.RunCommand = "python main.py"
+			info.RunCommand = "python3 main.py"
 		} else if _, err := os.Stat(filepath.Join(projectPath, "manage.py")); err == nil {
-			info.RunCommand = "python manage.py runserver"
+			info.RunCommand = "python3 manage.py runserver"
 		}
 	case "pyproject":
-		info.RunCommand = "python -m app"
+		info.RunCommand = "python3 -m app"
 		// Check for poetry
 		pyprojectPath := filepath.Join(projectPath, "pyproject.toml")
 		if data, err := os.ReadFile(pyprojectPath); err == nil {
 			content := string(data)
 			if contains(content, "[tool.poetry]") {
-				info.RunCommand = "poetry run python main.py"
+				info.RunCommand = "poetry run python3 main.py"
 			}
 			// Try to extract Python version
 			if contains(content, "python = ") {
