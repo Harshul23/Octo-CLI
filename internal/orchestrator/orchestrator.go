@@ -64,6 +64,16 @@ func (o *Orchestrator) Run() error {
 	fmt.Printf("🚀 Starting %s (env=%s, build=%v, watch=%v, detach=%v)\n",
 		o.bp.Name, o.opts.Environment, o.opts.RunBuild, o.opts.Watch, o.opts.Detach)
 
+	// Handle options that are currently not implemented to avoid silently ignoring them.
+	if o.opts.RunBuild {
+		fmt.Println("⚠️  Warning: RunBuild option is not implemented yet; proceeding without a build step.")
+	}
+	if o.opts.Watch {
+		fmt.Println("⚠️  Warning: Watch option is not implemented yet; changes will not be watched automatically.")
+	}
+	if o.opts.Detach {
+		fmt.Println("⚠️  Warning: Detach option is not implemented yet; the process will run in the foreground.")
+	}
 	// Check if the required runtime is available
 	o.checkRuntime()
 
