@@ -1,0 +1,25 @@
+# Ignore version control metadata
+.git
+.gitignore
+
+# Ignore local build artifacts and binaries
+bin/
+octo
+*.exe
+*.out
+*.test
+
+# Ignore documentation (not needed to run the CLI)
+*.md
+docs/
+LICENSE
+
+# Ignore IDE and OS-specific clutter
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Ignore secrets and logs
+*.env
+*.log

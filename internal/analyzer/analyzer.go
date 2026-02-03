@@ -1,172 +1,278 @@
 package analyzer
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-}	return nil	}		}			analysis.EntryPoint = "src/main.rs"			analysis.RunCommand = "cargo run"			analysis.BuildCommand = "cargo build"		case "Rust":			analysis.EntryPoint = "main.py"			analysis.RunCommand = "python main.py"			analysis.BuildCommand = "pip install -r requirements.txt"		case "Python":			analysis.EntryPoint = "index.js"			analysis.RunCommand = "npm start"			analysis.BuildCommand = "npm install"		case "JavaScript":			analysis.EntryPoint = "main.go"			analysis.RunCommand = "./main"			analysis.BuildCommand = "go build"		case "Go":		switch analysis.Languages[0].Name {	if len(analysis.Languages) > 0 {	// Set defaults based on detected languagefunc detectCommands(dir string, analysis *Analysis) error {// detectCommands attempts to detect build and run commands}	return nil	}		}			break			analysis.PackageManager = manager		if _, err := os.Stat(path); err == nil {		path := filepath.Join(dir, file)	for file, manager := range managers {	}		"Gemfile.lock":      "bundler",		"Cargo.lock":        "cargo",		"poetry.lock":       "poetry",		"Pipfile.lock":      "pipenv",		"go.sum":            "go",		"pnpm-lock.yaml":    "pnpm",		"yarn.lock":         "yarn",		"package-lock.json": "npm",	managers := map[string]string{func detectPackageManager(dir string, analysis *Analysis) error {// detectPackageManager identifies the package manager}	return nil	// - Gin/Echo: main.go with framework imports	// - Rails: config/application.rb	// - Django: manage.py + settings.py	// - React: package.json with react dependency	// - Next.js: next.config.js	// Examples:	// TODO: Implement framework detectionfunc detectFrameworks(dir string, analysis *Analysis) error {// detectFrameworks checks for framework-specific files}	return nil	}		}			analysis.Languages = append(analysis.Languages, Language{Name: lang})		if _, err := os.Stat(path); err == nil {		path := filepath.Join(dir, file)	for file, lang := range indicators {	}		"composer.json":  "PHP",		"Gemfile":        "Ruby",		"build.gradle":   "Java",		"pom.xml":        "Java",		"Cargo.toml":     "Rust",		"requirements.txt": "Python",		"package.json":   "JavaScript",		"go.mod":         "Go",	indicators := map[string]string{func detectLanguages(dir string, analysis *Analysis) error {// detectLanguages checks for language indicator files}	return analysis, nil	}		return nil, err	if err := detectCommands(dir, analysis); err != nil {	// Detect build and run commands	}		return nil, err	if err := detectPackageManager(dir, analysis); err != nil {	// Detect package manager and dependencies	}		return nil, err	if err := detectFrameworks(dir, analysis); err != nil {	// Detect frameworks based on configuration files	}		return nil, err	if err := detectLanguages(dir, analysis); err != nil {	// Detect languages by checking for indicator files	}		Ports:    []int{},		EnvVars:  make(map[string]string),		Name:     filepath.Base(dir),	analysis := &Analysis{func Analyze(dir string) (*Analysis, error) {// Analyze performs analysis on the given directory and returns the results}	Version string	Name    stringtype Framework struct {// Framework represents a detected framework}	Version string	Name    stringtype Language struct {// Language represents a detected programming language}	Ports []int	// Ports that the application listens on	EnvVars map[string]string	// EnvVars are environment variables needed	Dependencies []string	// Dependencies lists the project dependencies	EntryPoint string	// EntryPoint is the main file or directory	RunCommand string	// RunCommand is the detected run command	BuildCommand string	// BuildCommand is the detected build command	PackageManager string	// PackageManager detected (npm, pip, go mod, etc.)	Frameworks []Framework	// Frameworks detected in the project	Languages []Language	// Languages detected in the project	Name string	// Name is the detected project nametype Analysis struct {// Analysis represents the result of analyzing a codebase)	"path/filepath"	"os"import (package analyzer// to detect programming languages, frameworks, and build configurations.// Package analyzer provides functionality for analyzing codebases
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+)
+
+// Analysis is a minimal representation of detected project info.
+type Analysis struct {
+	// Root is the analyzed directory
+	Root string
+	// Name is the project/app name derived from directory
+	Name string
+}
+
+// ProjectInfo contains detailed information about the analyzed project.
+type ProjectInfo struct {
+	// Name is the project/app name derived from directory
+	Name string
+	// Language is the detected programming language (Node, Java, Python, Unknown)
+	Language string
+	// Version is the detected version (if available)
+	Version string
+	// RunCommand is the best-guess command to run the project
+	RunCommand string
+}
+
+// signalFile represents a file that signals a specific project type.
+type signalFile struct {
+	filename string
+	language string
+}
+
+// Signal files for project detection
+var signalFiles = []signalFile{
+	{"package.json", "Node"},
+	{"pom.xml", "Java"},
+	{"build.gradle", "Java"},
+	{"requirements.txt", "Python"},
+	{"pyproject.toml", "Python"},
+	{"go.mod", "Go"},
+	{"Cargo.toml", "Rust"},
+	{"Gemfile", "Ruby"},
+}
+
+// Analyze performs a minimal analysis of the provided directory.
+// Currently, it derives the project name from the directory basename.
+func Analyze(dir string) (Analysis, error) {
+	abs := dir
+	if !filepath.IsAbs(abs) {
+		var err error
+		abs, err = filepath.Abs(dir)
+		if err != nil {
+			return Analysis{}, err
+		}
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return Analysis{}, err
+	}
+	if !info.IsDir() {
+		return Analysis{}, os.ErrInvalid
+	}
+	return Analysis{
+		Root: abs,
+		Name: filepath.Base(abs),
+	}, nil
+}
+
+// AnalyzeProject scans the root directory for signal files and returns
+// detailed project information including language, version, and run command.
+func AnalyzeProject(path string) (ProjectInfo, error) {
+	abs := path
+	if !filepath.IsAbs(abs) {
+		var err error
+		abs, err = filepath.Abs(path)
+		if err != nil {
+			return ProjectInfo{}, err
+		}
+	}
+
+	info, err := os.Stat(abs)
+	if err != nil {
+		return ProjectInfo{}, err
+	}
+	if !info.IsDir() {
+		return ProjectInfo{}, os.ErrInvalid
+	}
+
+	projectInfo := ProjectInfo{
+		Name:     filepath.Base(abs),
+		Language: "Unknown",
+		Version:  "",
+		RunCommand: "",
+	}
+
+	// Scan for signal files
+	for _, sf := range signalFiles {
+		signalPath := filepath.Join(abs, sf.filename)
+		if _, err := os.Stat(signalPath); err == nil {
+			projectInfo.Language = sf.language
+
+			switch sf.filename {
+			case "package.json":
+				projectInfo = analyzeNodeProject(abs, projectInfo)
+			case "pom.xml":
+				projectInfo = analyzeJavaProject(abs, projectInfo, "maven")
+			case "build.gradle":
+				projectInfo = analyzeJavaProject(abs, projectInfo, "gradle")
+			case "requirements.txt":
+				projectInfo = analyzePythonProject(abs, projectInfo, "requirements")
+			case "pyproject.toml":
+				projectInfo = analyzePythonProject(abs, projectInfo, "pyproject")
+			}
+
+			// Stop after first match (priority order)
+			break
+		}
+	}
+
+	return projectInfo, nil
+}
+
+// analyzeNodeProject extracts info from package.json
+func analyzeNodeProject(projectPath string, info ProjectInfo) ProjectInfo {
+	packagePath := filepath.Join(projectPath, "package.json")
+	data, err := os.ReadFile(packagePath)
+	if err != nil {
+		info.RunCommand = "npm start"
+		return info
+	}
+
+	var pkg struct {
+		Name    string            `json:"name"`
+		Version string            `json:"version"`
+		Scripts map[string]string `json:"scripts"`
+		Engines struct {
+			Node string `json:"node"`
+		} `json:"engines"`
+	}
+
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		info.RunCommand = "npm start"
+		return info
+	}
+
+	if pkg.Name != "" {
+		info.Name = pkg.Name
+	}
+	if pkg.Engines.Node != "" {
+		info.Version = pkg.Engines.Node
+	}
+
+	// Look for start script
+	if startScript, ok := pkg.Scripts["start"]; ok {
+		info.RunCommand = startScript
+	} else if _, ok := pkg.Scripts["dev"]; ok {
+		info.RunCommand = "npm run dev"
+	} else {
+		info.RunCommand = "npm start"
+	}
+
+	return info
+}
+
+// analyzeJavaProject extracts info for Java projects
+func analyzeJavaProject(projectPath string, info ProjectInfo, buildTool string) ProjectInfo {
+	switch buildTool {
+	case "maven":
+		info.RunCommand = "mvn spring-boot:run"
+		// Try to detect Java version from pom.xml (simplified)
+		pomPath := filepath.Join(projectPath, "pom.xml")
+		if data, err := os.ReadFile(pomPath); err == nil {
+			content := string(data)
+			// Simple version detection (look for java.version property)
+			if contains(content, "<java.version>") {
+				info.Version = extractBetween(content, "<java.version>", "</java.version>")
+			} else if contains(content, "<maven.compiler.source>") {
+				info.Version = extractBetween(content, "<maven.compiler.source>", "</maven.compiler.source>")
+			}
+		}
+	case "gradle":
+		info.RunCommand = "./gradlew bootRun"
+		// Check for gradlew
+		gradlewPath := filepath.Join(projectPath, "gradlew")
+		if _, err := os.Stat(gradlewPath); os.IsNotExist(err) {
+			info.RunCommand = "gradle bootRun"
+		}
+	}
+
+	return info
+}
+
+// analyzePythonProject extracts info for Python projects
+func analyzePythonProject(projectPath string, info ProjectInfo, configType string) ProjectInfo {
+	switch configType {
+	case "requirements":
+		// Default Python run command
+		info.RunCommand = "python3 main.py"
+		// Check for common entry points
+		if _, err := os.Stat(filepath.Join(projectPath, "app.py")); err == nil {
+			info.RunCommand = "python3 app.py"
+		} else if _, err := os.Stat(filepath.Join(projectPath, "main.py")); err == nil {
+			info.RunCommand = "python3 main.py"
+		} else if _, err := os.Stat(filepath.Join(projectPath, "manage.py")); err == nil {
+			info.RunCommand = "python3 manage.py runserver"
+		}
+	case "pyproject":
+		info.RunCommand = "python3 -m app"
+		// Check for poetry
+		pyprojectPath := filepath.Join(projectPath, "pyproject.toml")
+		if data, err := os.ReadFile(pyprojectPath); err == nil {
+			content := string(data)
+			if contains(content, "[tool.poetry]") {
+				info.RunCommand = "poetry run python3 main.py"
+			}
+			// Try to extract Python version
+			if contains(content, "python = ") {
+				// Simple extraction
+				info.Version = extractPythonVersion(content)
+			}
+		}
+	}
+
+	return info
+}
+
+// Helper functions
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && findSubstring(s, substr) >= 0
+}
+
+func findSubstring(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
+func extractBetween(s, start, end string) string {
+	startIdx := findSubstring(s, start)
+	if startIdx < 0 {
+		return ""
+	}
+	startIdx += len(start)
+	endIdx := findSubstring(s[startIdx:], end)
+	if endIdx < 0 {
+		return ""
+	}
+	return s[startIdx : startIdx+endIdx]
+}
+
+func extractPythonVersion(content string) string {
+	// Look for python = "^3.x" or similar patterns
+	idx := findSubstring(content, "python = ")
+	if idx < 0 {
+		return ""
+	}
+	// Skip past 'python = '
+	idx += len("python = ")
+	// Find the quoted version
+	if idx < len(content) && (content[idx] == '"' || content[idx] == '\'') {
+		quote := content[idx]
+		idx++
+		endIdx := idx
+		for endIdx < len(content) && content[endIdx] != quote {
+			endIdx++
+		}
+		if endIdx > idx {
+			return content[idx:endIdx]
+		}
+	}
+	return ""
+}

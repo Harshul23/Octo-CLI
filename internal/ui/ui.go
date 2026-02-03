@@ -1,149 +1,52 @@
 package ui
-// Package ui provides terminal UI components for the Octo CLI
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-}	return analysis, nil		// For now, just return the analysis as-is	// TODO: Add interactive prompts for modifications		fmt.Println()	}		fmt.Printf("Run Command: %s\n", analysis.RunCommand)	if analysis.RunCommand != "" {	}		fmt.Printf("Build Command: %s\n", analysis.BuildCommand)	if analysis.BuildCommand != "" {	}		fmt.Printf("Package Manager: %s\n", analysis.PackageManager)	if analysis.PackageManager != "" {	}		fmt.Println()		}			}				fmt.Printf(" (%s)", lang.Version)			if lang.Version != "" {			fmt.Print(lang.Name)			}				fmt.Print(", ")			if i > 0 {		for i, lang := range analysis.Languages {		fmt.Print("Languages: ")	if len(analysis.Languages) > 0 {		fmt.Printf("Project: %s\n", analysis.Name)		Header("Detected Configuration")func PromptForConfirmation(analysis *analyzer.Analysis) (*analyzer.Analysis, error) {// PromptForConfirmation displays the analysis results and prompts for user confirmation}	return result	}		result += s	for i := 0; i < n; i++ {	result := ""func repeat(s string, n int) string {// repeat returns a string repeated n times}	fmt.Println(repeat("─", len(message)))	fmt.Printf("\n%s%s%s\n", colorPurple, message, colorReset)func Header(message string) {// Header prints a header message}	fmt.Printf("%s→%s %s\n", colorBlue, colorReset, message)func Info(message string) {// Info prints an info message}	fmt.Printf("%s!%s %s\n", colorYellow, colorReset, message)func Warning(message string) {// Warning prints a warning message}	fmt.Printf("%s✗%s %s\n", colorRed, colorReset, message)func Error(message string) {// Error prints an error message}	fmt.Printf("%s✓%s %s\n", colorGreen, colorReset, message)func Success(message string) {// Success prints a success message}	return "\033[K"func clearLine() string {// clearLine returns a string to clear the current line}	s.message = messagefunc (s *Spinner) UpdateMessage(message string) {// UpdateMessage changes the spinner message}	<-s.done	s.stop <- truefunc (s *Spinner) Stop() {// Stop ends the spinner animation}	}()		}			}				time.Sleep(80 * time.Millisecond)				i = (i + 1) % len(frames)				fmt.Printf("\r%s%s%s %s", colorCyan, frames[i], colorReset, s.message)			default:				return				s.done <- true				fmt.Printf("\r%s\n", clearLine())			case <-s.stop:			select {		for {		i := 0	go func() {	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}func (s *Spinner) Start() {// Start begins the spinner animation}	}		done:    make(chan bool),		stop:    make(chan bool),		message: message,	return &Spinner{func NewSpinner(message string) *Spinner {// NewSpinner creates a new spinner with the given message}	done    chan bool	stop    chan bool	message stringtype Spinner struct {// Spinner provides a loading indicator)	colorCyan   = "\033[36m"	colorPurple = "\033[35m"	colorBlue   = "\033[34m"	colorYellow = "\033[33m"	colorGreen  = "\033[32m"	colorRed    = "\033[31m"	colorReset  = "\033[0m"const (// Colors for terminal output)	"github.com/harshul/octo-cli/internal/analyzer"	"time"	"fmt"import (package ui
+import (
+	"fmt"
+	"path/filepath"
+
+	"github.com/harshul/octo-cli/internal/analyzer"
+)
+
+type Spinner struct {
+	msg string
+	running bool
+}
+
+func NewSpinner(message string) *Spinner {
+	return &Spinner{msg: message}
+}
+
+func (s *Spinner) Start() {
+	if s == nil || s.running {
+		return
+	}
+	s.running = true
+	fmt.Println("⏳", s.msg)
+}
+
+func (s *Spinner) Stop() {
+	if s == nil || !s.running {
+		return
+	}
+	s.running = false
+	fmt.Println("Done")
+}
+
+func Success(msg string) {
+	fmt.Println("✅", msg)
+}
+
+func Info(msg string) {
+	fmt.Println("ℹ️", msg)
+}
+
+// PromptForConfirmation is a minimal interactive stub.
+// For now, it simply echoes the provided analysis without changes.
+func PromptForConfirmation(a analyzer.Analysis) (analyzer.Analysis, error) {
+	// In a richer UI, we'd prompt the user to confirm or adjust fields.
+	// Keeping this non-interactive for now to avoid extra deps.
+	// Still, provide a tiny hint to the user.
+	base := filepath.Base(a.Root)
+	fmt.Println("🔍 Using detected project:", base)
+	return a, nil
+}
