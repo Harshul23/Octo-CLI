@@ -29,7 +29,7 @@ func (s *Spinner) Stop() {
 		return
 	}
 	s.running = false
-	fmt.Println("✅ Done")
+	fmt.Println("Done")
 }
 
 func Success(msg string) {
