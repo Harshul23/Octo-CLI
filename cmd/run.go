@@ -36,6 +36,8 @@ func init() {
 	runCmd.Flags().BoolP("build", "b", true, "Run build step before execution")
 	runCmd.Flags().BoolP("watch", "w", false, "Watch for file changes and restart")
 	runCmd.Flags().BoolP("detach", "d", false, "Run in detached mode (background)")
+	runCmd.Flags().IntP("port", "p", 0, "Override the port to run on (0 = use config default)")
+	runCmd.Flags().Bool("no-port-shift", false, "Disable automatic port shifting on conflicts")
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -51,6 +53,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 	build, _ := cmd.Flags().GetBool("build")
 	watch, _ := cmd.Flags().GetBool("watch")
 	detach, _ := cmd.Flags().GetBool("detach")
+	port, _ := cmd.Flags().GetInt("port")
+	noPortShift, _ := cmd.Flags().GetBool("no-port-shift")
 
 	// Resolve config path
 	if !filepath.IsAbs(configPath) {
@@ -72,11 +76,13 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	// Create orchestrator options
 	opts := orchestrator.Options{
-		WorkDir:     cwd,
-		Environment: env,
-		RunBuild:    build,
-		Watch:       watch,
-		Detach:      detach,
+		WorkDir:      cwd,
+		Environment:  env,
+		RunBuild:     build,
+		Watch:        watch,
+		Detach:       detach,
+		PortOverride: port,
+		NoPortShift:  noPortShift,
 	}
 
 	// Create and run the orchestrator

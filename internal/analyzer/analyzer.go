@@ -2,8 +2,13 @@ package analyzer
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
+	"strings"
 )
 
 // Analysis is a minimal representation of detected project info.
@@ -12,6 +17,18 @@ type Analysis struct {
 	Root string
 	// Name is the project/app name derived from directory
 	Name string
+}
+
+// PortConfig contains detected port configuration from the run command
+type PortConfig struct {
+	// Port is the detected port number
+	Port int
+	// Detected indicates if a port was found in the command
+	Detected bool
+	// FlagType indicates what type of flag was used (--port, -p, -Dserver.port, etc.)
+	FlagType string
+	// IsDefault indicates if this is a default port (not explicitly specified)
+	IsDefault bool
 }
 
 // ProjectInfo contains detailed information about the analyzed project.
@@ -24,6 +41,8 @@ type ProjectInfo struct {
 	Version string
 	// RunCommand is the best-guess command to run the project
 	RunCommand string
+	// PortConfig contains detected port information
+	PortConfig PortConfig
 }
 
 // signalFile represents a file that signals a specific project type.
@@ -122,6 +141,18 @@ func AnalyzeProject(path string) (ProjectInfo, error) {
 
 			// Stop after first match (priority order)
 			break
+		}
+	}
+
+	// Detect port configuration from the run command
+	projectInfo.PortConfig = DetectPortConfig(projectInfo.RunCommand, projectInfo.Language)
+
+	// If no project was detected by signal files, try simple project detection
+	if projectInfo.Language == "Unknown" || projectInfo.RunCommand == "" {
+		simpleInfo, err := DetectSimpleProject(abs)
+		if err == nil {
+			projectInfo = simpleInfo
+			projectInfo.PortConfig = DetectPortConfig(projectInfo.RunCommand, projectInfo.Language)
 		}
 	}
 
@@ -363,32 +394,147 @@ func analyzeRubyProject(projectPath string, info ProjectInfo) ProjectInfo {
 
 // Add these to your signalFiles or as a separate extension check
 func DetectSimpleProject(abs string) (ProjectInfo, error) {
-	files, _ := os.ReadDir(abs)
-	
+	files, err := os.ReadDir(abs)
+	if err != nil {
+		return ProjectInfo{}, err
+	}
+
+	// Track what we find
+	var htmlFiles []string
+	var pyFiles []string
+	var mainPy, appPy, guiPy string
+
 	for _, file := range files {
-		if file.IsDir() { continue }
-		
-		ext := filepath.Ext(file.Name())
-		
-		// 1. Detect Simple HTML
-		if ext == ".html" {
-			return ProjectInfo{
-				Name:       filepath.Base(abs),
-				Language:   "HTML",
-				RunCommand: "open " + file.Name(), // MacOS specific, use 'xdg-open' for Linux
-			}, nil
+		if file.IsDir() {
+			continue
 		}
-		
-		// 2. Detect Simple Python
-		if ext == ".py" {
-			return ProjectInfo{
-				Name:       filepath.Base(abs),
-				Language:   "Python",
-				RunCommand: "python3 " + file.Name(),
-			}, nil
+
+		name := file.Name()
+		ext := filepath.Ext(name)
+
+		switch ext {
+		case ".html", ".htm":
+			htmlFiles = append(htmlFiles, name)
+			// Prefer index.html
+			if name == "index.html" || name == "index.htm" {
+				htmlFiles = []string{name} // Make it first priority
+			}
+		case ".py":
+			pyFiles = append(pyFiles, name)
+			nameLower := strings.ToLower(name)
+			if nameLower == "main.py" {
+				mainPy = name
+			} else if nameLower == "app.py" {
+				appPy = name
+			} else if strings.Contains(nameLower, "gui") || strings.Contains(nameLower, "window") || strings.Contains(nameLower, "tk") {
+				guiPy = name
+			}
 		}
 	}
+
+	// Priority 1: HTML project
+	if len(htmlFiles) > 0 {
+		targetFile := htmlFiles[0]
+		// Use index.html if available
+		for _, f := range htmlFiles {
+			if f == "index.html" || f == "index.htm" {
+				targetFile = f
+				break
+			}
+		}
+		return ProjectInfo{
+			Name:       filepath.Base(abs),
+			Language:   "HTML",
+			RunCommand: GetBrowserOpenCommand(targetFile),
+		}, nil
+	}
+
+	// Priority 2: Python project
+	if len(pyFiles) > 0 {
+		var targetFile string
+		var isGUI bool
+
+		// Check for GUI indicators in Python files
+		if guiPy != "" {
+			targetFile = guiPy
+			isGUI = true
+		} else if mainPy != "" {
+			targetFile = mainPy
+			isGUI = isPythonGUIApp(filepath.Join(abs, mainPy))
+		} else if appPy != "" {
+			targetFile = appPy
+			isGUI = isPythonGUIApp(filepath.Join(abs, appPy))
+		} else {
+			targetFile = pyFiles[0]
+			isGUI = isPythonGUIApp(filepath.Join(abs, targetFile))
+		}
+
+		runCmd := "python3 " + targetFile
+		if isGUI {
+			// For GUI apps, we might want to run differently on some platforms
+			runCmd = "python3 " + targetFile
+		}
+
+		return ProjectInfo{
+			Name:       filepath.Base(abs),
+			Language:   "Python",
+			RunCommand: runCmd,
+		}, nil
+	}
+
 	return ProjectInfo{}, os.ErrInvalid
+}
+
+// GetBrowserOpenCommand returns the platform-specific command to open a file in browser
+func GetBrowserOpenCommand(filename string) string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "open " + filename
+	case "linux":
+		return "xdg-open " + filename
+	case "windows":
+		return "start " + filename
+	default:
+		return "open " + filename
+	}
+}
+
+// isPythonGUIApp checks if a Python file contains GUI framework imports
+func isPythonGUIApp(filePath string) bool {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return false
+	}
+
+	content := string(data)
+	guiIndicators := []string{
+		"import tkinter",
+		"from tkinter",
+		"import Tkinter",
+		"from Tkinter",
+		"import PyQt",
+		"from PyQt",
+		"import PySide",
+		"from PySide",
+		"import wx",
+		"from wx",
+		"import kivy",
+		"from kivy",
+		"import pygame",
+		"from pygame",
+		"import turtle",
+		"from turtle",
+		"import customtkinter",
+		"from customtkinter",
+	}
+
+	for _, indicator := range guiIndicators {
+		if strings.Contains(content, indicator) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Helper functions
@@ -527,4 +673,136 @@ func trimWhitespace(s string) string {
 	}
 	
 	return s[start:end]
+}
+
+// Port detection patterns for different frameworks
+var portPatterns = []*regexp.Regexp{
+	// Node.js / Generic: --port 3000, --port=3000
+	regexp.MustCompile(`--port[=\s](\d+)`),
+	// Short flag: -p 3000, -p=3000
+	regexp.MustCompile(`-p[=\s](\d+)`),
+	// Environment variable: PORT=3000
+	regexp.MustCompile(`PORT=(\d+)`),
+	// Java/Spring Boot: -Dserver.port=8080
+	regexp.MustCompile(`-Dserver\.port=(\d+)`),
+	// Host:port patterns
+	regexp.MustCompile(`localhost:(\d+)`),
+	regexp.MustCompile(`127\.0\.0\.1:(\d+)`),
+	regexp.MustCompile(`0\.0\.0\.0:(\d+)`),
+}
+
+// Default ports for common frameworks
+var defaultPortsByLanguage = map[string]int{
+	"Node":   3000,
+	"Python": 5000, // Flask default
+	"Java":   8080, // Spring Boot default
+	"Go":     8080,
+	"Ruby":   3000, // Rails default
+	"Rust":   8080,
+}
+
+// Default ports for specific commands
+var defaultPortsByCommand = map[string]int{
+	"npm start":                   3000,
+	"npm run dev":                 3000,
+	"yarn start":                  3000,
+	"yarn dev":                    3000,
+	"flask run":                   5000,
+	"python manage.py runserver": 8000, // Django
+	"rails server":                3000,
+	"mvn spring-boot:run":        8080,
+	"./gradlew bootRun":           8080,
+	"gradle bootRun":              8080,
+}
+
+// DetectPortConfig scans a run command for port configuration
+func DetectPortConfig(runCommand string, language string) PortConfig {
+	config := PortConfig{
+		Detected: false,
+	}
+
+	if runCommand == "" {
+		return config
+	}
+
+	// Try to extract explicit port from the command
+	for i, pattern := range portPatterns {
+		matches := pattern.FindStringSubmatch(runCommand)
+		if len(matches) >= 2 {
+			port, err := strconv.Atoi(matches[1])
+			if err == nil && port > 0 && port < 65536 {
+				config.Port = port
+				config.Detected = true
+				config.IsDefault = false
+				
+				// Determine flag type based on pattern index
+				switch i {
+				case 0:
+					config.FlagType = "--port"
+				case 1:
+					config.FlagType = "-p"
+				case 2:
+					config.FlagType = "PORT="
+				case 3:
+					config.FlagType = "-Dserver.port"
+				default:
+					config.FlagType = "host:port"
+				}
+				return config
+			}
+		}
+	}
+
+	// Check for default ports based on command patterns
+	cmdLower := strings.ToLower(runCommand)
+	for pattern, port := range defaultPortsByCommand {
+		if strings.Contains(cmdLower, strings.ToLower(pattern)) {
+			config.Port = port
+			config.Detected = true
+			config.IsDefault = true
+			config.FlagType = "default"
+			return config
+		}
+	}
+
+	// Fall back to language defaults
+	if port, ok := defaultPortsByLanguage[language]; ok {
+		config.Port = port
+		config.Detected = true
+		config.IsDefault = true
+		config.FlagType = "language-default"
+	}
+
+	return config
+}
+
+// ValidatePort checks if a port is available using net.Listen
+func ValidatePort(port int) bool {
+	if port <= 0 || port > 65535 {
+		return false
+	}
+	
+	addr := ":" + strconv.Itoa(port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return false
+	}
+	listener.Close()
+	return true
+}
+
+// GetPortFlagForLanguage returns the appropriate port flag for a given language
+func GetPortFlagForLanguage(language string) string {
+	switch language {
+	case "Node":
+		return "--port"
+	case "Python":
+		return "--port"
+	case "Java":
+		return "-Dserver.port="
+	case "Ruby":
+		return "-p"
+	default:
+		return "--port"
+	}
 }
