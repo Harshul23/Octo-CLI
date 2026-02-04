@@ -361,6 +361,36 @@ func analyzeRubyProject(projectPath string, info ProjectInfo) ProjectInfo {
 	return info
 }
 
+// Add these to your signalFiles or as a separate extension check
+func DetectSimpleProject(abs string) (ProjectInfo, error) {
+	files, _ := os.ReadDir(abs)
+	
+	for _, file := range files {
+		if file.IsDir() { continue }
+		
+		ext := filepath.Ext(file.Name())
+		
+		// 1. Detect Simple HTML
+		if ext == ".html" {
+			return ProjectInfo{
+				Name:       filepath.Base(abs),
+				Language:   "HTML",
+				RunCommand: "open " + file.Name(), // MacOS specific, use 'xdg-open' for Linux
+			}, nil
+		}
+		
+		// 2. Detect Simple Python
+		if ext == ".py" {
+			return ProjectInfo{
+				Name:       filepath.Base(abs),
+				Language:   "Python",
+				RunCommand: "python3 " + file.Name(),
+			}, nil
+		}
+	}
+	return ProjectInfo{}, os.ErrInvalid
+}
+
 // Helper functions
 
 func contains(s, substr string) bool {
