@@ -10,10 +10,17 @@ import (
 
 // Blueprint is a configuration derived from project analysis.
 type Blueprint struct {
-	Name       string `yaml:"name"`
-	Language   string `yaml:"language,omitempty"`
-	Version    string `yaml:"version,omitempty"`
-	RunCommand string `yaml:"run,omitempty"`
+	Name       string   `yaml:"name"`
+	Language   string   `yaml:"language,omitempty"`
+	Version    string   `yaml:"version,omitempty"`
+	RunCommand string   `yaml:"run,omitempty"`
+	EnvVars    []EnvVar `yaml:"env_vars,omitempty"`
+}
+
+// EnvVar represents a required environment variable
+type EnvVar struct {
+	Name     string `yaml:"name"`
+	Required bool   `yaml:"required"`
 }
 
 // FromAnalysis converts an analysis result into a basic blueprint.
