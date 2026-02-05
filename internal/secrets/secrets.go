@@ -12,20 +12,40 @@ import (
 
 // EnvVar represents a detected environment variable
 type EnvVar struct {
-	Name     string
-	File     string // File where it was found
-	Line     int    // Line number where it was found
-	Language string // Language/pattern that matched
-	Required bool   // Whether the variable is required (true by default)
+	Name         string
+	File         string // File where it was found
+	Line         int    // Line number where it was found
+	Language     string // Language/pattern that matched
+	Required     bool   // Whether the variable is required (true by default)
+	DefaultValue string // Default or suggested value from README/example files
+	TargetDir    string // Target directory for the .env file (e.g., "apps/client")
+}
+
+// ReadmeEnvConfig represents environment variable configuration from README
+type ReadmeEnvConfig struct {
+	Name         string
+	Value        string
+	TargetDir    string // Where to write this env var (e.g., "apps/client", "apps/server")
+	Description  string // Optional description from README context
+}
+
+// EnvFileTarget represents a target .env file with its variables
+type EnvFileTarget struct {
+	Path      string            // Relative path to the .env file
+	AbsPath   string            // Absolute path to the .env file
+	Variables []ReadmeEnvConfig // Variables to write to this file
+	Exists    bool              // Whether the file already exists
 }
 
 // EnvStatus represents the status of environment variables
 type EnvStatus struct {
-	Required   []EnvVar        // All detected env vars from code
-	Defined    map[string]bool // Vars defined in .env files
-	Missing    []EnvVar        // Vars that are required but not defined
-	EnvFile    string          // Path to the .env file
-	HasEnvFile bool            // Whether .env file exists
+	Required      []EnvVar              // All detected env vars from code
+	Defined       map[string]bool       // Vars defined in .env files
+	Missing       []EnvVar              // Vars that are required but not defined
+	EnvFile       string                // Path to the .env file
+	HasEnvFile    bool                  // Whether .env file exists
+	ReadmeDefaults map[string]ReadmeEnvConfig // Defaults scraped from README
+	EnvTargets    []EnvFileTarget       // Target .env files for monorepo support
 }
 
 // Patterns for detecting environment variable usage in different languages
