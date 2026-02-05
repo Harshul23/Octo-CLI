@@ -31,6 +31,25 @@ type PortConfig struct {
 	IsDefault bool
 }
 
+// AnalysisOptions configures how project analysis is performed
+type AnalysisOptions struct {
+	// Environment specifies the target environment (development, production)
+	Environment string
+}
+
+// DefaultAnalysisOptions returns the default analysis options
+func DefaultAnalysisOptions() AnalysisOptions {
+	return AnalysisOptions{
+		Environment: "development",
+	}
+}
+
+// ScriptWeight represents a script with its priority weight
+type ScriptWeight struct {
+	Name   string
+	Weight int
+}
+
 // ProjectInfo contains detailed information about the analyzed project.
 type ProjectInfo struct {
 	// Name is the project/app name derived from directory
@@ -43,6 +62,8 @@ type ProjectInfo struct {
 	RunCommand string
 	// PortConfig contains detected port information
 	PortConfig PortConfig
+	// PackageManager is the detected package manager (npm, pnpm, yarn, bun)
+	PackageManager string
 }
 
 // signalFile represents a file that signals a specific project type.
@@ -89,7 +110,15 @@ func Analyze(dir string) (Analysis, error) {
 
 // AnalyzeProject scans the root directory for signal files and returns
 // detailed project information including language, version, and run command.
+// This is a convenience wrapper that uses default options (development environment).
 func AnalyzeProject(path string) (ProjectInfo, error) {
+	return AnalyzeProjectWithOptions(path, DefaultAnalysisOptions())
+}
+
+// AnalyzeProjectWithOptions scans the root directory for signal files and returns
+// detailed project information including language, version, and run command.
+// It accepts options to customize the analysis based on environment.
+func AnalyzeProjectWithOptions(path string, opts AnalysisOptions) (ProjectInfo, error) {
 	abs := path
 	if !filepath.IsAbs(abs) {
 		var err error
@@ -108,10 +137,11 @@ func AnalyzeProject(path string) (ProjectInfo, error) {
 	}
 
 	projectInfo := ProjectInfo{
-		Name:     filepath.Base(abs),
-		Language: "Unknown",
-		Version:  "",
-		RunCommand: "",
+		Name:           filepath.Base(abs),
+		Language:       "Unknown",
+		Version:        "",
+		RunCommand:     "",
+		PackageManager: "",
 	}
 
 	// Scan for signal files
@@ -122,15 +152,15 @@ func AnalyzeProject(path string) (ProjectInfo, error) {
 
 			switch sf.filename {
 			case "package.json":
-				projectInfo = analyzeNodeProject(abs, projectInfo)
+				projectInfo = analyzeNodeProject(abs, projectInfo, opts)
 			case "pom.xml":
 				projectInfo = analyzeJavaProject(abs, projectInfo, "maven")
 			case "build.gradle":
 				projectInfo = analyzeJavaProject(abs, projectInfo, "gradle")
 			case "requirements.txt":
-				projectInfo = analyzePythonProject(abs, projectInfo, "requirements")
+				projectInfo = analyzePythonProject(abs, projectInfo, "requirements", opts)
 			case "pyproject.toml":
-				projectInfo = analyzePythonProject(abs, projectInfo, "pyproject")
+				projectInfo = analyzePythonProject(abs, projectInfo, "pyproject", opts)
 			case "go.mod":
 				projectInfo = analyzeGoProject(abs, projectInfo)
 			case "Cargo.toml":
@@ -159,12 +189,91 @@ func AnalyzeProject(path string) (ProjectInfo, error) {
 	return projectInfo, nil
 }
 
-// analyzeNodeProject extracts info from package.json
-func analyzeNodeProject(projectPath string, info ProjectInfo) ProjectInfo {
+// detectNodePackageManager detects which package manager to use based on lock files
+func detectNodePackageManager(projectPath string) string {
+	// Check for bun.lockb or bun.lock (highest priority for Bun projects)
+	if _, err := os.Stat(filepath.Join(projectPath, "bun.lockb")); err == nil {
+		return "bun"
+	}
+	if _, err := os.Stat(filepath.Join(projectPath, "bun.lock")); err == nil {
+		return "bun"
+	}
+
+	// Check for pnpm-lock.yaml
+	if _, err := os.Stat(filepath.Join(projectPath, "pnpm-lock.yaml")); err == nil {
+		return "pnpm"
+	}
+
+	// Check for yarn.lock
+	if _, err := os.Stat(filepath.Join(projectPath, "yarn.lock")); err == nil {
+		return "yarn"
+	}
+
+	// Default to npm
+	return "npm"
+}
+
+// getNodeScriptWeights returns weighted scripts based on environment
+// Higher weight = higher priority
+func getNodeScriptWeights(env string) []ScriptWeight {
+	if env == "development" || env == "dev" {
+		// Development environment: prioritize dev scripts
+		return []ScriptWeight{
+			{"dev", 100},
+			{"develop", 95},
+			{"watch", 90},
+			{"serve", 85},
+			{"start:dev", 80},
+			{"dev:start", 75},
+			{"start", 50},
+			{"server", 40},
+			{"run", 30},
+		}
+	}
+
+	// Production or other environments: prioritize start/serve scripts
+	return []ScriptWeight{
+		{"start", 100},
+		{"serve", 95},
+		{"server", 90},
+		{"production", 85},
+		{"start:prod", 80},
+		{"prod", 75},
+		{"run", 50},
+		{"dev", 30},
+	}
+}
+
+// buildNodeRunCommand constructs the run command with the correct package manager
+func buildNodeRunCommand(packageManager string, scriptName string) string {
+	// For "start" script, most package managers support the shorthand
+	if scriptName == "start" {
+		return packageManager + " start"
+	}
+
+	// For other scripts, use "run" subcommand
+	switch packageManager {
+	case "bun":
+		return "bun run " + scriptName
+	case "pnpm":
+		return "pnpm run " + scriptName
+	case "yarn":
+		return "yarn " + scriptName // yarn doesn't need "run" for scripts
+	default:
+		return "npm run " + scriptName
+	}
+}
+
+// analyzeNodeProject extracts info from package.json with context-aware script selection
+func analyzeNodeProject(projectPath string, info ProjectInfo, opts AnalysisOptions) ProjectInfo {
 	packagePath := filepath.Join(projectPath, "package.json")
 	data, err := os.ReadFile(packagePath)
+
+	// Detect package manager first
+	info.PackageManager = detectNodePackageManager(projectPath)
+
 	if err != nil {
-		info.RunCommand = "npm start"
+		info.RunCommand = buildNodeRunCommand(info.PackageManager, "start")
 		return info
 	}
 
@@ -178,7 +287,7 @@ func analyzeNodeProject(projectPath string, info ProjectInfo) ProjectInfo {
 	}
 
 	if err := json.Unmarshal(data, &pkg); err != nil {
-		info.RunCommand = "npm start"
+		info.RunCommand = buildNodeRunCommand(info.PackageManager, "start")
 		return info
 	}
 
@@ -189,14 +298,44 @@ func analyzeNodeProject(projectPath string, info ProjectInfo) ProjectInfo {
 		info.Version = pkg.Engines.Node
 	}
 
-	// Look for start script
-	// Use npm/yarn commands instead of raw script content to ensure node_modules/.bin is in PATH
-	if _, ok := pkg.Scripts["start"]; ok {
-		info.RunCommand = "npm start"
-	} else if _, ok := pkg.Scripts["dev"]; ok {
-		info.RunCommand = "npm run dev"
+	// Get weighted scripts based on environment
+	scriptWeights := getNodeScriptWeights(opts.Environment)
+
+	// Find the best matching script
+	var bestScript string
+	var bestWeight int = -1
+
+	for _, sw := range scriptWeights {
+		if _, exists := pkg.Scripts[sw.Name]; exists {
+			if sw.Weight > bestWeight {
+				bestWeight = sw.Weight
+				bestScript = sw.Name
+			}
+		}
+	}
+
+	// If no weighted script found, check for any available script
+	if bestScript == "" {
+		// Fallback priority: start > dev > first available
+		if _, ok := pkg.Scripts["start"]; ok {
+			bestScript = "start"
+		} else if _, ok := pkg.Scripts["dev"]; ok {
+			bestScript = "dev"
+		} else {
+			// Use first available script if any
+			for name := range pkg.Scripts {
+				bestScript = name
+				break
+			}
+		}
+	}
+
+	// Build the run command with the correct package manager
+	if bestScript != "" {
+		info.RunCommand = buildNodeRunCommand(info.PackageManager, bestScript)
 	} else {
-		info.RunCommand = "npm start"
+		// No scripts found, default to start
+		info.RunCommand = buildNodeRunCommand(info.PackageManager, "start")
 	}
 
 	return info
@@ -269,29 +408,94 @@ func analyzeJavaProject(projectPath string, info ProjectInfo, buildTool string) 
 	return info
 }
 
-// analyzePythonProject extracts info for Python projects
-func analyzePythonProject(projectPath string, info ProjectInfo, configType string) ProjectInfo {
+// getPythonEntryPointWeights returns weighted entry points based on environment
+func getPythonEntryPointWeights(env string) []ScriptWeight {
+	if env == "development" || env == "dev" {
+		// Development: prioritize dev servers and watch modes
+		return []ScriptWeight{
+			{"manage.py", 100},   // Django dev server
+			{"app.py", 90},       // Flask/FastAPI
+			{"main.py", 80},
+			{"run.py", 75},
+			{"server.py", 70},
+			{"dev.py", 65},
+			{"__main__.py", 50},
+		}
+	}
+
+	// Production: prioritize production-ready entry points
+	return []ScriptWeight{
+		{"app.py", 100},
+		{"main.py", 95},
+		{"server.py", 90},
+		{"wsgi.py", 85},
+		{"asgi.py", 80},
+		{"manage.py", 75},
+		{"run.py", 70},
+		{"__main__.py", 50},
+	}
+}
+
+// analyzePythonProject extracts info for Python projects with context-aware selection
+func analyzePythonProject(projectPath string, info ProjectInfo, configType string, opts AnalysisOptions) ProjectInfo {
 	switch configType {
 	case "requirements":
-		// Default Python run command
-		info.RunCommand = "python3 main.py"
-		// Check for common entry points
-		if _, err := os.Stat(filepath.Join(projectPath, "app.py")); err == nil {
-			info.RunCommand = "python3 app.py"
-		} else if _, err := os.Stat(filepath.Join(projectPath, "main.py")); err == nil {
-			info.RunCommand = "python3 main.py"
-		} else if _, err := os.Stat(filepath.Join(projectPath, "manage.py")); err == nil {
-			info.RunCommand = "python3 manage.py runserver"
+		// Get weighted entry points based on environment
+		entryPoints := getPythonEntryPointWeights(opts.Environment)
+
+		// Find the best matching entry point
+		var bestEntry string
+		var bestWeight int = -1
+
+		for _, ep := range entryPoints {
+			if _, err := os.Stat(filepath.Join(projectPath, ep.Name)); err == nil {
+				if ep.Weight > bestWeight {
+					bestWeight = ep.Weight
+					bestEntry = ep.Name
+				}
+			}
 		}
+
+		// Set run command based on best entry point
+		if bestEntry == "manage.py" {
+			info.RunCommand = "python3 manage.py runserver"
+		} else if bestEntry != "" {
+			info.RunCommand = "python3 " + bestEntry
+		} else {
+			// Fallback to main.py
+			info.RunCommand = "python3 main.py"
+		}
+
 	case "pyproject":
 		info.RunCommand = "python3 -m app"
 		// Check for poetry
 		pyprojectPath := filepath.Join(projectPath, "pyproject.toml")
 		if data, err := os.ReadFile(pyprojectPath); err == nil {
 			content := string(data)
-			if contains(content, "[tool.poetry]") {
-				info.RunCommand = "poetry run python3 main.py"
+
+			// Check for poetry scripts
+			if contains(content, "[tool.poetry.scripts]") {
+				// Poetry has custom scripts defined
+				if opts.Environment == "development" || opts.Environment == "dev" {
+					info.RunCommand = "poetry run dev"
+				} else {
+					info.RunCommand = "poetry run start"
+				}
+			} else if contains(content, "[tool.poetry]") {
+				// Poetry project without custom scripts
+				entryPoints := getPythonEntryPointWeights(opts.Environment)
+				for _, ep := range entryPoints {
+					if _, err := os.Stat(filepath.Join(projectPath, ep.Name)); err == nil {
+						if ep.Name == "manage.py" {
+							info.RunCommand = "poetry run python manage.py runserver"
+						} else {
+							info.RunCommand = "poetry run python " + ep.Name
+						}
+						break
+					}
+				}
 			}
+
 			// Try to extract Python version
 			if contains(content, "python = ") {
 				// Simple extraction

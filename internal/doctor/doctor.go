@@ -26,6 +26,7 @@ type DependencyStatus struct {
 	InstallCommand   string   // Command to install dependencies
 	ManagerInstalled bool     // Is the package manager itself installed?
 	ManagerHint      string   // Hint for installing the package manager
+	FixCommand       string   // One-liner command to fix the issue
 	IsMonorepo       bool     // Is this a monorepo/workspace project?
 }
 
@@ -243,12 +244,46 @@ func checkNodeDependencies(projectPath string) DependencyStatus {
 		status.Installed = true
 	}
 
-	// Use provisioner to detect the correct package manager
-	pmCheck := provisioner.Check(projectPath)
-	status.Manager = string(pmCheck.Manager)
-	status.ManagerInstalled = pmCheck.IsAvailable
-	status.ManagerHint = pmCheck.InstallHint
-	status.IsMonorepo = pmCheck.IsMonorepo
+	// Use provisioner to detect the correct package manager and check Corepack availability
+	pmResult := provisioner.EnsurePackageManager(projectPath)
+	status.Manager = string(pmResult.Manager)
+	status.ManagerInstalled = pmResult.Available
+	status.IsMonorepo = provisioner.DetectPackageManager(projectPath).IsMonorepo
+
+	// Set appropriate hint and fix command based on the package manager status
+	if !pmResult.Available {
+		// Get the one-liner fix command
+		status.FixCommand = provisioner.GetFixCommand(pmResult.Manager)
+
+		switch pmResult.Manager {
+		case provisioner.Bun:
+			status.ManagerHint = "❌ bun is required but not installed."
+			status.FixCommand = "curl -fsSL https://bun.sh/install | bash"
+		case provisioner.PNPM:
+			if provisioner.IsCommandAvailable("corepack") {
+				status.ManagerHint = "❌ pnpm is required but not installed."
+				status.FixCommand = "corepack enable pnpm"
+			} else {
+				status.ManagerHint = "❌ pnpm is required but not found. Please install Node.js (which includes Corepack) or install pnpm manually."
+				status.FixCommand = "npm install -g pnpm"
+			}
+		case provisioner.Yarn:
+			if provisioner.IsCommandAvailable("corepack") {
+				status.ManagerHint = "❌ yarn is required but not installed."
+				status.FixCommand = "corepack enable yarn"
+			} else {
+				status.ManagerHint = "❌ yarn is required but not found. Please install Node.js (which includes Corepack) or install yarn manually."
+				status.FixCommand = "npm install -g yarn"
+			}
+		case provisioner.NPM:
+			status.ManagerHint = "❌ npm is required but not found."
+			status.FixCommand = "Install Node.js from https://nodejs.org"
+		default:
+			if pmResult.UserMessage != "" {
+				status.ManagerHint = pmResult.UserMessage
+			}
+		}
+	}
 
 	// Get the install command from provisioner
 	installCmd := provisioner.GetInstallCommand(projectPath)

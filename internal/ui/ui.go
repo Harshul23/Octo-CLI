@@ -97,6 +97,14 @@ func DisplayDiagnosis(diagnosis doctor.Diagnosis) {
 		fmt.Printf("❌ Runtime: %s is not installed\n", diagnosis.Runtime.Name)
 	}
 
+	// Package manager status
+	if !diagnosis.Dependencies.ManagerInstalled && diagnosis.Dependencies.Manager != "" {
+		fmt.Printf("❌ Package Manager: %s is not installed\n", diagnosis.Dependencies.Manager)
+		if diagnosis.Dependencies.FixCommand != "" {
+			fmt.Printf("   💡 To fix: %s\n", diagnosis.Dependencies.FixCommand)
+		}
+	}
+
 	// Dependencies status
 	if diagnosis.Dependencies.ConfigFile != "" {
 		if diagnosis.Dependencies.Installed {
@@ -118,6 +126,12 @@ func DisplayDiagnosis(diagnosis doctor.Diagnosis) {
 		fmt.Println("⚠️  Project has issues that need attention")
 		for _, issue := range diagnosis.Issues {
 			fmt.Printf("   • %s\n", issue)
+		}
+		// Show actionable fix if available
+		if diagnosis.Dependencies.FixCommand != "" && !diagnosis.Dependencies.ManagerInstalled {
+			fmt.Println()
+			fmt.Println("💡 Quick fix:")
+			fmt.Printf("   %s\n", diagnosis.Dependencies.FixCommand)
 		}
 	}
 	fmt.Println()

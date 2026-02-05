@@ -2,12 +2,14 @@ package orchestrator
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/harshul/octo-cli/internal/blueprint"
 	"github.com/harshul/octo-cli/internal/ports"
@@ -254,6 +256,7 @@ func (o *Orchestrator) checkAndInstallDependencies(workDir string) error {
 
 // installNodeDependencies installs Node.js dependencies using the detected package manager.
 // It checks for lock files to determine whether to use npm, pnpm, or yarn.
+// It uses enhanced environment to ensure newly installed package managers are available.
 func (o *Orchestrator) installNodeDependencies(projectPath string, subDir string) error {
 	nodeModulesPath := filepath.Join(projectPath, "node_modules")
 	if _, err := os.Stat(nodeModulesPath); err == nil {
@@ -291,11 +294,17 @@ func (o *Orchestrator) installNodeDependencies(projectPath string, subDir string
 		}
 	}
 
-	// Execute the install command
-	cmd := exec.Command(installCmd[0], installCmd[1:]...)
+	// Execute the install command with enhanced environment
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, installCmd[0], installCmd[1:]...)
 	cmd.Dir = projectPath
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	// Use enhanced environment to ensure newly installed binaries are available
+	cmd.Env = provisioner.BuildEnhancedEnvironment()
 
 	if err := cmd.Run(); err != nil {
 		if subDir != "" {
@@ -437,21 +446,47 @@ func extractBinaryPath(runCommand string) string {
 // executeWithPathCorrection executes a command with proper handling of directory changes.
 // It correctly handles nested commands like "cd frontend && npm start" by
 // resolving the working directory for each sub-command.
+// It also injects the enhanced environment with newly installed binary paths.
 func (o *Orchestrator) executeWithPathCorrection(workDir string, runCommand string, isHTMLProject bool) error {
 	// Check if the command contains directory changes
 	resolvedWorkDir, resolvedCommand := o.resolveNestedCommand(workDir, runCommand)
 
+	// Detect the package manager for this project
+	pmInfo := provisioner.DetectPackageManager(resolvedWorkDir)
+
+	// Build the enhanced environment with additional paths
+	var env []string
+	if o.usesTurbo(resolvedCommand) {
+		// For Turbo, add npm_config_user_agent to help it detect the package manager
+		env = provisioner.BuildEnhancedEnvironmentWithTurbo(pmInfo.Manager, pmInfo.Version)
+		fmt.Printf("🔧 Turbo detected - setting npm_config_user_agent for %s\n", pmInfo.Manager)
+	} else {
+		env = provisioner.BuildEnhancedEnvironment()
+	}
+
+	// Log if we're using additional paths
+	additionalPaths := provisioner.GetAdditionalPaths()
+	if len(additionalPaths) > 0 {
+		fmt.Printf("🔗 Injecting %d additional binary path(s) into environment\n", len(additionalPaths))
+	}
+
 	// Parse and execute the run command
 	// Use shell to handle complex commands with pipes, redirects, etc.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", resolvedCommand)
+		cmd = exec.CommandContext(ctx, "cmd", "/C", resolvedCommand)
 	} else {
-		cmd = exec.Command("sh", "-c", resolvedCommand)
+		cmd = exec.CommandContext(ctx, "sh", "-c", resolvedCommand)
 	}
 
 	// Set the resolved working directory
 	cmd.Dir = resolvedWorkDir
+
+	// Set the enhanced environment
+	cmd.Env = env
 
 	// For HTML projects, we just open the browser and exit
 	if isHTMLProject {
@@ -478,6 +513,15 @@ func (o *Orchestrator) executeWithPathCorrection(workDir string, runCommand stri
 	}
 
 	return nil
+}
+
+// usesTurbo checks if the command uses Turbo (turborepo)
+func (o *Orchestrator) usesTurbo(command string) bool {
+	lowerCmd := strings.ToLower(command)
+	return strings.Contains(lowerCmd, "turbo") ||
+		strings.Contains(lowerCmd, "turbo run") ||
+		strings.Contains(lowerCmd, "turbo build") ||
+		strings.Contains(lowerCmd, "turbo dev")
 }
 
 // resolveNestedCommand handles commands with directory changes like "cd frontend && npm start".

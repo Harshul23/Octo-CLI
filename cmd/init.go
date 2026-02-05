@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"github.com/harshul/octo-cli/internal/analyzer"
 	"github.com/harshul/octo-cli/internal/blueprint"
 	"github.com/harshul/octo-cli/internal/doctor"
+	"github.com/harshul/octo-cli/internal/provisioner"
 	"github.com/harshul/octo-cli/internal/secrets"
 	"github.com/harshul/octo-cli/internal/ui"
 	"github.com/spf13/cobra"
@@ -37,6 +39,7 @@ func init() {
 	initCmd.Flags().Bool("skip-install", false, "Skip dependency installation prompts")
 	initCmd.Flags().Bool("auto-install", false, "Automatically install dependencies without prompting")
 	initCmd.Flags().Bool("skip-secrets", false, "Skip secrets/environment variable setup")
+	initCmd.Flags().StringP("env", "e", "development", "Target environment (development, production) - affects script selection")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -53,6 +56,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	skipInstall, _ := cmd.Flags().GetBool("skip-install")
 	autoInstall, _ := cmd.Flags().GetBool("auto-install")
 	skipSecrets, _ := cmd.Flags().GetBool("skip-secrets")
+	env, _ := cmd.Flags().GetString("env")
 
 	// Resolve output path
 	if !filepath.IsAbs(outputPath) {
@@ -70,8 +74,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	spinner := ui.NewSpinner("Analyzing codebase...")
 	spinner.Start()
 
-	// Analyze the project using the new AnalyzeProject function
-	projectInfo, err := analyzer.AnalyzeProject(cwd)
+	// Build analysis options based on environment flag
+	opts := analyzer.AnalysisOptions{
+		Environment: env,
+	}
+
+	// Analyze the project using options-based analysis
+	projectInfo, err := analyzer.AnalyzeProjectWithOptions(cwd, opts)
 	if err != nil {
 		spinner.Fail("Analysis failed")
 		return fmt.Errorf("analysis failed: %w", err)
@@ -81,6 +90,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Display detected project information
 	ui.Info(fmt.Sprintf("Detected language: %s", projectInfo.Language))
+	if projectInfo.PackageManager != "" {
+		ui.Info(fmt.Sprintf("Package manager: %s", projectInfo.PackageManager))
+	}
 	if projectInfo.Version != "" {
 		ui.Info(fmt.Sprintf("Detected version: %s", projectInfo.Version))
 	}
@@ -113,45 +125,120 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// STEP 4: Prompt for Provisioning
 	// ========================================
 	if !skipInstall && diagnosis.Dependencies.ConfigFile != "" && !diagnosis.Dependencies.Installed {
-		shouldInstall := autoInstall
+		// Check if package manager needs to be installed first
+		if !diagnosis.Dependencies.ManagerInstalled {
+			pmInfo := provisioner.DetectPackageManager(cwd)
+			reader := bufio.NewReader(os.Stdin)
 
-		if !autoInstall {
-			// Prompt the user
-			shouldInstall = ui.PromptForInstall(
-				projectInfo.Language,
-				diagnosis.Dependencies.ConfigFile,
-				diagnosis.Dependencies.MissingPackages,
-			)
-		}
+			// Handle Bun specially with interactive install/fallback
+			if pmInfo.Manager == provisioner.Bun {
+				bunResult := provisioner.EnsureBunWithFallback(cwd, reader)
+				
+				if !bunResult.Available {
+					ui.Error(bunResult.UserMessage)
+					ui.Warn("Skipping dependency installation. Please install Bun manually and run 'octo init' again.")
+				} else {
+					// Bun is now available (either installed or using fallback)
+					if bunResult.UserMessage != "" {
+						ui.Success(bunResult.UserMessage)
+					}
 
-		if shouldInstall {
-			// ========================================
-			// STEP 5: Execute Installation
-			// ========================================
-			installSpinner := ui.DisplayInstallProgress(diagnosis.Dependencies.InstallCommand)
+					// Run install with the resolved package manager
+					installCmd := bunResult.InstallCmd
+					if len(installCmd) > 0 {
+						installSpinner := ui.DisplayInstallProgress(installCmd[0] + " install")
+						
+						err := doctor.InstallDependencies(cwd, fmt.Sprintf("%s install", installCmd[0]))
+						
+						if err != nil {
+							installSpinner.Fail("Installation failed")
+							ui.Error(fmt.Sprintf("Failed to install dependencies: %v", err))
+						} else {
+							installSpinner.Success("Dependencies installed")
 
-			err := doctor.InstallDependencies(cwd, diagnosis.Dependencies.InstallCommand)
-
-			if err != nil {
-				installSpinner.Fail("Installation failed")
-				ui.Error(fmt.Sprintf("Failed to install dependencies: %v", err))
+							// Verify installation
+							verifySpinner := ui.NewSpinner("Verifying installation...")
+							verifySpinner.Start()
+							newDiagnosis := doctor.VerifyInstallation(cwd, projectInfo.Language)
+							verifySpinner.Success("Verification complete")
+							ui.DisplayVerificationResult(newDiagnosis.Dependencies.Installed)
+						}
+					}
+				}
 			} else {
-				installSpinner.Success("Dependencies installed")
+				// For other package managers (pnpm, yarn), try Corepack
+				pmResult := provisioner.EnsurePackageManager(cwd)
+				
+				if !pmResult.Available {
+					ui.Error(pmResult.UserMessage)
+					if diagnosis.Dependencies.FixCommand != "" {
+						ui.Info(fmt.Sprintf("To fix: %s", diagnosis.Dependencies.FixCommand))
+					}
+					ui.Warn("Skipping dependency installation.")
+				} else {
+					if pmResult.EnabledViaCorepack {
+						ui.Success(pmResult.UserMessage)
+					}
 
-				// ========================================
-				// STEP 6: Verify Installation
-				// ========================================
-				verifySpinner := ui.NewSpinner("Verifying installation...")
-				verifySpinner.Start()
+					// Proceed with installation
+					installSpinner := ui.DisplayInstallProgress(diagnosis.Dependencies.InstallCommand)
+					err := doctor.InstallDependencies(cwd, diagnosis.Dependencies.InstallCommand)
 
-				newDiagnosis := doctor.VerifyInstallation(cwd, projectInfo.Language)
-
-				verifySpinner.Success("Verification complete")
-
-				ui.DisplayVerificationResult(newDiagnosis.Dependencies.Installed)
+					if err != nil {
+						installSpinner.Fail("Installation failed")
+						ui.Error(fmt.Sprintf("Failed to install dependencies: %v", err))
+					} else {
+						installSpinner.Success("Dependencies installed")
+						verifySpinner := ui.NewSpinner("Verifying installation...")
+						verifySpinner.Start()
+						newDiagnosis := doctor.VerifyInstallation(cwd, projectInfo.Language)
+						verifySpinner.Success("Verification complete")
+						ui.DisplayVerificationResult(newDiagnosis.Dependencies.Installed)
+					}
+				}
 			}
 		} else {
-			ui.Info("Skipping dependency installation. You can install manually later.")
+			// Package manager is installed, proceed normally
+			shouldInstall := autoInstall
+
+			if !autoInstall {
+				// Prompt the user
+				shouldInstall = ui.PromptForInstall(
+					projectInfo.Language,
+					diagnosis.Dependencies.ConfigFile,
+					diagnosis.Dependencies.MissingPackages,
+				)
+			}
+
+			if shouldInstall {
+				// ========================================
+				// STEP 5: Execute Installation
+				// ========================================
+				installSpinner := ui.DisplayInstallProgress(diagnosis.Dependencies.InstallCommand)
+
+				err := doctor.InstallDependencies(cwd, diagnosis.Dependencies.InstallCommand)
+
+				if err != nil {
+					installSpinner.Fail("Installation failed")
+					ui.Error(fmt.Sprintf("Failed to install dependencies: %v", err))
+				} else {
+					installSpinner.Success("Dependencies installed")
+
+					// ========================================
+					// STEP 6: Verify Installation
+					// ========================================
+					verifySpinner := ui.NewSpinner("Verifying installation...")
+					verifySpinner.Start()
+
+					newDiagnosis := doctor.VerifyInstallation(cwd, projectInfo.Language)
+
+					verifySpinner.Success("Verification complete")
+
+					ui.DisplayVerificationResult(newDiagnosis.Dependencies.Installed)
+				}
+			} else {
+				ui.Info("Skipping dependency installation. You can install manually later.")
+			}
 		}
 	}
 
