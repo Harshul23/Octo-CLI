@@ -225,6 +225,17 @@ func InjectConcurrencyFlag(command string, concurrency int) string {
 		baseTool = baseTool[idx+1:]
 	}
 
+	// Special handling for package manager "run" commands
+	// These typically invoke other tools (like turbo) that have their own concurrency handling
+	// We should not inject flags for "pnpm run", "npm run", "yarn run" commands
+	if (baseTool == "pnpm" || baseTool == "npm" || baseTool == "yarn") && len(parts) > 1 {
+		subCmd := parts[1]
+		// Don't inject for run/exec commands - let the underlying tool handle concurrency
+		if subCmd == "run" || subCmd == "exec" || subCmd == "dlx" || subCmd == "npx" {
+			return command
+		}
+	}
+
 	// Check if this tool supports concurrency flags
 	toolConfig, exists := KnownTools[baseTool]
 	if !exists {
