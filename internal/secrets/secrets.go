@@ -533,6 +533,323 @@ func WriteEnvFile(envPath string, values map[string]string) error {
 	return nil
 }
 
+// ============================================================================
+// Template-Based Provisioning
+// ============================================================================
+
+// EnvTemplate represents a detected environment template file
+type EnvTemplate struct {
+	Path      string            // Full path to template file
+	RelPath   string            // Relative path from project root
+	TargetEnv string            // Target .env file path
+	Variables map[string]string // Variables defined in template
+	Exists    bool              // Whether target .env already exists
+}
+
+// TemplateNames lists common env template file names in priority order
+var TemplateNames = []string{
+	"sample.env",
+	".env.example",
+	".env.sample",
+	".env.template",
+	".env.defaults",
+	".env.dev",
+	".env.development",
+	"example.env",
+	"template.env",
+}
+
+// FreeCodeCampDefaults provides default values for freeCodeCamp-specific env vars
+var FreeCodeCampDefaults = map[string]string{
+	"CLIENT_LOCALE":            "english",
+	"CURRICULUM_LOCALE":        "english",
+	"SHOW_LOCALE_DROPDOWN_MENU": "false",
+	"LOCAL_MOCK_COMMUNITY":     "true",
+	"MONGOHQ_URL":              "mongodb://127.0.0.1:27017/freecodecamp",
+	"SESSION_SECRET":           "octo-development-session-secret",
+	"COOKIE_SECRET":            "octo-development-cookie-secret",
+	"JWT_SECRET":               "octo-development-jwt-secret",
+}
+
+// DetectEnvTemplates scans the project for environment template files
+// and returns information about each template and its target .env file
+func DetectEnvTemplates(projectPath string) ([]EnvTemplate, error) {
+	var templates []EnvTemplate
+	seen := make(map[string]bool)
+
+	// Scan root directory
+	rootTemplates := scanDirForTemplates(projectPath, "")
+	templates = append(templates, rootTemplates...)
+	for _, t := range rootTemplates {
+		seen[t.RelPath] = true
+	}
+
+	// Scan common monorepo subdirectories
+	monorepoSubDirs := []string{
+		"apps/client", "apps/server", "apps/web", "apps/api",
+		"packages/web", "packages/api", "packages/client",
+		"client", "server", "frontend", "backend", "web", "api",
+	}
+
+	for _, subDir := range monorepoSubDirs {
+		subPath := filepath.Join(projectPath, subDir)
+		if info, err := os.Stat(subPath); err == nil && info.IsDir() {
+			subTemplates := scanDirForTemplates(subPath, subDir)
+			for _, t := range subTemplates {
+				if !seen[t.RelPath] {
+					seen[t.RelPath] = true
+					templates = append(templates, t)
+				}
+			}
+		}
+	}
+
+	return templates, nil
+}
+
+// scanDirForTemplates scans a directory for template files
+func scanDirForTemplates(dirPath string, relDir string) []EnvTemplate {
+	var templates []EnvTemplate
+
+	for _, templateName := range TemplateNames {
+		templatePath := filepath.Join(dirPath, templateName)
+		if _, err := os.Stat(templatePath); err == nil {
+			// Found a template - read its contents
+			vars, err := ReadEnvFile(templatePath)
+			if err != nil {
+				continue
+			}
+
+			// Determine target .env path
+			targetEnvName := ".env"
+			targetEnvPath := filepath.Join(dirPath, targetEnvName)
+
+			// Check if target already exists
+			_, targetExists := os.Stat(targetEnvPath)
+
+			relPath := templateName
+			if relDir != "" {
+				relPath = filepath.Join(relDir, templateName)
+			}
+
+			template := EnvTemplate{
+				Path:      templatePath,
+				RelPath:   relPath,
+				TargetEnv: targetEnvPath,
+				Variables: vars,
+				Exists:    targetExists == nil,
+			}
+			templates = append(templates, template)
+			break // Only use the first template found in each directory
+		}
+	}
+
+	return templates
+}
+
+// BootstrapFromTemplate copies a template file to create a .env file
+// It also applies intelligent defaults for known projects (like freeCodeCamp)
+func BootstrapFromTemplate(template EnvTemplate, projectPath string) error {
+	// Read template vars
+	vars := template.Variables
+	if vars == nil {
+		var err error
+		vars, err = ReadEnvFile(template.Path)
+		if err != nil {
+			return fmt.Errorf("failed to read template: %w", err)
+		}
+	}
+
+	// Apply freeCodeCamp-specific defaults if detected
+	if isFreeCodeCampProject(projectPath) {
+		vars = applyFreeCodeCampDefaults(vars)
+	}
+
+	// Apply intelligent defaults for empty/placeholder values
+	vars = applyIntelligentDefaults(vars)
+
+	// Write to target .env file
+	if err := WriteEnvFile(template.TargetEnv, vars); err != nil {
+		return fmt.Errorf("failed to write .env: %w", err)
+	}
+
+	return nil
+}
+
+// AutoBootstrapEnvFiles automatically creates .env files from templates if missing
+// Returns the number of files bootstrapped and any errors
+func AutoBootstrapEnvFiles(projectPath string) (int, []string, error) {
+	templates, err := DetectEnvTemplates(projectPath)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	var bootstrapped int
+	var bootstrappedPaths []string
+
+	for _, template := range templates {
+		if template.Exists {
+			continue // Skip if .env already exists
+		}
+
+		if err := BootstrapFromTemplate(template, projectPath); err != nil {
+			fmt.Printf("⚠️  Warning: failed to bootstrap %s: %v\n", template.RelPath, err)
+			continue
+		}
+
+		bootstrapped++
+		// Get relative path of created .env
+		relTarget, _ := filepath.Rel(projectPath, template.TargetEnv)
+		if relTarget == "" {
+			relTarget = ".env"
+		}
+		bootstrappedPaths = append(bootstrappedPaths, relTarget)
+	}
+
+	return bootstrapped, bootstrappedPaths, nil
+}
+
+// isFreeCodeCampProject checks if this is a freeCodeCamp project
+func isFreeCodeCampProject(projectPath string) bool {
+	// Check for characteristic freeCodeCamp files
+	indicators := []string{
+		"client/src/pages/learn",
+		"curriculum",
+		"freecodecamp",
+		"sample.env",
+		"tools/scripts/create-env.ts",
+	}
+
+	// Check package.json for freeCodeCamp name
+	pkgPath := filepath.Join(projectPath, "package.json")
+	if data, err := os.ReadFile(pkgPath); err == nil {
+		content := strings.ToLower(string(data))
+		if strings.Contains(content, "freecodecamp") {
+			return true
+		}
+	}
+
+	for _, indicator := range indicators {
+		checkPath := filepath.Join(projectPath, indicator)
+		if _, err := os.Stat(checkPath); err == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+// applyFreeCodeCampDefaults applies freeCodeCamp-specific default values
+func applyFreeCodeCampDefaults(vars map[string]string) map[string]string {
+	result := make(map[string]string)
+	for k, v := range vars {
+		result[k] = v
+	}
+
+	// Apply defaults for missing or placeholder values
+	for key, defaultVal := range FreeCodeCampDefaults {
+		if val, exists := result[key]; !exists || val == "" || isPlaceholder(val) {
+			result[key] = defaultVal
+		}
+	}
+
+	return result
+}
+
+// applyIntelligentDefaults applies smart defaults for common placeholder patterns
+func applyIntelligentDefaults(vars map[string]string) map[string]string {
+	result := make(map[string]string)
+	for k, v := range vars {
+		result[k] = v
+	}
+
+	for key, val := range result {
+		// Skip if already has a real value
+		if val != "" && !isPlaceholder(val) {
+			continue
+		}
+
+		keyLower := strings.ToLower(key)
+
+		// Apply defaults based on key patterns
+		switch {
+		case strings.Contains(keyLower, "locale") && strings.Contains(keyLower, "client"):
+			result[key] = "english"
+		case key == "NODE_ENV":
+			result[key] = "development"
+		case strings.Contains(keyLower, "mongodb") || strings.Contains(keyLower, "mongohq") || strings.Contains(keyLower, "mongo_"):
+			if strings.Contains(keyLower, "url") || strings.Contains(keyLower, "uri") {
+				result[key] = "mongodb://127.0.0.1:27017/app"
+			}
+		case strings.Contains(keyLower, "redis") && strings.Contains(keyLower, "url"):
+			result[key] = "redis://127.0.0.1:6379"
+		case strings.Contains(keyLower, "postgres") && strings.Contains(keyLower, "url"):
+			result[key] = "postgresql://postgres:postgres@127.0.0.1:5432/app"
+		case (strings.Contains(keyLower, "secret") || strings.Contains(keyLower, "jwt")) && 
+			 !strings.Contains(keyLower, "api"):
+			result[key] = "octo-development-secret-" + key
+		case strings.Contains(keyLower, "host") && !strings.Contains(keyLower, "url"):
+			result[key] = "localhost"
+		case strings.Contains(keyLower, "port") && val == "":
+			// Don't set default port - let the app use its own default
+			continue
+		case strings.Contains(keyLower, "debug"):
+			result[key] = "true"
+		case strings.Contains(keyLower, "mock") || strings.Contains(keyLower, "local"):
+			result[key] = "true"
+		}
+	}
+
+	return result
+}
+
+// isPlaceholder checks if a value looks like a placeholder
+func isPlaceholder(val string) bool {
+	valLower := strings.ToLower(val)
+	placeholders := []string{
+		"your_", "your-", "<your", "[your",
+		"xxx", "todo", "replace", "change_me", "changeme",
+		"placeholder", "example", "sample",
+		"<", ">", "[", "]",
+	}
+	for _, p := range placeholders {
+		if strings.Contains(valLower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// GetAllEnvVars collects all environment variables from .env files and templates
+// This is used for global injection into command environments
+func GetAllEnvVars(projectPath string) map[string]string {
+	allVars := make(map[string]string)
+
+	// Define all paths to check for .env files
+	envPaths := []string{
+		filepath.Join(projectPath, ".env"),
+		filepath.Join(projectPath, ".env.local"),
+		filepath.Join(projectPath, "apps/client/.env"),
+		filepath.Join(projectPath, "apps/server/.env"),
+		filepath.Join(projectPath, "apps/web/.env"),
+		filepath.Join(projectPath, "apps/api/.env"),
+		filepath.Join(projectPath, "client/.env"),
+		filepath.Join(projectPath, "server/.env"),
+	}
+
+	for _, envPath := range envPaths {
+		if vars, err := ReadEnvFile(envPath); err == nil {
+			for k, v := range vars {
+				if _, exists := allVars[k]; !exists {
+					allVars[k] = v
+				}
+			}
+		}
+	}
+
+	return allVars
+}
+
 // AppendToEnvFile appends new values to an existing .env file
 func AppendToEnvFile(envPath string, values map[string]string) error {
 	// Open file in append mode, create if not exists

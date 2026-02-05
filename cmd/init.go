@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,11 +67,15 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("configuration file already exists at %s. Use --force to overwrite", outputPath)
 	}
 
+	// Print header
+	fmt.Println()
+	ui.PrintHeader("🐙 Octo Init")
+	fmt.Println()
+
 	// ========================================
 	// STEP 1: Analyze the codebase
 	// ========================================
-	spinner := ui.NewSpinner("Analyzing codebase...")
-	spinner.Start()
+	ui.PrintStep(1, 5, "Analyzing codebase...")
 
 	// Build analysis options based on environment flag
 	opts := analyzer.AnalysisOptions{
@@ -82,43 +85,47 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Analyze the project using options-based analysis
 	projectInfo, err := analyzer.AnalyzeProjectWithOptions(cwd, opts)
 	if err != nil {
-		spinner.Fail("Analysis failed")
+		ui.PrintError("Analysis failed")
 		return fmt.Errorf("analysis failed: %w", err)
 	}
 
-	spinner.Success("Analysis complete")
+	ui.PrintSuccess("Analysis complete")
+	fmt.Println()
 
-	// Display detected project information
-	ui.Info(fmt.Sprintf("Detected language: %s", projectInfo.Language))
+	// Display detected project information with nice formatting
+	ui.PrintDivider()
+	ui.PrintHighlight("Language", projectInfo.Language)
 	if projectInfo.PackageManager != "" {
-		ui.Info(fmt.Sprintf("Package manager: %s", projectInfo.PackageManager))
+		ui.PrintHighlight("Package Manager", projectInfo.PackageManager)
 	}
 	if projectInfo.Version != "" {
-		ui.Info(fmt.Sprintf("Detected version: %s", projectInfo.Version))
+		ui.PrintHighlight("Version", projectInfo.Version)
 	}
 	if projectInfo.RunCommand != "" {
-		ui.Info(fmt.Sprintf("Run command: %s", projectInfo.RunCommand))
+		ui.PrintHighlight("Run Command", projectInfo.RunCommand)
 	}
+	ui.PrintDivider()
+	fmt.Println()
 
 	// ========================================
 	// STEP 2: Diagnose (The Doctor)
 	// ========================================
-	diagSpinner := ui.NewSpinner("Running health check...")
-	diagSpinner.Start()
+	ui.PrintStep(2, 5, "Running health check...")
 
 	diagnosis := doctor.Diagnose(cwd, projectInfo.Language)
 
-	diagSpinner.Success("Health check complete")
+	ui.PrintSuccess("Health check complete")
+	fmt.Println()
 
-	// Display diagnosis results
-	ui.DisplayDiagnosis(diagnosis)
+	// Display diagnosis results (with improved UI)
+	displayDiagnosisVite(diagnosis)
 
 	// ========================================
 	// STEP 3: Handle Runtime Issues
 	// ========================================
 	if !diagnosis.Runtime.Installed {
-		ui.PromptForRuntimeInstall(diagnosis.Runtime.Name)
-		ui.Warn("Continuing without runtime verification. Some features may not work.")
+		ui.PrintWarning(fmt.Sprintf("%s runtime is not installed", diagnosis.Runtime.Name))
+		showRuntimeInstallHelp(diagnosis.Runtime.Name)
 	}
 
 	// ========================================
@@ -128,40 +135,40 @@ func runInit(cmd *cobra.Command, args []string) error {
 		// Check if package manager needs to be installed first
 		if !diagnosis.Dependencies.ManagerInstalled {
 			pmInfo := provisioner.DetectPackageManager(cwd)
-			reader := bufio.NewReader(os.Stdin)
 
 			// Handle Bun specially with interactive install/fallback
 			if pmInfo.Manager == provisioner.Bun {
-				bunResult := provisioner.EnsureBunWithFallback(cwd, reader)
+				bunResult := provisioner.EnsureBunWithFallback(cwd, nil)
 				
 				if !bunResult.Available {
-					ui.Error(bunResult.UserMessage)
-					ui.Warn("Skipping dependency installation. Please install Bun manually and run 'octo init' again.")
+					ui.PrintError(bunResult.UserMessage)
+					ui.PrintWarning("Skipping dependency installation. Please install Bun manually and run 'octo init' again.")
 				} else {
 					// Bun is now available (either installed or using fallback)
 					if bunResult.UserMessage != "" {
-						ui.Success(bunResult.UserMessage)
+						ui.PrintSuccess(bunResult.UserMessage)
 					}
 
 					// Run install with the resolved package manager
 					installCmd := bunResult.InstallCmd
 					if len(installCmd) > 0 {
-						installSpinner := ui.DisplayInstallProgress(installCmd[0] + " install")
+						ui.PrintStep(3, 5, fmt.Sprintf("Installing dependencies (%s install)...", installCmd[0]))
 						
 						err := doctor.InstallDependencies(cwd, fmt.Sprintf("%s install", installCmd[0]))
 						
 						if err != nil {
-							installSpinner.Fail("Installation failed")
-							ui.Error(fmt.Sprintf("Failed to install dependencies: %v", err))
+							ui.PrintError(fmt.Sprintf("Installation failed: %v", err))
 						} else {
-							installSpinner.Success("Dependencies installed")
+							ui.PrintSuccess("Dependencies installed")
 
 							// Verify installation
-							verifySpinner := ui.NewSpinner("Verifying installation...")
-							verifySpinner.Start()
+							ui.PrintStep(4, 5, "Verifying installation...")
 							newDiagnosis := doctor.VerifyInstallation(cwd, projectInfo.Language)
-							verifySpinner.Success("Verification complete")
-							ui.DisplayVerificationResult(newDiagnosis.Dependencies.Installed)
+							if newDiagnosis.Dependencies.Installed {
+								ui.PrintSuccess("All dependencies verified")
+							} else {
+								ui.PrintWarning("Some dependencies may need attention")
+							}
 						}
 					}
 				}
@@ -170,30 +177,31 @@ func runInit(cmd *cobra.Command, args []string) error {
 				pmResult := provisioner.EnsurePackageManager(cwd)
 				
 				if !pmResult.Available {
-					ui.Error(pmResult.UserMessage)
+					ui.PrintError(pmResult.UserMessage)
 					if diagnosis.Dependencies.FixCommand != "" {
-						ui.Info(fmt.Sprintf("To fix: %s", diagnosis.Dependencies.FixCommand))
+						ui.PrintInfo(fmt.Sprintf("To fix: %s", diagnosis.Dependencies.FixCommand))
 					}
-					ui.Warn("Skipping dependency installation.")
+					ui.PrintWarning("Skipping dependency installation.")
 				} else {
 					if pmResult.EnabledViaCorepack {
-						ui.Success(pmResult.UserMessage)
+						ui.PrintSuccess(pmResult.UserMessage)
 					}
 
 					// Proceed with installation
-					installSpinner := ui.DisplayInstallProgress(diagnosis.Dependencies.InstallCommand)
+					ui.PrintStep(3, 5, fmt.Sprintf("Installing dependencies (%s)...", diagnosis.Dependencies.InstallCommand))
 					err := doctor.InstallDependencies(cwd, diagnosis.Dependencies.InstallCommand)
 
 					if err != nil {
-						installSpinner.Fail("Installation failed")
-						ui.Error(fmt.Sprintf("Failed to install dependencies: %v", err))
+						ui.PrintError(fmt.Sprintf("Installation failed: %v", err))
 					} else {
-						installSpinner.Success("Dependencies installed")
-						verifySpinner := ui.NewSpinner("Verifying installation...")
-						verifySpinner.Start()
+						ui.PrintSuccess("Dependencies installed")
+						ui.PrintStep(4, 5, "Verifying installation...")
 						newDiagnosis := doctor.VerifyInstallation(cwd, projectInfo.Language)
-						verifySpinner.Success("Verification complete")
-						ui.DisplayVerificationResult(newDiagnosis.Dependencies.Installed)
+						if newDiagnosis.Dependencies.Installed {
+							ui.PrintSuccess("All dependencies verified")
+						} else {
+							ui.PrintWarning("Some dependencies may need attention")
+						}
 					}
 				}
 			}
@@ -202,8 +210,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 			shouldInstall := autoInstall
 
 			if !autoInstall {
-				// Prompt the user
-				shouldInstall = ui.PromptForInstall(
+				// Prompt the user with Vite-style navigation
+				fmt.Println()
+				shouldInstall = promptForInstallVite(
 					projectInfo.Language,
 					diagnosis.Dependencies.ConfigFile,
 					diagnosis.Dependencies.MissingPackages,
@@ -214,30 +223,31 @@ func runInit(cmd *cobra.Command, args []string) error {
 				// ========================================
 				// STEP 5: Execute Installation
 				// ========================================
-				installSpinner := ui.DisplayInstallProgress(diagnosis.Dependencies.InstallCommand)
+				ui.PrintStep(3, 5, fmt.Sprintf("Installing dependencies (%s)...", diagnosis.Dependencies.InstallCommand))
 
 				err := doctor.InstallDependencies(cwd, diagnosis.Dependencies.InstallCommand)
 
 				if err != nil {
-					installSpinner.Fail("Installation failed")
-					ui.Error(fmt.Sprintf("Failed to install dependencies: %v", err))
+					ui.PrintError(fmt.Sprintf("Installation failed: %v", err))
 				} else {
-					installSpinner.Success("Dependencies installed")
+					ui.PrintSuccess("Dependencies installed")
 
 					// ========================================
 					// STEP 6: Verify Installation
 					// ========================================
-					verifySpinner := ui.NewSpinner("Verifying installation...")
-					verifySpinner.Start()
+					fmt.Println()
+					ui.PrintStep(4, 5, "Verifying installation...")
 
 					newDiagnosis := doctor.VerifyInstallation(cwd, projectInfo.Language)
 
-					verifySpinner.Success("Verification complete")
-
-					ui.DisplayVerificationResult(newDiagnosis.Dependencies.Installed)
+					if newDiagnosis.Dependencies.Installed {
+						ui.PrintSuccess("All dependencies verified")
+					} else {
+						ui.PrintWarning("Some dependencies may need attention")
+					}
 				}
 			} else {
-				ui.Info("Skipping dependency installation. You can install manually later.")
+				ui.PrintInfo("Skipping dependency installation")
 			}
 		}
 	}
@@ -262,31 +272,29 @@ func runInit(cmd *cobra.Command, args []string) error {
 	var allDetectedVars []secrets.EnvVar
 
 	if !skipSecrets {
-		secretsSpinner := ui.NewSpinner("Scanning for environment variables and README defaults...")
-		secretsSpinner.Start()
+		fmt.Println()
+		ui.PrintStep(4, 5, "Scanning for environment variables...")
 
 		// Use README-enhanced env status check
 		envStatus, err := secrets.CheckEnvStatusWithReadme(cwd, projectInfo.Language)
-		
-		secretsSpinner.Success("Environment scan complete")
 
 		if err != nil {
-			ui.Warn(fmt.Sprintf("Could not scan for environment variables: %v", err))
+			ui.PrintWarning(fmt.Sprintf("Could not scan for environment variables: %v", err))
 		} else {
 			allDetectedVars = envStatus.Required // Save for blueprint
 			
 			// Show README defaults found
 			if len(envStatus.ReadmeDefaults) > 0 {
-				ui.Info(fmt.Sprintf("📖 Found %d default value(s) from README", len(envStatus.ReadmeDefaults)))
+				ui.PrintInfo(fmt.Sprintf("Found %d default value(s) from README", len(envStatus.ReadmeDefaults)))
 			}
 
 			// Show target directories if monorepo
 			if len(envStatus.EnvTargets) > 1 {
-				targetPaths := make([]string, 0, len(envStatus.EnvTargets))
+				fmt.Println()
+				ui.PrintInfo("Environment file targets:")
 				for _, t := range envStatus.EnvTargets {
-					targetPaths = append(targetPaths, t.Path)
+					fmt.Printf("    • %s\n", t.Path)
 				}
-				ui.DisplayEnvTargets(targetPaths)
 			}
 			
 			if len(envStatus.Missing) > 0 {
@@ -308,8 +316,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 					varsWithDefaults = append(varsWithDefaults, vwd)
 				}
 
-				// Ask if user wants to set them up
-				if ui.PromptForSecretsOnboarding(len(envStatus.Missing)) {
+				// Ask if user wants to set them up with Vite-style prompt
+				fmt.Println()
+				shouldSetup := promptForSecretsVite(len(envStatus.Missing))
+				
+				if shouldSetup {
 					// Use enhanced prompt with defaults
 					values := ui.PromptForSecretsWithDefaults(varsWithDefaults)
 
@@ -318,7 +329,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 						if len(envStatus.EnvTargets) > 0 {
 							// Multi-target write
 							if err := secrets.WriteEnvFilesToTargets(envStatus.EnvTargets, values); err != nil {
-								ui.Error(fmt.Sprintf("Failed to write .env files: %v", err))
+								ui.PrintError(fmt.Sprintf("Failed to write .env files: %v", err))
 							} else {
 								// Build results summary
 								results := make(map[string]int)
@@ -333,27 +344,27 @@ func runInit(cmd *cobra.Command, args []string) error {
 										results[target.Path] = count
 									}
 								}
-								ui.DisplaySecretsResultWithTargets(results)
+								showSecretsResult(results)
 								ensureGitignore(cwd)
 							}
 						} else {
 							// Single .env file (fallback)
 							envPath := filepath.Join(cwd, ".env")
 							if err := secrets.AppendToEnvFile(envPath, values); err != nil {
-								ui.Error(fmt.Sprintf("Failed to write .env file: %v", err))
+								ui.PrintError(fmt.Sprintf("Failed to write .env file: %v", err))
 							} else {
-								ui.DisplaySecretsResult(envPath, len(values), len(envStatus.Missing)-len(values))
+								ui.PrintSuccess(fmt.Sprintf("Saved %d secret(s) to %s", len(values), envPath))
 								ensureGitignore(cwd)
 							}
 						}
 					} else {
-						ui.Info("No secrets saved. You can add them manually to .env later.")
+						ui.PrintInfo("No secrets saved - you can add them later to .env")
 					}
 				} else {
-					ui.Info("Skipping secrets setup. You can add them manually to .env later.")
+					ui.PrintInfo("Skipping secrets setup")
 				}
 			} else if len(envStatus.Required) > 0 {
-				ui.Success(fmt.Sprintf("Found %d environment variable(s) - all configured!", len(envStatus.Required)))
+				ui.PrintSuccess(fmt.Sprintf("Found %d environment variable(s) - all configured!", len(envStatus.Required)))
 			}
 		}
 	}
@@ -372,15 +383,145 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// ========================================
+	// STEP 5: Write Configuration
+	// ========================================
+	fmt.Println()
+	ui.PrintStep(5, 5, "Writing configuration...")
+
 	// Write the configuration file
 	if err := blueprint.Write(outputPath, bp); err != nil {
 		return fmt.Errorf("failed to write configuration: %w", err)
 	}
 
-	ui.Success(fmt.Sprintf("Configuration written to %s", outputPath))
-	ui.Info("Run 'octo run' to start your application")
+	// Final success message
+	fmt.Println()
+	ui.PrintDivider()
+	ui.PrintSuccess(fmt.Sprintf("Configuration written to %s", outputPath))
+	fmt.Println()
+	ui.PrintInfo("Next steps:")
+	fmt.Println("    Run " + "\033[1mocto run\033[0m" + " to start your application")
+	fmt.Println()
 
 	return nil
+}
+
+// ============================================================================
+// Vite-style Helper Functions
+// ============================================================================
+
+// displayDiagnosisVite shows diagnosis results in Vite-style
+func displayDiagnosisVite(diagnosis doctor.Diagnosis) {
+	// Runtime status
+	if diagnosis.Runtime.Installed {
+		ui.PrintSuccess(fmt.Sprintf("Runtime: %s %s", diagnosis.Runtime.Name, diagnosis.Runtime.Version))
+	} else {
+		ui.PrintError(fmt.Sprintf("Runtime: %s is not installed", diagnosis.Runtime.Name))
+	}
+
+	// Package manager status
+	if !diagnosis.Dependencies.ManagerInstalled && diagnosis.Dependencies.Manager != "" {
+		ui.PrintError(fmt.Sprintf("Package Manager: %s is not installed", diagnosis.Dependencies.Manager))
+	}
+
+	// Dependencies status
+	if diagnosis.Dependencies.ConfigFile != "" {
+		if diagnosis.Dependencies.Installed {
+			ui.PrintSuccess(fmt.Sprintf("Dependencies: Installed (%s)", diagnosis.Dependencies.Manager))
+		} else {
+			ui.PrintWarning(fmt.Sprintf("Dependencies: Not installed (%s)", diagnosis.Dependencies.Manager))
+		}
+	}
+
+	// Overall status
+	fmt.Println()
+	if diagnosis.Healthy {
+		ui.PrintSuccess("Project is healthy and ready to run!")
+	} else {
+		ui.PrintWarning("Project has issues that need attention")
+		for _, issue := range diagnosis.Issues {
+			fmt.Printf("    • %s\n", issue)
+		}
+	}
+}
+
+// showRuntimeInstallHelp shows installation help for a runtime
+func showRuntimeInstallHelp(runtimeName string) {
+	fmt.Println()
+	fmt.Println("  Please install it before continuing:")
+	switch runtimeName {
+	case "Node.js":
+		fmt.Println("    • macOS: brew install node")
+		fmt.Println("    • Or visit: https://nodejs.org/")
+	case "Python":
+		fmt.Println("    • macOS: brew install python3")
+		fmt.Println("    • Or visit: https://www.python.org/")
+	case "Go":
+		fmt.Println("    • macOS: brew install go")
+		fmt.Println("    • Or visit: https://go.dev/")
+	}
+	fmt.Println()
+}
+
+// promptForInstallVite prompts for dependency installation using Vite-style UI
+func promptForInstallVite(language, configFile string, missingPackages []string) bool {
+	var description string
+	if len(missingPackages) > 0 && len(missingPackages) <= 3 {
+		description = fmt.Sprintf("Missing: %s", joinStrings(missingPackages, ", "))
+	} else if len(missingPackages) > 3 {
+		description = fmt.Sprintf("%d packages are missing", len(missingPackages))
+	} else {
+		description = fmt.Sprintf("Found %s", configFile)
+	}
+
+	result, err := ui.RunYesNoPrompt(
+		fmt.Sprintf("Install %s dependencies?", language),
+		description,
+		true,
+	)
+	if err != nil {
+		return false
+	}
+	return result
+}
+
+// promptForSecretsVite prompts for secrets setup using Vite-style UI
+func promptForSecretsVite(missingCount int) bool {
+	result, err := ui.RunYesNoPrompt(
+		"Configure environment variables?",
+		fmt.Sprintf("%d variable(s) need configuration", missingCount),
+		true,
+	)
+	if err != nil {
+		return false
+	}
+	return result
+}
+
+// showSecretsResult shows the secrets setup result
+func showSecretsResult(results map[string]int) {
+	totalSaved := 0
+	for path, count := range results {
+		if count > 0 {
+			ui.PrintSuccess(fmt.Sprintf("Saved %d secret(s) to %s", count, path))
+			totalSaved += count
+		}
+	}
+	if totalSaved == 0 {
+		ui.PrintInfo("No secrets were saved")
+	}
+}
+
+// joinStrings joins strings with a separator
+func joinStrings(strs []string, sep string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	result := strs[0]
+	for i := 1; i < len(strs); i++ {
+		result += sep + strs[i]
+	}
+	return result
 }
 
 // ensureGitignore checks if .env is in .gitignore and adds it if not
