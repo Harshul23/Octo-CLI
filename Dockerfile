@@ -28,5 +28,7 @@ COPY --from=builder /app/octo /usr/local/bin/octo
 # Ensure the binary is executable
 RUN chmod +x /usr/local/bin/octo
 
+LABEL org.opencontainers.image.source=https://github.com/harshul23/octo-cli
+
 # Set the binary as the entrypoint
 ENTRYPOINT ["octo"]
