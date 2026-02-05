@@ -147,6 +147,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		Detach:       detach,
 		PortOverride: port,
 		NoPortShift:  noPortShift,
+		SkipEnvCheck: skipEnvCheck,
 		UseDashboard: useDashboard,
 	}
 

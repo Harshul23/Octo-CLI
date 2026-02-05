@@ -38,6 +38,7 @@ type Options struct {
 	PortOverride  int  // If > 0, use this port instead of config default
 	NoPortShift   bool // If true, disable automatic port shifting
 	SkipSetup     bool // If true, skip the setup phase
+	SkipEnvCheck  bool // If true, skip environment variable validation
 	UseDashboard  bool // If true, use TUI dashboard instead of scrolling output
 }
 
@@ -187,9 +188,19 @@ func (o *Orchestrator) Run() error {
 	o.checkRuntime()
 
 	// Determine working directory
+	// For monorepos, use the monorepo root if specified
 	workDir := o.opts.WorkDir
 	if workDir == "" {
 		workDir, _ = os.Getwd()
+	}
+	if o.bp.IsMonorepo && o.bp.MonorepoRoot != "" {
+		// Use monorepo root as the working directory
+		if info, err := os.Stat(o.bp.MonorepoRoot); err == nil && info.IsDir() {
+			workDir = o.bp.MonorepoRoot
+			fmt.Printf("📂 Using monorepo root: %s\n", workDir)
+		} else {
+			fmt.Printf("⚠️  Warning: monorepo_root %s does not exist, using current directory\n", o.bp.MonorepoRoot)
+		}
 	}
 
 	// ==========================================
@@ -206,9 +217,14 @@ func (o *Orchestrator) Run() error {
 		fmt.Printf("⚠️  Warning: dependency check failed: %v\n", err)
 	}
 
-	// Check environment variables
-	if err := o.checkEnvVars(); err != nil {
-		return err
+	// Check environment variables (unless skipped)
+	if !o.opts.SkipEnvCheck {
+		if err := o.checkEnvVars(); err != nil {
+			return err
+		}
+	} else {
+		// Still load env vars for injection even if we skip validation
+		o.loadEnvVarsForInjection(workDir)
 	}
 
 	// ==========================================
@@ -1232,9 +1248,19 @@ func (o *Orchestrator) runWithDashboardUpdates() error {
 	o.dashboard.UpdateProject(0, ui.PhaseRun, ui.StatusRunning)
 
 	// Determine working directory
+	// For monorepos, use the monorepo root if specified
 	workDir := o.opts.WorkDir
 	if workDir == "" {
 		workDir, _ = os.Getwd()
+	}
+	if o.bp.IsMonorepo && o.bp.MonorepoRoot != "" {
+		// Use monorepo root as the working directory
+		if info, err := os.Stat(o.bp.MonorepoRoot); err == nil && info.IsDir() {
+			workDir = o.bp.MonorepoRoot
+			o.logToDashboard(0, fmt.Sprintf("📂 Using monorepo root: %s", workDir))
+		} else {
+			o.logToDashboard(0, fmt.Sprintf("⚠️  Warning: monorepo_root %s does not exist, using current directory", o.bp.MonorepoRoot))
+		}
 	}
 
 	// Log to dashboard
