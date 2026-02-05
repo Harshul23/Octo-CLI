@@ -2,9 +2,9 @@ name: Octo-CLI CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
@@ -16,10 +16,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: "1.22"
 
       - name: Build Octo
-        run: go build -o octo ./cmd/main.go
+        run: go build -o octo ./cmd/
 
       - name: Run Unit Tests
         run: go test -v ./...
