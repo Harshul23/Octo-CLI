@@ -107,6 +107,51 @@ var ignoredEnvVars = map[string]bool{
 	"NETLIFY":        true,
 }
 
+// Critical env vars that will cause runtime errors if missing
+var criticalEnvVarPatterns = []string{
+	"DATABASE_URL",
+	"API_KEY",
+	"SECRET_KEY",
+	"JWT_SECRET",
+	"AUTH0",
+	"STRIPE",
+	"CLERK",
+	"SUPABASE",
+	"FIREBASE",
+	"NEXT_PUBLIC_API",
+}
+
+// isCriticalEnvVar checks if a variable is critical for the app to run
+func isCriticalEnvVar(name string) bool {
+	nameLower := strings.ToLower(name)
+	for _, pattern := range criticalEnvVarPatterns {
+		if strings.Contains(nameLower, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
+}
+
+// isValidEnvVarName checks if a name looks like a valid environment variable
+// Filters out false positives like single letters or common non-env patterns
+func isValidEnvVarName(name string) bool {
+	// Must be at least 3 characters
+	if len(name) < 3 {
+		return false
+	}
+	
+	// Must contain at least one underscore OR be a known prefix pattern
+	knownPrefixes := []string{"API", "AWS", "DATABASE", "DB", "JWT", "NEXT", "NODE", "REACT", "REDIS", "S3", "VITE"}
+	for _, prefix := range knownPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	
+	// Otherwise require an underscore (like SOME_VAR)
+	return strings.Contains(name, "_")
+}
+
 // ScanForEnvVars scans the project directory for environment variable usage
 func ScanForEnvVars(projectPath string, language string) ([]EnvVar, error) {
 	var envVars []EnvVar
@@ -221,21 +266,6 @@ func kubeConfigExists() bool {
 	return err == nil
 }
 
-// isCriticalEnvVar checks if the variable name suggests it's a critical secret
-func isCriticalEnvVar(name string) bool {
-	criticalPatterns := []string{
-		"API_KEY", "APIKEY", "SECRET", "TOKEN", "PASSWORD", "PASSWD",
-		"PRIVATE_KEY", "AUTH", "CREDENTIAL", "ACCESS_KEY",
-	}
-	upper := strings.ToUpper(name)
-	for _, pattern := range criticalPatterns {
-		if strings.Contains(upper, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
 // getPatterns returns the appropriate regex patterns for a language
 func getPatterns(language string) map[string]*regexp.Regexp {
 	patterns := make(map[string]*regexp.Regexp)
@@ -315,7 +345,8 @@ func scanFile(path string, patterns map[string]*regexp.Regexp) ([]EnvVar, error)
 						break
 					}
 				}
-				if varName != "" {
+				// Skip single-letter or too-short variable names (likely false positives)
+				if varName != "" && len(varName) >= 3 && isValidEnvVarName(varName) {
 					vars = append(vars, EnvVar{
 						Name:     varName,
 						File:     path,
@@ -385,17 +416,33 @@ func CheckEnvStatus(projectPath string, language string) (EnvStatus, error) {
 		status.HasEnvFile = true
 	}
 
-	// Read existing .env file
-	envVars, err := ReadEnvFile(status.EnvFile)
-	if err != nil {
-		return status, err
+	// Read existing .env files from root and common subdirectories
+	envVars := make(map[string]string)
+	
+	// Read root .env and .env.local
+	rootVars, _ := ReadEnvFile(status.EnvFile)
+	for k, v := range rootVars {
+		envVars[k] = v
 	}
-
-	// Also check .env.local
 	localEnvPath := filepath.Join(projectPath, ".env.local")
 	localVars, _ := ReadEnvFile(localEnvPath)
 	for k, v := range localVars {
 		envVars[k] = v
+	}
+
+	// Also check common monorepo subdirectories for .env files
+	subDirs := []string{"apps/client", "apps/server", "apps/web", "apps/api", "packages/web", "client", "server", "frontend", "backend"}
+	for _, subDir := range subDirs {
+		subEnvPath := filepath.Join(projectPath, subDir, ".env")
+		subVars, _ := ReadEnvFile(subEnvPath)
+		for k, v := range subVars {
+			envVars[k] = v
+		}
+		subLocalPath := filepath.Join(projectPath, subDir, ".env.local")
+		subLocalVars, _ := ReadEnvFile(subLocalPath)
+		for k, v := range subLocalVars {
+			envVars[k] = v
+		}
 	}
 
 	// Mark which vars are defined
@@ -403,14 +450,45 @@ func CheckEnvStatus(projectPath string, language string) (EnvStatus, error) {
 		status.Defined[k] = true
 	}
 
-	// Find missing vars
+	// Find missing vars and determine their target directories
 	for _, v := range required {
 		if !status.Defined[v.Name] {
+			// Determine target directory based on where the var was found
+			v.TargetDir = determineTargetDirFromFile(v.File, projectPath)
 			status.Missing = append(status.Missing, v)
 		}
 	}
 
 	return status, nil
+}
+
+// determineTargetDirFromFile extracts the target directory from the file path where a var was found
+func determineTargetDirFromFile(filePath string, projectPath string) string {
+	// Get relative path from project root
+	relPath, err := filepath.Rel(projectPath, filePath)
+	if err != nil {
+		return ""
+	}
+	
+	// Check for common monorepo patterns
+	parts := strings.Split(relPath, string(filepath.Separator))
+	if len(parts) >= 2 {
+		// apps/client/src/... -> apps/client
+		// packages/web/lib/... -> packages/web
+		if parts[0] == "apps" || parts[0] == "packages" {
+			return filepath.Join(parts[0], parts[1])
+		}
+		// client/src/... -> client
+		// server/src/... -> server
+		commonDirs := []string{"client", "server", "frontend", "backend", "web", "api"}
+		for _, dir := range commonDirs {
+			if parts[0] == dir {
+				return parts[0]
+			}
+		}
+	}
+	
+	return "" // Root directory
 }
 
 // WriteEnvFile creates or updates an .env file with the provided values
@@ -534,4 +612,536 @@ func GetEnvVarDescription(varName string) string {
 	default:
 		return "Environment variable"
 	}
+}
+
+// ============================================================================
+// README-Driven Secret Provisioning
+// ============================================================================
+
+// ParseReadmeForEnvVars scans README.md for code blocks containing environment
+// variable assignments and extracts them with their suggested values and target directories.
+func ParseReadmeForEnvVars(projectPath string) ([]ReadmeEnvConfig, error) {
+	var configs []ReadmeEnvConfig
+
+	// Look for README files in various formats
+	readmeFiles := []string{"README.md", "README.MD", "readme.md", "Readme.md", "README.txt", "README"}
+	
+	var readmePath string
+	for _, name := range readmeFiles {
+		path := filepath.Join(projectPath, name)
+		if _, err := os.Stat(path); err == nil {
+			readmePath = path
+			break
+		}
+	}
+
+	if readmePath == "" {
+		return configs, nil // No README found, not an error
+	}
+
+	content, err := os.ReadFile(readmePath)
+	if err != nil {
+		return nil, err
+	}
+
+	contentStr := string(content)
+
+	// Parse code blocks and extract env vars
+	configs = extractEnvVarsFromReadme(contentStr, projectPath)
+
+	return configs, nil
+}
+
+// extractEnvVarsFromReadme parses README content for environment variable definitions
+func extractEnvVarsFromReadme(content string, projectPath string) []ReadmeEnvConfig {
+	var configs []ReadmeEnvConfig
+	seen := make(map[string]bool)
+
+	// Pattern to match code blocks (```...``` or indented blocks)
+	codeBlockPattern := regexp.MustCompile("(?s)```[^`]*```")
+	
+	// Pattern to match env var assignments: KEY=value or KEY="value" or KEY='value'
+	envPattern := regexp.MustCompile(`^([A-Z][A-Z0-9_]*)=["']?([^"'\n]*)["']?`)
+	
+	// Pattern to detect directory context (e.g., "in apps/client" or "apps/client/.env")
+	dirContextPattern := regexp.MustCompile(`(?i)(?:in\s+|cd\s+|create\s+|add\s+to\s+)?([a-z0-9._-]+(?:/[a-z0-9._-]+)*)(?:/\.env)?`)
+
+	// Find all code blocks
+	codeBlocks := codeBlockPattern.FindAllString(content, -1)
+	
+	// Also look for inline env assignments in the text
+	lines := strings.Split(content, "\n")
+	
+	currentDir := "" // Track directory context
+	
+	for i, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		
+		// Check for directory context hints
+		if dirMatch := dirContextPattern.FindStringSubmatch(trimmedLine); len(dirMatch) > 1 {
+			potentialDir := dirMatch[1]
+			// Validate it looks like a directory path and exists
+			if isValidSubdirectory(projectPath, potentialDir) {
+				currentDir = potentialDir
+			}
+		}
+		
+		// Look for env var pattern in context lines (lines starting with # or containing =)
+		if envMatch := envPattern.FindStringSubmatch(trimmedLine); len(envMatch) >= 2 {
+			varName := envMatch[1]
+			varValue := ""
+			if len(envMatch) > 2 {
+				varValue = envMatch[2]
+			}
+			
+			if !seen[varName] && !ignoredEnvVars[varName] {
+				seen[varName] = true
+				
+				config := ReadmeEnvConfig{
+					Name:      varName,
+					Value:     varValue,
+					TargetDir: determineTargetDir(varName, currentDir, projectPath),
+				}
+				
+				// Try to extract description from surrounding context
+				if i > 0 {
+					prevLine := strings.TrimSpace(lines[i-1])
+					if strings.HasPrefix(prevLine, "#") || strings.HasPrefix(prevLine, "//") {
+						config.Description = strings.TrimLeft(prevLine, "# /")
+					}
+				}
+				
+				configs = append(configs, config)
+			}
+		}
+	}
+
+	// Also parse code blocks
+	for _, block := range codeBlocks {
+		// Remove the ``` markers
+		blockContent := strings.Trim(block, "`")
+		// Remove language identifier if present (e.g., ```bash)
+		if idx := strings.Index(blockContent, "\n"); idx > 0 {
+			firstLine := blockContent[:idx]
+			if !strings.Contains(firstLine, "=") {
+				blockContent = blockContent[idx+1:]
+			}
+		}
+		
+		blockLines := strings.Split(blockContent, "\n")
+		blockDir := currentDir
+		
+		for _, line := range blockLines {
+			trimmedLine := strings.TrimSpace(line)
+			
+			// Check for cd command or directory context
+			if strings.HasPrefix(trimmedLine, "cd ") {
+				dir := strings.TrimPrefix(trimmedLine, "cd ")
+				if isValidSubdirectory(projectPath, dir) {
+					blockDir = dir
+				}
+			}
+			
+			// Look for env var assignments
+			if envMatch := envPattern.FindStringSubmatch(trimmedLine); len(envMatch) >= 2 {
+				varName := envMatch[1]
+				varValue := ""
+				if len(envMatch) > 2 {
+					varValue = envMatch[2]
+				}
+				
+				if !seen[varName] && !ignoredEnvVars[varName] {
+					seen[varName] = true
+					configs = append(configs, ReadmeEnvConfig{
+						Name:      varName,
+						Value:     varValue,
+						TargetDir: determineTargetDir(varName, blockDir, projectPath),
+					})
+				}
+			}
+		}
+	}
+
+	return configs
+}
+
+// determineTargetDir determines the target directory for an env var based on:
+// 1. Explicit directory context from README
+// 2. Variable name patterns (NEXT_PUBLIC_* -> frontend)
+// 3. Monorepo package detection
+func determineTargetDir(varName string, contextDir string, projectPath string) string {
+	// If context directory is specified and valid, use it
+	if contextDir != "" && isValidSubdirectory(projectPath, contextDir) {
+		return contextDir
+	}
+
+	// Check for NEXT_PUBLIC_ prefix (always goes to frontend/client)
+	if strings.HasPrefix(varName, "NEXT_PUBLIC_") || strings.HasPrefix(varName, "VITE_") || strings.HasPrefix(varName, "REACT_APP_") {
+		// Look for common frontend directories
+		frontendDirs := []string{"apps/client", "apps/web", "apps/frontend", "packages/web", "client", "frontend", "web"}
+		for _, dir := range frontendDirs {
+			if isValidSubdirectory(projectPath, dir) {
+				return dir
+			}
+		}
+	}
+
+	// Check for server-side patterns
+	if strings.Contains(varName, "DATABASE") || strings.Contains(varName, "DB_") ||
+		strings.Contains(varName, "REDIS") || strings.Contains(varName, "SECRET") ||
+		strings.HasPrefix(varName, "AWS_") || strings.HasPrefix(varName, "S3_") {
+		// Look for common backend directories
+		backendDirs := []string{"apps/server", "apps/api", "apps/backend", "packages/api", "server", "api", "backend"}
+		for _, dir := range backendDirs {
+			if isValidSubdirectory(projectPath, dir) {
+				return dir
+			}
+		}
+	}
+
+	// Default to root
+	return ""
+}
+
+// isValidSubdirectory checks if a path is a valid subdirectory of the project
+func isValidSubdirectory(projectPath string, subDir string) bool {
+	if subDir == "" || subDir == "." {
+		return false
+	}
+	
+	fullPath := filepath.Join(projectPath, subDir)
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+// GroupEnvVarsByTarget groups environment variables by their target .env file
+func GroupEnvVarsByTarget(configs []ReadmeEnvConfig, projectPath string) []EnvFileTarget {
+	targetMap := make(map[string]*EnvFileTarget)
+
+	for _, config := range configs {
+		targetDir := config.TargetDir
+		if targetDir == "" {
+			targetDir = "." // Root directory
+		}
+
+		var envPath string
+		if targetDir == "." {
+			envPath = filepath.Join(projectPath, ".env")
+		} else {
+			envPath = filepath.Join(projectPath, targetDir, ".env")
+		}
+
+		if target, exists := targetMap[targetDir]; exists {
+			target.Variables = append(target.Variables, config)
+		} else {
+			_, fileExists := os.Stat(envPath)
+			targetMap[targetDir] = &EnvFileTarget{
+				Path:      filepath.Join(targetDir, ".env"),
+				AbsPath:   envPath,
+				Variables: []ReadmeEnvConfig{config},
+				Exists:    fileExists == nil,
+			}
+		}
+	}
+
+	// Convert map to slice
+	var targets []EnvFileTarget
+	for _, target := range targetMap {
+		targets = append(targets, *target)
+	}
+
+	// Sort by path for consistent ordering
+	sort.Slice(targets, func(i, j int) bool {
+		return targets[i].Path < targets[j].Path
+	})
+
+	return targets
+}
+
+// WriteEnvFilesToTargets writes environment variables to their respective .env files
+func WriteEnvFilesToTargets(targets []EnvFileTarget, values map[string]string) error {
+	for _, target := range targets {
+		// Collect values for this target
+		targetValues := make(map[string]string)
+		for _, v := range target.Variables {
+			if val, ok := values[v.Name]; ok && val != "" {
+				targetValues[v.Name] = val
+			}
+		}
+
+		if len(targetValues) == 0 {
+			continue
+		}
+
+		// Ensure directory exists
+		dir := filepath.Dir(target.AbsPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+
+		// Write to .env file
+		if err := AppendToEnvFile(target.AbsPath, targetValues); err != nil {
+			return fmt.Errorf("failed to write to %s: %w", target.Path, err)
+		}
+	}
+
+	return nil
+}
+
+// ValidateEnvFilesExist checks if all required .env files exist before running
+func ValidateEnvFilesExist(projectPath string, targets []EnvFileTarget) []string {
+	var missing []string
+
+	for _, target := range targets {
+		if !target.Exists {
+			if _, err := os.Stat(target.AbsPath); os.IsNotExist(err) {
+				missing = append(missing, target.Path)
+			}
+		}
+	}
+
+	return missing
+}
+
+// CheckEnvStatusWithReadme extends CheckEnvStatus with README-sourced defaults
+func CheckEnvStatusWithReadme(projectPath string, language string) (EnvStatus, error) {
+	// First, get the basic env status
+	status, err := CheckEnvStatus(projectPath, language)
+	if err != nil {
+		return status, err
+	}
+
+	// Parse README for defaults
+	readmeConfigs, err := ParseReadmeForEnvVars(projectPath)
+	if err != nil {
+		// Non-fatal - continue without README defaults
+		return status, nil
+	}
+
+	// Build defaults map
+	status.ReadmeDefaults = make(map[string]ReadmeEnvConfig)
+	for _, config := range readmeConfigs {
+		status.ReadmeDefaults[config.Name] = config
+	}
+
+	// Group by target directories
+	status.EnvTargets = GroupEnvVarsByTarget(readmeConfigs, projectPath)
+
+	// Update missing vars with defaults and target directories
+	for i, v := range status.Missing {
+		if config, ok := status.ReadmeDefaults[v.Name]; ok {
+			status.Missing[i].DefaultValue = config.Value
+			status.Missing[i].TargetDir = config.TargetDir
+		}
+	}
+
+	return status, nil
+}
+
+// GetEnvVarSuggestion returns a suggested value for an env var based on README or heuristics
+func GetEnvVarSuggestion(varName string, readmeDefaults map[string]ReadmeEnvConfig) string {
+	// Check README defaults first
+	if readmeDefaults != nil {
+		if config, ok := readmeDefaults[varName]; ok && config.Value != "" {
+			return config.Value
+		}
+	}
+
+	// Provide smart defaults for common patterns
+	varLower := strings.ToLower(varName)
+	varUpper := strings.ToUpper(varName)
+
+	switch {
+	// Next.js public API URL - typically points to backend server
+	case strings.HasPrefix(varUpper, "NEXT_PUBLIC_API"):
+		return "http://localhost:8080"
+	case strings.HasPrefix(varUpper, "NEXT_PUBLIC_WS"):
+		return "ws://localhost:8080"
+	case strings.HasPrefix(varUpper, "NEXT_PUBLIC_"):
+		// Generic NEXT_PUBLIC_ - leave empty, too specific
+		return ""
+
+	// Vite public vars
+	case strings.HasPrefix(varUpper, "VITE_API"):
+		return "http://localhost:8080"
+	case strings.HasPrefix(varUpper, "VITE_"):
+		return ""
+
+	// React app vars
+	case strings.HasPrefix(varUpper, "REACT_APP_API"):
+		return "http://localhost:8080"
+
+	// Generic API/URL patterns
+	case strings.Contains(varLower, "api_url") || strings.Contains(varLower, "api_base"):
+		return "http://localhost:8080"
+	case strings.Contains(varLower, "url") && strings.Contains(varLower, "ws"):
+		return "ws://localhost:8080"
+	case strings.Contains(varLower, "base_url"):
+		return "http://localhost:8080"
+
+	// Port configurations
+	case varLower == "port" || strings.HasSuffix(varLower, "_port"):
+		return "3000"
+
+	// Host configurations
+	case strings.Contains(varLower, "host") && !strings.Contains(varLower, "db"):
+		return "localhost"
+
+	// Database URLs
+	case strings.Contains(varLower, "database_url") || strings.Contains(varLower, "db_url"):
+		return "postgresql://localhost:5432/mydb"
+	case strings.Contains(varLower, "redis_url"):
+		return "redis://localhost:6379"
+	case strings.Contains(varLower, "mongo"):
+		return "mongodb://localhost:27017/mydb"
+
+	// Environment
+	case varLower == "node_env":
+		return "development"
+	case varLower == "env" || varLower == "environment":
+		return "development"
+	}
+
+	return ""
+}
+
+// PreRunEnvValidation performs pre-run validation to ensure .env files are properly configured
+func PreRunEnvValidation(projectPath string, language string) (bool, []string) {
+	var issues []string
+
+	// Check env status with README context
+	status, err := CheckEnvStatusWithReadme(projectPath, language)
+	if err != nil {
+		issues = append(issues, fmt.Sprintf("Failed to check environment status: %v", err))
+		return false, issues
+	}
+
+	// Check for missing .env files in target directories
+	if len(status.EnvTargets) > 0 {
+		missing := ValidateEnvFilesExist(projectPath, status.EnvTargets)
+		for _, path := range missing {
+			issues = append(issues, fmt.Sprintf("Missing .env file: %s", path))
+		}
+	}
+
+	// Check for critical missing variables
+	for _, v := range status.Missing {
+		if v.Required && isCriticalEnvVar(v.Name) {
+			if v.TargetDir != "" {
+				issues = append(issues, fmt.Sprintf("Missing required variable %s in %s/.env", v.Name, v.TargetDir))
+			} else {
+				issues = append(issues, fmt.Sprintf("Missing required variable: %s", v.Name))
+			}
+		}
+	}
+
+	return len(issues) == 0, issues
+}
+
+// AutoProvisionResult contains the result of auto-provisioning env files
+type AutoProvisionResult struct {
+	CreatedFiles    []string          // .env files that were created
+	ProvisionedVars map[string]string // Variables that were auto-provisioned with their values
+	SkippedVars     []string          // Variables that had no default value
+}
+
+// AutoProvisionEnvFiles automatically creates missing .env files with defaults from README
+// Returns information about what was created and which variables still need values
+func AutoProvisionEnvFiles(projectPath string, language string) (*AutoProvisionResult, error) {
+	result := &AutoProvisionResult{
+		CreatedFiles:    []string{},
+		ProvisionedVars: make(map[string]string),
+		SkippedVars:     []string{},
+	}
+
+	// Get env status with README defaults
+	status, err := CheckEnvStatusWithReadme(projectPath, language)
+	if err != nil {
+		return result, err
+	}
+
+	// If no README defaults found, try to use smart suggestions
+	if len(status.ReadmeDefaults) == 0 && len(status.Missing) > 0 {
+		// Build suggestions for missing vars
+		for _, v := range status.Missing {
+			suggestion := GetEnvVarSuggestion(v.Name, nil)
+			if suggestion != "" {
+				status.ReadmeDefaults[v.Name] = ReadmeEnvConfig{
+					Name:      v.Name,
+					Value:     suggestion,
+					TargetDir: v.TargetDir,
+				}
+			}
+		}
+	}
+
+	// Group variables by target directory
+	targetVars := make(map[string]map[string]string) // targetDir -> varName -> value
+
+	for _, v := range status.Missing {
+		targetDir := v.TargetDir
+		if targetDir == "" {
+			targetDir = "."
+		}
+
+		if _, ok := targetVars[targetDir]; !ok {
+			targetVars[targetDir] = make(map[string]string)
+		}
+
+		// Get value from README defaults or suggestions
+		value := ""
+		if config, ok := status.ReadmeDefaults[v.Name]; ok && config.Value != "" {
+			value = config.Value
+		} else {
+			value = GetEnvVarSuggestion(v.Name, status.ReadmeDefaults)
+		}
+
+		if value != "" {
+			targetVars[targetDir][v.Name] = value
+			result.ProvisionedVars[v.Name] = value
+		} else {
+			result.SkippedVars = append(result.SkippedVars, v.Name)
+		}
+	}
+
+	// Write to .env files
+	for targetDir, vars := range targetVars {
+		if len(vars) == 0 {
+			continue
+		}
+
+		var envPath string
+		var displayPath string
+		if targetDir == "." {
+			envPath = filepath.Join(projectPath, ".env")
+			displayPath = ".env"
+		} else {
+			envPath = filepath.Join(projectPath, targetDir, ".env")
+			displayPath = filepath.Join(targetDir, ".env")
+		}
+
+		// Check if file existed before
+		_, existedBefore := os.Stat(envPath)
+		fileExisted := existedBefore == nil
+
+		// Ensure directory exists
+		dir := filepath.Dir(envPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return result, fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+
+		// Write/append to .env file
+		if err := AppendToEnvFile(envPath, vars); err != nil {
+			return result, fmt.Errorf("failed to write to %s: %w", displayPath, err)
+		}
+
+		if !fileExisted {
+			result.CreatedFiles = append(result.CreatedFiles, displayPath)
+		}
+	}
+
+	return result, nil
 }

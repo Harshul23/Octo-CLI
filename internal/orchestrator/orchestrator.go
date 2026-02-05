@@ -14,6 +14,7 @@ import (
 	"github.com/harshul/octo-cli/internal/blueprint"
 	"github.com/harshul/octo-cli/internal/ports"
 	"github.com/harshul/octo-cli/internal/provisioner"
+	"github.com/harshul/octo-cli/internal/secrets"
 	"github.com/harshul/octo-cli/internal/ui"
 )
 
@@ -157,11 +158,41 @@ func (o *Orchestrator) checkEnvVars() error {
 		return nil
 	}
 
+	// Build a map of all defined env vars from .env files AND current environment
+	definedVars := make(map[string]bool)
+	
+	// First, check current environment
+	for _, v := range o.bp.EnvVars {
+		if os.Getenv(v.Name) != "" {
+			definedVars[v.Name] = true
+		}
+	}
+	
+	// Then, read from .env files in the project (root + common subdirectories)
+	envFilePaths := []string{
+		filepath.Join(o.opts.WorkDir, ".env"),
+		filepath.Join(o.opts.WorkDir, ".env.local"),
+		filepath.Join(o.opts.WorkDir, "apps/client/.env"),
+		filepath.Join(o.opts.WorkDir, "apps/client/.env.local"),
+		filepath.Join(o.opts.WorkDir, "apps/server/.env"),
+		filepath.Join(o.opts.WorkDir, "apps/server/.env.local"),
+		filepath.Join(o.opts.WorkDir, "apps/web/.env"),
+		filepath.Join(o.opts.WorkDir, "apps/api/.env"),
+	}
+	
+	for _, envPath := range envFilePaths {
+		if envVars, err := secrets.ReadEnvFile(envPath); err == nil {
+			for k := range envVars {
+				definedVars[k] = true
+			}
+		}
+	}
+
 	var missingRequired []string
 	var missingOptional []string
 
 	for _, v := range o.bp.EnvVars {
-		if os.Getenv(v.Name) == "" {
+		if !definedVars[v.Name] {
 			if v.Required {
 				missingRequired = append(missingRequired, v.Name)
 			} else {

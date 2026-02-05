@@ -311,3 +311,163 @@ func DisplaySecretsResult(envFile string, savedCount int, skippedCount int) {
 	fmt.Println("💡 Tip: Make sure .env is in your .gitignore to keep secrets safe!")
 	fmt.Println()
 }
+
+// ============================================================================
+// README-Driven Secret Onboarding UI
+// ============================================================================
+
+// EnvVarWithDefault represents an env var with optional default value and target
+type EnvVarWithDefault struct {
+	Name        string
+	Description string
+	Default     string
+	TargetDir   string
+}
+
+// PromptForSecretsWithDefaults prompts for secrets with README-sourced defaults
+// Returns a map of variable names to their values
+func PromptForSecretsWithDefaults(vars []EnvVarWithDefault) map[string]string {
+	values := make(map[string]string)
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Println()
+	fmt.Println("🔐 Smart Secret Onboarding")
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Println("I detected environment variables from your README and code.")
+	fmt.Println("I'll suggest values where possible - just press Enter to accept.")
+	fmt.Println()
+
+	// Group by target directory for display
+	byTarget := make(map[string][]EnvVarWithDefault)
+	for _, v := range vars {
+		target := v.TargetDir
+		if target == "" {
+			target = "root"
+		}
+		byTarget[target] = append(byTarget[target], v)
+	}
+
+	// Process each target group
+	for target, targetVars := range byTarget {
+		if target == "root" {
+			fmt.Println("📁 Root (.env)")
+		} else {
+			fmt.Printf("📁 %s/.env\n", target)
+		}
+		fmt.Println()
+
+		for _, v := range targetVars {
+			// Show description if available
+			if v.Description != "" {
+				fmt.Printf("   📝 %s\n", v.Description)
+			}
+
+			// Show the prompt
+			if v.Default != "" {
+				fmt.Printf("   %s [%s]: ", v.Name, v.Default)
+			} else {
+				fmt.Printf("   %s: ", v.Name)
+			}
+
+			value, err := reader.ReadString('\n')
+			if err != nil {
+				continue
+			}
+
+			value = strings.TrimSpace(value)
+			
+			// If user pressed Enter and there's a default, use the default
+			if value == "" && v.Default != "" {
+				values[v.Name] = v.Default
+				fmt.Printf("   ✅ Using default: %s\n", maskSecret(v.Default))
+			} else if value != "" {
+				values[v.Name] = value
+				fmt.Printf("   ✅ Saved!\n")
+			} else {
+				fmt.Printf("   ⏭️  Skipped\n")
+			}
+			fmt.Println()
+		}
+	}
+
+	return values
+}
+
+// DisplayEnvTargets shows which .env files will be created/updated
+func DisplayEnvTargets(targets []string) {
+	fmt.Println()
+	fmt.Println("📂 Environment File Targets")
+	fmt.Println(strings.Repeat("-", 40))
+	for _, target := range targets {
+		fmt.Printf("   • %s\n", target)
+	}
+	fmt.Println()
+}
+
+// DisplaySecretsResultWithTargets shows results for multi-target secret setup
+func DisplaySecretsResultWithTargets(results map[string]int) {
+	fmt.Println()
+	fmt.Println(strings.Repeat("-", 50))
+	
+	totalSaved := 0
+	for path, count := range results {
+		if count > 0 {
+			fmt.Printf("✅ Saved %d secret(s) to %s\n", count, path)
+			totalSaved += count
+		}
+	}
+	
+	if totalSaved == 0 {
+		fmt.Println("⏭️  No secrets were saved. You can add them manually later.")
+	}
+	
+	fmt.Println()
+	fmt.Println("💡 Tip: Make sure .env files are in your .gitignore!")
+	fmt.Println()
+}
+
+// DisplayPreRunEnvValidation shows pre-run validation results
+func DisplayPreRunEnvValidation(issues []string) {
+	if len(issues) == 0 {
+		return
+	}
+
+	fmt.Println()
+	fmt.Println("⚠️  Environment Configuration Issues")
+	fmt.Println(strings.Repeat("-", 50))
+	for _, issue := range issues {
+		fmt.Printf("   • %s\n", issue)
+	}
+	fmt.Println()
+}
+
+// PromptContinueDespiteEnvIssues asks if user wants to continue despite env issues
+func PromptContinueDespiteEnvIssues() bool {
+	fmt.Print("Would you like to continue anyway? (y/n): ")
+
+	reader := bufio.NewReader(os.Stdin)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+
+	response = strings.TrimSpace(strings.ToLower(response))
+	return response == "y" || response == "yes"
+}
+
+// maskSecret masks sensitive values for display, showing only first/last few chars
+func maskSecret(value string) string {
+	if len(value) <= 8 {
+		return strings.Repeat("*", len(value))
+	}
+	
+	// Check if it looks like a URL (don't mask URLs as heavily)
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") ||
+		strings.HasPrefix(value, "ws://") || strings.HasPrefix(value, "wss://") ||
+		strings.HasPrefix(value, "postgresql://") || strings.HasPrefix(value, "redis://") {
+		return value // Show URLs in full
+	}
+	
+	// For secrets, show first 3 and last 3 chars
+	return value[:3] + strings.Repeat("*", len(value)-6) + value[len(value)-3:]
+}

@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/harshul/octo-cli/internal/blueprint"
 	"github.com/harshul/octo-cli/internal/orchestrator"
+	"github.com/harshul/octo-cli/internal/secrets"
 	"github.com/harshul/octo-cli/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -38,6 +40,7 @@ func init() {
 	runCmd.Flags().BoolP("detach", "d", false, "Run in detached mode (background)")
 	runCmd.Flags().IntP("port", "p", 0, "Override the port to run on (0 = use config default)")
 	runCmd.Flags().Bool("no-port-shift", false, "Disable automatic port shifting on conflicts")
+	runCmd.Flags().Bool("skip-env-check", false, "Skip environment variable validation")
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -55,6 +58,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	detach, _ := cmd.Flags().GetBool("detach")
 	port, _ := cmd.Flags().GetInt("port")
 	noPortShift, _ := cmd.Flags().GetBool("no-port-shift")
+	skipEnvCheck, _ := cmd.Flags().GetBool("skip-env-check")
 
 	// Resolve config path
 	if !filepath.IsAbs(configPath) {
@@ -70,6 +74,61 @@ func runRun(cmd *cobra.Command, args []string) error {
 	bp, err := blueprint.Read(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to read configuration: %w", err)
+	}
+
+	// Pre-run environment validation and auto-provisioning
+	if !skipEnvCheck {
+		valid, _ := secrets.PreRunEnvValidation(cwd, bp.Language)
+		if !valid {
+			// Auto-provision missing env files with README defaults (don't show scary warnings first)
+			result, err := secrets.AutoProvisionEnvFiles(cwd, bp.Language)
+			if err != nil {
+				ui.Warn(fmt.Sprintf("Failed to auto-provision environment: %v", err))
+			} else if len(result.ProvisionedVars) > 0 || len(result.CreatedFiles) > 0 {
+				// Show success message about what was auto-configured
+				fmt.Println()
+				fmt.Println("🔧 Auto-configuring environment...")
+				
+				if len(result.CreatedFiles) > 0 {
+					for _, f := range result.CreatedFiles {
+						ui.Success(fmt.Sprintf("Created %s", f))
+					}
+				}
+				
+				if len(result.ProvisionedVars) > 0 {
+					ui.Success(fmt.Sprintf("Set %d environment variable(s) with smart defaults:", len(result.ProvisionedVars)))
+					for name, value := range result.ProvisionedVars {
+						fmt.Printf("   • %s=%s\n", name, maskEnvValue(value))
+					}
+				}
+				
+				if len(result.SkippedVars) > 0 {
+					fmt.Println()
+					ui.Warn(fmt.Sprintf("%d variable(s) still need manual configuration:", len(result.SkippedVars)))
+					for _, name := range result.SkippedVars {
+						fmt.Printf("   • %s\n", name)
+					}
+				}
+				fmt.Println()
+			}
+
+			// Re-validate after auto-provisioning
+			valid, issues := secrets.PreRunEnvValidation(cwd, bp.Language)
+			if !valid {
+				// Only show issues that remain AFTER auto-provisioning
+				ui.DisplayPreRunEnvValidation(issues)
+				
+				// Ask if user wants to continue anyway
+				if !ui.PromptContinueDespiteEnvIssues() {
+					ui.Info("Run 'octo init' to configure environment variables.")
+					return fmt.Errorf("aborted due to environment configuration issues")
+				}
+			} else {
+				// Everything was auto-fixed!
+				ui.Success("Environment configured successfully!")
+				fmt.Println()
+			}
+		}
 	}
 
 	ui.Info(fmt.Sprintf("Running %s in %s mode...", bp.Name, env))
@@ -97,4 +156,22 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// maskEnvValue masks sensitive values for display
+func maskEnvValue(value string) string {
+	// Don't mask URLs - they're usually not secret
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") ||
+		strings.HasPrefix(value, "ws://") || strings.HasPrefix(value, "wss://") ||
+		strings.HasPrefix(value, "postgresql://") || strings.HasPrefix(value, "redis://") {
+		return value
+	}
+
+	// Don't mask short values or common non-secrets
+	if len(value) <= 10 {
+		return value
+	}
+
+	// Mask the middle of longer values
+	return value[:4] + strings.Repeat("*", len(value)-8) + value[len(value)-4:]
 }
