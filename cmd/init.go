@@ -257,15 +257,16 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// ========================================
-	// STEP 7: Secrets Onboarding
+	// STEP 7: Smart Secrets Onboarding (README-Driven)
 	// ========================================
 	var allDetectedVars []secrets.EnvVar
 
 	if !skipSecrets {
-		secretsSpinner := ui.NewSpinner("Scanning for environment variables...")
+		secretsSpinner := ui.NewSpinner("Scanning for environment variables and README defaults...")
 		secretsSpinner.Start()
 
-		envStatus, err := secrets.CheckEnvStatus(cwd, projectInfo.Language)
+		// Use README-enhanced env status check
+		envStatus, err := secrets.CheckEnvStatusWithReadme(cwd, projectInfo.Language)
 		
 		secretsSpinner.Success("Environment scan complete")
 
@@ -274,33 +275,76 @@ func runInit(cmd *cobra.Command, args []string) error {
 		} else {
 			allDetectedVars = envStatus.Required // Save for blueprint
 			
-			if len(envStatus.Missing) > 0 {
-				// Build descriptions map
-				descriptions := make(map[string]string)
-				missingNames := make([]string, 0, len(envStatus.Missing))
-				for _, v := range envStatus.Missing {
-					missingNames = append(missingNames, v.Name)
-					descriptions[v.Name] = secrets.GetEnvVarDescription(v.Name)
-				}
+			// Show README defaults found
+			if len(envStatus.ReadmeDefaults) > 0 {
+				ui.Info(fmt.Sprintf("📖 Found %d default value(s) from README", len(envStatus.ReadmeDefaults)))
+			}
 
-				// Display missing secrets
-				ui.DisplayMissingSecrets(missingNames, descriptions)
+			// Show target directories if monorepo
+			if len(envStatus.EnvTargets) > 1 {
+				targetPaths := make([]string, 0, len(envStatus.EnvTargets))
+				for _, t := range envStatus.EnvTargets {
+					targetPaths = append(targetPaths, t.Path)
+				}
+				ui.DisplayEnvTargets(targetPaths)
+			}
+			
+			if len(envStatus.Missing) > 0 {
+				// Build vars with defaults for enhanced prompt
+				varsWithDefaults := make([]ui.EnvVarWithDefault, 0, len(envStatus.Missing))
+				for _, v := range envStatus.Missing {
+					vwd := ui.EnvVarWithDefault{
+						Name:        v.Name,
+						Description: secrets.GetEnvVarDescription(v.Name),
+						Default:     v.DefaultValue,
+						TargetDir:   v.TargetDir,
+					}
+					
+					// Try to get suggestion if no default from README
+					if vwd.Default == "" {
+						vwd.Default = secrets.GetEnvVarSuggestion(v.Name, envStatus.ReadmeDefaults)
+					}
+					
+					varsWithDefaults = append(varsWithDefaults, vwd)
+				}
 
 				// Ask if user wants to set them up
 				if ui.PromptForSecretsOnboarding(len(envStatus.Missing)) {
-					// Prompt for each secret
-					values := ui.PromptForSecrets(missingNames, descriptions)
+					// Use enhanced prompt with defaults
+					values := ui.PromptForSecretsWithDefaults(varsWithDefaults)
 
 					if len(values) > 0 {
-						// Write to .env file
-						envPath := filepath.Join(cwd, ".env")
-						if err := secrets.AppendToEnvFile(envPath, values); err != nil {
-							ui.Error(fmt.Sprintf("Failed to write .env file: %v", err))
+						// Write to appropriate .env files based on targets
+						if len(envStatus.EnvTargets) > 0 {
+							// Multi-target write
+							if err := secrets.WriteEnvFilesToTargets(envStatus.EnvTargets, values); err != nil {
+								ui.Error(fmt.Sprintf("Failed to write .env files: %v", err))
+							} else {
+								// Build results summary
+								results := make(map[string]int)
+								for _, target := range envStatus.EnvTargets {
+									count := 0
+									for _, v := range target.Variables {
+										if _, ok := values[v.Name]; ok {
+											count++
+										}
+									}
+									if count > 0 {
+										results[target.Path] = count
+									}
+								}
+								ui.DisplaySecretsResultWithTargets(results)
+								ensureGitignore(cwd)
+							}
 						} else {
-							ui.DisplaySecretsResult(envPath, len(values), len(missingNames)-len(values))
-
-							// Check if .gitignore exists and has .env
-							ensureGitignore(cwd)
+							// Single .env file (fallback)
+							envPath := filepath.Join(cwd, ".env")
+							if err := secrets.AppendToEnvFile(envPath, values); err != nil {
+								ui.Error(fmt.Sprintf("Failed to write .env file: %v", err))
+							} else {
+								ui.DisplaySecretsResult(envPath, len(values), len(envStatus.Missing)-len(values))
+								ensureGitignore(cwd)
+							}
 						}
 					} else {
 						ui.Info("No secrets saved. You can add them manually to .env later.")
