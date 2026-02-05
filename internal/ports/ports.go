@@ -3,7 +3,9 @@ package ports
 import (
 	"fmt"
 	"net"
+	"os/exec"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -59,6 +61,93 @@ func IsPortAvailable(port int) bool {
 	}
 	listener.Close()
 	return true
+}
+
+// GetProcessOnPort returns the PID of a process listening on the given port.
+// Returns 0 if no process is found or if the lookup fails.
+// This is useful for detecting if a child process from a previous run is still active.
+func GetProcessOnPort(port int) int {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin", "linux":
+		// Use lsof to find the process PID
+		cmd = exec.Command("lsof", "-i", fmt.Sprintf(":%d", port), "-t", "-sTCP:LISTEN")
+	case "windows":
+		// On Windows, use netstat and parse the output
+		cmd = exec.Command("cmd", "/C", fmt.Sprintf("netstat -ano | findstr :%d | findstr LISTENING", port))
+	default:
+		return 0
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+
+	pidStr := strings.TrimSpace(string(output))
+	if pidStr == "" {
+		return 0
+	}
+
+	// For Windows, the PID is the last column
+	if runtime.GOOS == "windows" {
+		fields := strings.Fields(pidStr)
+		if len(fields) > 0 {
+			pidStr = fields[len(fields)-1]
+		}
+	} else {
+		// For Unix, lsof -t returns just the PID (may have multiple lines)
+		lines := strings.Split(pidStr, "\n")
+		if len(lines) > 0 {
+			pidStr = strings.TrimSpace(lines[0])
+		}
+	}
+
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil {
+		return 0
+	}
+
+	return pid
+}
+
+// IsChildProcessOnPort checks if a specific child process is running on a port.
+// This helps avoid the "force killing" issue by detecting if an existing child process
+// is already bound to the port before trying to spawn a new one.
+func IsChildProcessOnPort(port int) bool {
+	pid := GetProcessOnPort(port)
+	return pid > 0
+}
+
+// SafeCheckAndShift checks if a port has an existing process before shifting.
+// Unlike CheckAndShift, this function explicitly checks for running processes
+// to provide better diagnostics for monorepo scenarios.
+func SafeCheckAndShift(runCommand string) (newCommand string, newPort int, hadConflict bool, processInfo string, err error) {
+	portInfo := ExtractPort(runCommand)
+
+	if !portInfo.Found {
+		return runCommand, 0, false, "", nil
+	}
+
+	// First check if there's a process on the port
+	existingPID := GetProcessOnPort(portInfo.Port)
+	if existingPID > 0 {
+		processInfo = fmt.Sprintf("PID %d", existingPID)
+	}
+
+	if IsPortAvailable(portInfo.Port) {
+		return runCommand, portInfo.Port, false, "", nil
+	}
+
+	// Port is in use, find a new one
+	newPort = FindAvailablePort(portInfo.Port + 1)
+	if newPort == 0 {
+		return "", 0, true, processInfo, fmt.Errorf("could not find an available port after %d", portInfo.Port)
+	}
+
+	newCommand = ShiftPort(runCommand, portInfo.Port, newPort)
+	return newCommand, newPort, true, processInfo, nil
 }
 
 // FindAvailablePort finds the next available port starting from the given port

@@ -8,13 +8,34 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ThermalConfig holds thermal and resource management settings
+type ThermalConfig struct {
+	// Concurrency is the maximum number of concurrent operations (0 = auto-detect)
+	Concurrency int `yaml:"concurrency,omitempty"`
+	// BatchSize is the number of projects to process in each batch (0 = auto-detect)
+	BatchSize int `yaml:"batch_size,omitempty"`
+	// CoolDownMs is the delay between batches in milliseconds (0 = use default)
+	CoolDownMs int `yaml:"cool_down_ms,omitempty"`
+	// Mode is the thermal mode ("auto", "cool", "performance")
+	// - "auto": Automatically detect and adjust based on hardware
+	// - "cool": Prioritize low temperatures over speed
+	// - "performance": Use maximum resources regardless of thermals
+	Mode string `yaml:"mode,omitempty"`
+}
+
 // Blueprint is a configuration derived from project analysis.
 type Blueprint struct {
-	Name       string   `yaml:"name"`
-	Language   string   `yaml:"language,omitempty"`
-	Version    string   `yaml:"version,omitempty"`
-	RunCommand string   `yaml:"run,omitempty"`
-	EnvVars    []EnvVar `yaml:"env_vars,omitempty"`
+	Name           string        `yaml:"name"`
+	Language       string        `yaml:"language,omitempty"`
+	Version        string        `yaml:"version,omitempty"`
+	RunCommand     string        `yaml:"run,omitempty"`
+	SetupCommand   string        `yaml:"setup,omitempty"`
+	SetupRequired  bool          `yaml:"setup_required,omitempty"`
+	PackageManager string        `yaml:"package_manager,omitempty"`
+	IsMonorepo     bool          `yaml:"is_monorepo,omitempty"`
+	MonorepoRoot   string        `yaml:"monorepo_root,omitempty"`
+	EnvVars        []EnvVar      `yaml:"env_vars,omitempty"`
+	Thermal        ThermalConfig `yaml:"thermal,omitempty"`
 }
 
 // EnvVar represents a required environment variable
@@ -31,10 +52,15 @@ func FromAnalysis(a analyzer.Analysis) Blueprint {
 // FromProjectInfo converts a ProjectInfo result into a full blueprint.
 func FromProjectInfo(p analyzer.ProjectInfo) Blueprint {
 	return Blueprint{
-		Name:       p.Name,
-		Language:   p.Language,
-		Version:    p.Version,
-		RunCommand: p.RunCommand,
+		Name:           p.Name,
+		Language:       p.Language,
+		Version:        p.Version,
+		RunCommand:     p.RunCommand,
+		SetupCommand:   p.SetupCommand,
+		SetupRequired:  p.SetupRequired,
+		PackageManager: p.PackageManager,
+		IsMonorepo:     p.IsMonorepo,
+		MonorepoRoot:   p.MonorepoRoot,
 	}
 }
 

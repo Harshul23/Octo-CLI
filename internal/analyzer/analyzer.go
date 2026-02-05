@@ -64,6 +64,14 @@ type ProjectInfo struct {
 	PortConfig PortConfig
 	// PackageManager is the detected package manager (npm, pnpm, yarn, bun)
 	PackageManager string
+	// SetupCommand is the command to run before the main run command (e.g., build, setup)
+	SetupCommand string
+	// SetupRequired indicates if setup must complete successfully before running
+	SetupRequired bool
+	// IsMonorepo indicates if this is a monorepo project (pnpm workspace, npm workspace, etc.)
+	IsMonorepo bool
+	// MonorepoRoot is the root path of the monorepo (if applicable)
+	MonorepoRoot string
 }
 
 // signalFile represents a file that signals a specific project type.
@@ -264,6 +272,78 @@ func buildNodeRunCommand(packageManager string, scriptName string) string {
 	}
 }
 
+// setupScriptPriority defines the priority order for setup scripts
+// Higher values = higher priority for mandatory pre-run execution
+var setupScriptPriority = []ScriptWeight{
+	{"setup", 100},           // Explicit setup script (commonly used in large monorepos like freeCodeCamp)
+	{"bootstrap", 95},        // Common in Lerna/monorepo projects
+	{"build", 90},            // Build step often required before run
+	{"build:dev", 85},        // Development build
+	{"compile", 80},          // Compilation step
+	{"prepare", 75},          // npm lifecycle hook
+	{"postinstall", 70},      // Post-install setup
+	{"generate", 65},         // Code generation (Prisma, GraphQL, etc.)
+	{"prisma:generate", 60},  // Prisma client generation
+	{"db:setup", 55},         // Database setup
+	{"seed", 50},             // Database seeding
+}
+
+// detectMonorepoConfig checks if the project is a monorepo and returns workspace info
+func detectMonorepoConfig(projectPath string, packageManager string) (bool, string) {
+	// Check for pnpm workspace
+	pnpmWorkspacePath := filepath.Join(projectPath, "pnpm-workspace.yaml")
+	if _, err := os.Stat(pnpmWorkspacePath); err == nil {
+		return true, projectPath
+	}
+
+	// Check for npm/yarn workspaces in package.json
+	packagePath := filepath.Join(projectPath, "package.json")
+	if data, err := os.ReadFile(packagePath); err == nil {
+		var pkg struct {
+			Workspaces interface{} `json:"workspaces"`
+		}
+		if err := json.Unmarshal(data, &pkg); err == nil && pkg.Workspaces != nil {
+			return true, projectPath
+		}
+	}
+
+	// Check for Lerna
+	lernaPath := filepath.Join(projectPath, "lerna.json")
+	if _, err := os.Stat(lernaPath); err == nil {
+		return true, projectPath
+	}
+
+	// Check for Nx workspace
+	nxPath := filepath.Join(projectPath, "nx.json")
+	if _, err := os.Stat(nxPath); err == nil {
+		return true, projectPath
+	}
+
+	// Check for Rush
+	rushPath := filepath.Join(projectPath, "rush.json")
+	if _, err := os.Stat(rushPath); err == nil {
+		return true, projectPath
+	}
+
+	// Check for Turborepo
+	turboPath := filepath.Join(projectPath, "turbo.json")
+	if _, err := os.Stat(turboPath); err == nil {
+		return true, projectPath
+	}
+
+	return false, ""
+}
+
+// detectSetupScript finds the best setup script from package.json
+func detectSetupScript(scripts map[string]string, packageManager string) (string, bool) {
+	for _, sw := range setupScriptPriority {
+		if _, exists := scripts[sw.Name]; exists {
+			return buildNodeRunCommand(packageManager, sw.Name), true
+		}
+	}
+	return "", false
+}
+
 // analyzeNodeProject extracts info from package.json with context-aware script selection
 func analyzeNodeProject(projectPath string, info ProjectInfo, opts AnalysisOptions) ProjectInfo {
 	packagePath := filepath.Join(projectPath, "package.json")
@@ -296,6 +376,15 @@ func analyzeNodeProject(projectPath string, info ProjectInfo, opts AnalysisOptio
 	}
 	if pkg.Engines.Node != "" {
 		info.Version = pkg.Engines.Node
+	}
+
+	// Detect if this is a monorepo
+	info.IsMonorepo, info.MonorepoRoot = detectMonorepoConfig(projectPath, info.PackageManager)
+
+	// Detect setup script (mandatory pre-run step)
+	if setupCmd, found := detectSetupScript(pkg.Scripts, info.PackageManager); found {
+		info.SetupCommand = setupCmd
+		info.SetupRequired = true
 	}
 
 	// Get weighted scripts based on environment

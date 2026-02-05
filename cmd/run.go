@@ -41,6 +41,7 @@ func init() {
 	runCmd.Flags().IntP("port", "p", 0, "Override the port to run on (0 = use config default)")
 	runCmd.Flags().Bool("no-port-shift", false, "Disable automatic port shifting on conflicts")
 	runCmd.Flags().Bool("skip-env-check", false, "Skip environment variable validation")
+	runCmd.Flags().Bool("no-tui", false, "Disable TUI dashboard (use plain scrolling output)")
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -59,6 +60,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 	port, _ := cmd.Flags().GetInt("port")
 	noPortShift, _ := cmd.Flags().GetBool("no-port-shift")
 	skipEnvCheck, _ := cmd.Flags().GetBool("skip-env-check")
+	noTUI, _ := cmd.Flags().GetBool("no-tui")
+	
+	// Dashboard is enabled by default unless --no-tui is specified or running in detached mode
+	useDashboard := !noTUI && !detach
 
 	// Resolve config path
 	if !filepath.IsAbs(configPath) {
@@ -142,6 +147,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		Detach:       detach,
 		PortOverride: port,
 		NoPortShift:  noPortShift,
+		UseDashboard: useDashboard,
 	}
 
 	// Create and run the orchestrator
@@ -151,8 +157,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Execute the application
-	if err := orch.Run(); err != nil {
-		return fmt.Errorf("execution failed: %w", err)
+	if useDashboard {
+		if err := orch.RunWithDashboard(); err != nil {
+			return fmt.Errorf("execution failed: %w", err)
+		}
+	} else {
+		if err := orch.Run(); err != nil {
+			return fmt.Errorf("execution failed: %w", err)
+		}
 	}
 
 	return nil
