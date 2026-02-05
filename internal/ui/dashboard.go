@@ -299,14 +299,51 @@ func (p *Project) GracefulStop() error {
 	
 	pid := cmd.Process.Pid
 	
-	// Kill the entire process group immediately with SIGKILL
+	// First, try to kill the entire process group with SIGTERM for graceful shutdown
+	syscall.Kill(-pid, syscall.SIGTERM)
+	
+	// Give processes a brief moment to handle SIGTERM
+	time.Sleep(100 * time.Millisecond)
+	
+	// Then force kill the process group with SIGKILL
 	// This ensures child processes spawned by shells are also killed
 	syscall.Kill(-pid, syscall.SIGKILL)
 	
 	// Also try direct kill as fallback
 	cmd.Process.Kill()
 	
+	// Kill any processes that might be listening on common dev server ports
+	// This catches orphaned processes that escaped the process group
+	p.killProcessesOnPort()
+	
 	return nil
+}
+
+// killProcessesOnPort kills any processes listening on the project's port
+func (p *Project) killProcessesOnPort() {
+	if p.Port <= 0 {
+		return
+	}
+	
+	// Use lsof to find processes on the port and kill them
+	// This catches orphaned processes that might have escaped the process group
+	cmd := exec.Command("lsof", "-ti", fmt.Sprintf(":%d", p.Port))
+	output, err := cmd.Output()
+	if err != nil {
+		return // No process found or lsof failed
+	}
+	
+	// Kill each PID found
+	pids := strings.Fields(strings.TrimSpace(string(output)))
+	for _, pidStr := range pids {
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			continue
+		}
+		// Kill the process and its group
+		syscall.Kill(-pid, syscall.SIGKILL)
+		syscall.Kill(pid, syscall.SIGKILL)
+	}
 }
 
 // ResourceStats holds system resource information
@@ -634,8 +671,9 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		if key.Matches(keyMsg, m.keys.Quit) {
 			m.quitting = true
-			// Stop all running processes in background - don't block quit
-			go m.GracefulShutdown()
+			// Stop all running processes SYNCHRONOUSLY before quitting
+			// This ensures servers are killed before the program exits
+			m.GracefulShutdown()
 			return m, tea.Quit
 		}
 	}
@@ -1380,7 +1418,7 @@ func (m *DashboardModel) GracefulShutdown() {
 	var wg sync.WaitGroup
 	
 	for _, p := range m.projects {
-		if p.Status == StatusRunning {
+		if p.Status == StatusRunning || p.Cmd != nil {
 			wg.Add(1)
 			go func(proj *Project) {
 				defer wg.Done()
@@ -1389,7 +1427,7 @@ func (m *DashboardModel) GracefulShutdown() {
 		}
 	}
 	
-	// Wait for all processes to stop (with short timeout)
+	// Wait for all processes to stop (with reasonable timeout)
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -1399,8 +1437,16 @@ func (m *DashboardModel) GracefulShutdown() {
 	select {
 	case <-done:
 		// All processes stopped
-	case <-time.After(1 * time.Second):
-		// Timeout - force exit anyway
+	case <-time.After(3 * time.Second):
+		// Timeout - force kill any remaining processes
+		for _, p := range m.projects {
+			if p.Cmd != nil && p.Cmd.Process != nil {
+				syscall.Kill(-p.Cmd.Process.Pid, syscall.SIGKILL)
+				p.Cmd.Process.Kill()
+			}
+			// Also kill by port as last resort
+			p.killProcessesOnPort()
+		}
 	}
 }
 
