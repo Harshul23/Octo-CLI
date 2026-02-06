@@ -13,6 +13,8 @@ Octo is a CLI tool that analyzes your codebase, detects the tech stack, and gene
 
 ## Installation
 
+![Docker Image Version (latest semver)](https://img.shields.io/github/v/release/harshul23/octo-cli?label=docker&logo=docker)
+
 ### From Source
 
 ```bash
