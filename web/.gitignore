@@ -1,0 +1,94 @@
+# ------------------------------
+# OS generated files
+# ------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+
+# ------------------------------
+# Logs
+# ------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------
+# Environment variables
+# ------------------------------
+.env
+.env.*
+!.env.example
+
+# ------------------------------
+# Dependency directories
+# ------------------------------
+node_modules/
+vendor/
+dist/
+build/
+out/
+.cache/
+
+# ------------------------------
+# Compiled / temp files
+# ------------------------------
+*.class
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.tmp
+
+# ------------------------------
+# Python
+# ------------------------------
+__pycache__/
+*.egg-info/
+.venv/
+venv/
+
+# ------------------------------
+# Java
+# ------------------------------
+*.jar
+*.war
+*.ear
+target/
+
+# ------------------------------
+# IDE / Editor files
+# ------------------------------
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.iml
+
+# ------------------------------
+# Git
+# ------------------------------
+*.orig
+
+# ------------------------------
+# Test / coverage
+# ------------------------------
+coverage/
+.nyc_output/
+
+# ------------------------------
+# Misc
+# ------------------------------
+*.bak
+*.old
+*.backup
