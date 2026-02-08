@@ -236,6 +236,25 @@ func InjectConcurrencyFlag(command string, concurrency int) string {
 		}
 	}
 
+	// Special handling for "go run" commands
+	// The -p flag would be passed to the executed program, not to the Go toolchain
+	// Only inject -p for go build, go test, go install, etc.
+	if baseTool == "go" && len(parts) > 1 {
+		subCmd := parts[1]
+		// Only inject for commands that actually support -p for build parallelism
+		supportedGoSubcommands := map[string]bool{
+			"build":   true,
+			"test":    true,
+			"install": true,
+			"get":     true,
+			"mod":     true,
+			"vet":     true,
+		}
+		if !supportedGoSubcommands[subCmd] {
+			return command
+		}
+	}
+
 	// Check if this tool supports concurrency flags
 	toolConfig, exists := KnownTools[baseTool]
 	if !exists {

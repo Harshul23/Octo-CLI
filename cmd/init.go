@@ -67,6 +67,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("configuration file already exists at %s. Use --force to overwrite", outputPath)
 	}
 
+	// ========================================
+	// Show intro animation
+	// ========================================
+	ui.RunIntro()
+
 	// Print header
 	fmt.Println()
 	ui.PrintHeader("🐙 Octo Init")

@@ -16,7 +16,7 @@ const Navbar = () => {
 
 
   return (
-    <div className={`flex items-center justify-between w-full h-[10vh] px-2 ${theme == 'dark' ? "bg-black" : "bg-white"}`}>
+    <div className={`flex items-center z-20 fixed justify-between w-full h-[10vh] px-2 ${theme == 'dark' ? "bg-black" : "bg-white"}`}>
       <div className="flex items-center w-[21em] h-full justify-between">
         <div className="flex gap-2">
           <img
