@@ -1,0 +1,6 @@
+name: landing-page
+language: Node
+run: npm run dev
+setup: npm run build
+setup_required: true
+package_manager: npm
