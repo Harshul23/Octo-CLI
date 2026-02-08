@@ -20,7 +20,7 @@ const Navbar = () => {
       <div className="flex items-center w-[21em] h-full justify-between">
         <div className="flex gap-2">
           <img
-            src={theme == 'dark' ? './public/dark-octo.svg' : './public/light-octo.svg'}
+            src={theme == 'dark' ? '/dark-octo.svg' : '/light-octo.svg'}
             alt="Octo CLI"
             className="inline-block w-10 h-10 ml-3"
           />
