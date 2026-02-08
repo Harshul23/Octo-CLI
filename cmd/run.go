@@ -45,6 +45,11 @@ func init() {
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
+	// ========================================
+	// Show intro animation
+	// ========================================
+	ui.RunIntro()
+
 	// Get current working directory
 	cwd, err := os.Getwd()
 	if err != nil {
