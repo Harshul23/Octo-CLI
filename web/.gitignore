@@ -92,3 +92,4 @@ coverage/
 *.bak
 *.old
 *.backup
+.vercel
