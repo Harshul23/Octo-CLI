@@ -1,5 +1,5 @@
 import ScrollZoomVideo from "../video/videoframe.jsx";
-import video from "../../assets/octo-run.mp4"
+import video from "../../assets/octo-final.mp4"
 
 const Content = () => {
 
