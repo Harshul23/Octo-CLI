@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"embed"
 	"fmt"
 	"strings"
 	"time"
@@ -8,6 +9,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+//go:embed assets/ansi-art.html
+var ansiArtFS embed.FS
 
 // Cached pixel art logo
 var pixelArtLogo []string
@@ -33,61 +37,53 @@ var octoTextSmall = []string{
 // --- Hand-crafted Pixel Art Logo ---
 // Based on the Octo logo: circular black background with white octopus/play shape
 
-func init() {
-	// Create hand-crafted pixel art logo that matches the actual logo.png
-	pixelArtLogo = createOctoLogo()
-	pixelArtLogoSmall = createOctoLogoSmall()
-}
 
-// createOctoLogo creates the main logo using ANSI colors
-// Logo: Black circle with white octopus head + play button
-func createOctoLogo() []string {
-	// Using block characters with ANSI colors
-	// B = black (logo background), W = white (octopus shape), _ = transparent
-	
-	b := "\x1b[38;2;0;0;0m█\x1b[0m"           // Black block
-	w := "\x1b[38;2;255;255;255m█\x1b[0m"     // White block
-	s := " "                                   // Space (transparent)
-	
-	// Half block versions for smoother edges
-	bTop := "\x1b[38;2;0;0;0m▀\x1b[0m"
-	bBot := "\x1b[38;2;0;0;0m▄\x1b[0m"
-	
-	return []string{
-		s + s + s + bBot + b + b + b + b + b + b + bBot + s + s + s,
-		s + s + bBot + b + b + b + b + b + b + b + b + bBot + s + s,
-		s + bBot + b + b + w + w + w + w + w + b + b + b + bBot + s,
-		s + b + b + w + w + w + w + w + w + w + w + b + b + s,
-		s + b + b + w + w + b + b + w + w + w + w + b + b + s,
-		s + b + b + w + w + b + b + b + w + w + w + b + b + s,
-		s + b + b + w + w + b + b + b + b + w + w + b + b + s,
-		s + b + b + w + w + b + b + b + w + w + w + b + b + s,
-		s + b + b + w + w + b + b + w + w + w + w + b + b + s,
-		s + b + b + w + w + w + w + w + w + w + w + b + b + s,
-		s + b + b + b + w + w + w + w + w + b + b + b + b + s,
-		s + b + b + b + bTop + w + bTop + w + bTop + b + b + b + b + s,
-		s + s + bTop + b + b + w + b + w + b + w + b + bTop + s + s,
-		s + s + s + bTop + b + bTop + b + bTop + b + bTop + bTop + s + s + s,
+// scaleLogoToHeight samples the logo to fit the target height
+func scaleLogoToHeight(logo []string, targetHeight int) []string {
+	if len(logo) <= targetHeight {
+		return logo
 	}
+	
+	result := make([]string, targetHeight)
+	step := float64(len(logo)) / float64(targetHeight)
+	
+	for i := 0; i < targetHeight; i++ {
+		// Sample lines evenly from the original logo
+		srcIdx := int(float64(i) * step)
+		if srcIdx >= len(logo) {
+			srcIdx = len(logo) - 1
+		}
+		result[i] = logo[srcIdx]
+	}
+	
+	return result
 }
 
-// createOctoLogoSmall creates a smaller version
+// hexToRGB converts a hex color string to RGB values
+func hexToRGB(hex string) (int, int, int) {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return 0, 0, 0
+	}
+	
+	var r, g, b int
+	fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
+	return r, g, b
+}
+
+// createOctoLogoSmall creates a smaller version (used for compact layouts)
 func createOctoLogoSmall() []string {
-	b := "\x1b[38;2;0;0;0m█\x1b[0m"
-	w := "\x1b[38;2;255;255;255m█\x1b[0m"
-	s := " "
-	bBot := "\x1b[38;2;0;0;0m▄\x1b[0m"
-	bTop := "\x1b[38;2;0;0;0m▀\x1b[0m"
-	
-	return []string{
-		s + s + bBot + b + b + b + b + bBot + s + s,
-		s + b + b + w + w + w + w + b + b + s,
-		s + b + w + w + b + w + w + w + b + s,
-		s + b + w + w + b + w + w + w + b + s,
-		s + b + b + w + w + w + w + b + b + s,
-		s + b + b + bTop + w + bTop + w + b + b + s,
-		s + s + bTop + b + bTop + b + bTop + bTop + s + s,
+	// Return a subset of the main logo or empty if we want to skip it
+	if len(pixelArtLogo) > 6 {
+		// Take middle portion of the logo
+		start := len(pixelArtLogo) / 4
+		end := start + 6
+		if end > len(pixelArtLogo) {
+			end = len(pixelArtLogo)
+		}
+		return pixelArtLogo[start:end]
 	}
+	return pixelArtLogo
 }
 
 // --- Styles ---
@@ -222,8 +218,8 @@ func (m IntroModel) View() string {
 
 	s.WriteString(strings.Repeat("\n", topPadding))
 
-	// === RENDER OCTO TEXT (always large) ===
-	s.WriteString(renderOctoText(m.TickCount, width, false))
+	// === RENDER OCTO TEXT WITH LOGO ON RIGHT ===
+	s.WriteString(renderOctoTextWithLogo(m.TickCount, width, false))
 
 	s.WriteString("\n")
 
@@ -333,6 +329,69 @@ func renderOctoText(tick int, width int, compact bool) string {
 			Render(line)
 
 		result.WriteString(lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(styledLine))
+		result.WriteString("\n")
+	}
+
+	return result.String()
+}
+
+// --- Render OCTO Text with Logo on Right ---
+
+func renderOctoTextWithLogo(tick int, width int, compact bool) string {
+	var result strings.Builder
+
+	octoText := octoTextLarge
+	logo := pixelArtLogo
+	if compact {
+		octoText = octoTextSmall
+		logo = pixelArtLogoSmall
+	}
+
+	// If logo is empty, fall back to text only
+	if len(logo) == 0 {
+		return renderOctoText(tick, width, compact)
+	}
+
+	// Calculate max lines between text and logo
+	maxLines := len(octoText)
+	if len(logo) > maxLines {
+		maxLines = len(logo)
+	}
+
+	// Calculate vertical offsets to center both
+	textOffset := (maxLines - len(octoText)) / 2
+	logoOffset := (maxLines - len(logo)) / 2
+
+	for i := 0; i < maxLines; i++ {
+		var textLine string
+		textIdx := i - textOffset
+		if textIdx >= 0 && textIdx < len(octoText) {
+			// Wave animation effect
+			colorIdx := (tick + textIdx*2) % len(scanPalette)
+			color := scanPalette[colorIdx]
+			textLine = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(color)).
+				Bold(true).
+				Render(octoText[textIdx])
+		} else {
+			// Pad with spaces to maintain alignment
+			if len(octoText) > 0 {
+				textLine = strings.Repeat(" ", len(octoText[0]))
+			}
+		}
+
+		var logoLine string
+		logoIdx := i - logoOffset
+		if logoIdx >= 0 && logoIdx < len(logo) {
+			logoLine = logo[logoIdx]
+		} else {
+			// Pad with spaces (use approximate visible width of logo - 80 chars from HTML)
+			logoLine = strings.Repeat(" ", 80)
+		}
+
+		// Combine: OCTO text + spacing + logo on RIGHT
+		combined := textLine + "  " + logoLine
+		result.WriteString(lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(combined))
 		result.WriteString("\n")
 	}
 
