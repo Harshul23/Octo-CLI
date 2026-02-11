@@ -34,19 +34,22 @@ var toOctoTextLarge = []string{
 
 // --- Welcome Styles ---
 var (
+	// High-density gradient for ultra-smooth transitions
 	welcomeGradient = []string{
-		"#022c22", "#064e3b", "#065f46", "#047857", "#059669",
-		"#10b981", "#34d399", "#6ee7b7", "#a7f3d0", "#d1fae5",
-		"#ecfdf5", "#ffffff", "#ecfdf5", "#d1fae5", "#a7f3d0",
-		"#6ee7b7", "#34d399", "#10b981", "#059669", "#047857",
+		"#059669", "#059669", "#065f46", "#064e3b", // Deep Emeralds
+		"#065f46", "#059669", "#10b981", "#10b981", // Transitioning
+		"#34d399", "#6ee7b7", "#a7f3d0", "#d1fae5", // Bright Mints
+		"#a7f3d0", "#6ee7b7", "#34d399", "#10b981", // Transitioning back
+		"#2dd4bf", "#14b8a6", "#0d9488", "#0f766e", // Teals
+		"#0d9488", "#14b8a6", "#2dd4bf", "#10b981", // Return to start
 	}
 
-	welcomeAccentGreen = lipgloss.Color("#10b981")
-	welcomeAccentDim   = lipgloss.Color("#475569")
+	welcomeAccentGreen  = lipgloss.Color("#10b981")
+	welcomeAccentDim    = lipgloss.Color("#065f46")
 	welcomeAccentBright = lipgloss.Color("#34d399")
 
 	welcomeSubtitleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#a7f3d0")).
+				Foreground(lipgloss.Color("#50ba89ff")).
 				Bold(true)
 
 	welcomeCommandStyle = lipgloss.NewStyle().
@@ -57,20 +60,20 @@ var (
 				Foreground(lipgloss.Color("#94a3b8"))
 
 	welcomeDimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#475569"))
+			Foreground(lipgloss.Color("#64748b"))
 
 	welcomeSectionTitle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#6ee7b7")).
+				Foreground(lipgloss.Color("#059669")).
 				Bold(true).
 				Underline(true)
 
 	welcomeBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#065f46")).
+			BorderForeground(lipgloss.Color("#059669")).
 			Padding(1, 3)
 
 	welcomeQuitStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#64748b")).
+			Foreground(lipgloss.Color("#475569")).
 			Italic(true)
 )
 
@@ -94,7 +97,8 @@ func NewWelcomeModel() WelcomeModel {
 type welcomeTickMsg time.Time
 
 func welcomeTickCmd() tea.Cmd {
-	return tea.Tick(time.Millisecond*80, func(t time.Time) tea.Msg {
+	// 30ms provides a fluid high-FPS experience without taxing the CPU
+	return tea.Tick(time.Millisecond*70, func(t time.Time) tea.Msg {
 		return welcomeTickMsg(t)
 	})
 }
@@ -106,16 +110,14 @@ func (m WelcomeModel) Init() tea.Cmd {
 	)
 }
 
-// footerView renders the fixed footer bar
 func (m WelcomeModel) footerView() string {
 	width := m.Width
 	if width == 0 {
 		width = 100
 	}
 
-	// Blinking dot
 	dot := ""
-	if m.TickCount%10 < 5 {
+	if m.TickCount%30 < 15 {
 		dot = lipgloss.NewStyle().Foreground(welcomeAccentBright).Render("●")
 	} else {
 		dot = lipgloss.NewStyle().Foreground(welcomeAccentDim).Render("●")
@@ -132,7 +134,6 @@ func (m WelcomeModel) footerView() string {
 	return lipgloss.NewStyle().
 		Width(width).
 		Align(lipgloss.Center).
-		Foreground(lipgloss.Color("#475569")).
 		Render(bar)
 }
 
@@ -144,7 +145,7 @@ func (m WelcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width = msg.Width
 		m.Height = msg.Height
 
-		footerHeight := 2 // footer line + blank line above it
+		footerHeight := 2
 		viewHeight := m.Height - footerHeight
 		if viewHeight < 1 {
 			viewHeight = 1
@@ -175,7 +176,6 @@ func (m WelcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, welcomeTickCmd())
 	}
 
-	// Forward remaining messages to viewport (for scrolling, mouse, etc.)
 	var vpCmd tea.Cmd
 	m.viewport, vpCmd = m.viewport.Update(msg)
 	cmds = append(cmds, vpCmd)
@@ -188,13 +188,12 @@ func (m WelcomeModel) View() string {
 		return ""
 	}
 	if !m.ready {
-		return "\n  Loading..."
+		return "\n  Preparing Octo environment..."
 	}
 
 	return m.viewport.View() + "\n" + m.footerView()
 }
 
-// renderContent builds the full scrollable content
 func (m WelcomeModel) renderContent() string {
 	width := m.Width
 	if width == 0 {
@@ -207,44 +206,34 @@ func (m WelcomeModel) renderContent() string {
 		return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(text)
 	}
 
-	// Small top padding
 	content.WriteString("\n\n")
 
-	// 1. "WELCOME" in big text with wave animation
+	// 1. "WELCOME" - Direct mapping to TickCount for high speed
 	for i, line := range welcomeTextLarge {
-		colorIdx := (m.TickCount + i*2) % len(welcomeGradient)
+		// No division means it moves at 1 step per 30ms
+		colorIdx := (m.TickCount + i) % len(welcomeGradient)
 		color := welcomeGradient[colorIdx]
-		styled := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(color)).
-			Bold(true).
-			Render(line)
-		content.WriteString(center(styled))
-		content.WriteString("\n")
+		styled := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Bold(true).Render(line)
+		content.WriteString(center(styled) + "\n")
 	}
 
-	// 2. "TO OCTO" in big text with offset wave
+	// 2. "TO OCTO" - Continuous color flow from above
 	for i, line := range toOctoTextLarge {
-		colorIdx := (m.TickCount + (i+6)*2) % len(welcomeGradient)
+		colorIdx := (m.TickCount + i + len(welcomeTextLarge)) % len(welcomeGradient)
 		color := welcomeGradient[colorIdx]
-		styled := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(color)).
-			Bold(true).
-			Render(line)
-		content.WriteString(center(styled))
-		content.WriteString("\n")
+		styled := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Bold(true).Render(line)
+		content.WriteString(center(styled) + "\n")
 	}
 
 	content.WriteString("\n")
 
-	// 3. Subheading - "Now run anything you want" with a pulsing glow
-	pulseColors := []string{"#6ee7b7", "#a7f3d0", "#d1fae5", "#ecfdf5", "#ffffff", "#ecfdf5", "#d1fae5", "#a7f3d0", "#6ee7b7"}
-	pulseIdx := (m.TickCount / 2) % len(pulseColors)
+	// 3. Subheading with reactive speed
+	pulseIdx := (m.TickCount / 4) % len(welcomeGradient)
 	subheading := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(pulseColors[pulseIdx])).
+		Foreground(lipgloss.Color(welcomeGradient[pulseIdx])).
 		Bold(true).
 		Render("🚀  Now run anything you want  🚀")
-	content.WriteString(center(subheading))
-	content.WriteString("\n\n")
+	content.WriteString(center(subheading) + "\n\n")
 
 	// 4. Separator
 	sepWidth := 56
@@ -252,32 +241,29 @@ func (m WelcomeModel) renderContent() string {
 		sepWidth = width - 4
 	}
 	separator := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#065f46")).
+		Foreground(lipgloss.Color("#064e3b")).
 		Render(strings.Repeat("─", sepWidth))
-	content.WriteString(center(separator))
-	content.WriteString("\n\n")
+	content.WriteString(center(separator) + "\n\n")
 
 	// 5. Usage section
-	content.WriteString(center(welcomeSectionTitle.Render("How to Use Octo")))
-	content.WriteString("\n\n")
+	content.WriteString(center(welcomeSectionTitle.Render("How to Use Octo")) + "\n\n")
 
 	usageItems := []struct {
 		cmd  string
 		desc string
 	}{
-		{"octo init", "Analyze your project & generate .octo.yaml config"},
-		{"octo run", "Run your project with zero-config deployment"},
-		{"octo run --watch", "Run with auto-restart on file changes"},
+		{"octo init", "Analyze project & generate .octo.yaml"},
+		{"octo run", "Run with zero-config deployment"},
+		{"octo run --watch", "Auto-restart on file changes"},
 		{"octo run --env production", "Run in production mode"},
-		{"octo run --port 3000", "Override the default port"},
-		{"octo run --no-tui", "Run with plain scrolling output"},
+		{"octo run --port 3000", "Override default port"},
+		{"octo run --no-tui", "Plain scrolling output"},
 	}
 
 	for _, item := range usageItems {
 		cmd := welcomeCommandStyle.Render(fmt.Sprintf("  %-28s", item.cmd))
 		desc := welcomeDescStyle.Render(item.desc)
-		content.WriteString(center(cmd + "" + desc))
-		content.WriteString("\n")
+		content.WriteString(center(cmd + desc) + "\n")
 	}
 
 	content.WriteString("\n")
@@ -288,18 +274,13 @@ func (m WelcomeModel) renderContent() string {
 		welcomeCommandStyle.Render("octo run")
 	content.WriteString(center(lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#475569")).
-		Render("Quick Start:  ") + quickStart))
-	content.WriteString("\n\n")
+		Render("Quick Start:  ") + quickStart) + "\n\n")
 
-	// 7. Separator
-	content.WriteString(center(separator))
-	content.WriteString("\n")
+	content.WriteString(center(separator) + "\n")
 
 	return content.String()
 }
 
-// RunWelcomeScreen launches the persistent welcome TUI.
-// Returns true if it exited normally.
 func RunWelcomeScreen() bool {
 	p := tea.NewProgram(
 		NewWelcomeModel(),
@@ -311,15 +292,10 @@ func RunWelcomeScreen() bool {
 	return err == nil
 }
 
-// IsOctoProject checks whether the given blueprint represents the Octo CLI project itself.
 func IsOctoProject(name string, language string, workDir string) bool {
-	// Check by name
 	nameMatch := strings.EqualFold(name, "octo-cli") || strings.EqualFold(name, "octo")
-
-	// Check language is Go
 	langMatch := strings.EqualFold(language, "go") || strings.EqualFold(language, "golang")
 
-	// Check for cmd/main.go with octo structure (a strong signal)
 	_, cmdErr := os.Stat(filepath.Join(workDir, "cmd", "main.go"))
 	_, runErr := os.Stat(filepath.Join(workDir, "cmd", "run.go"))
 	_, initErr := os.Stat(filepath.Join(workDir, "cmd", "init.go"))
