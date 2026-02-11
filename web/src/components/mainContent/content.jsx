@@ -1,12 +1,13 @@
+import ScrollZoomVideo from "../video/videoframe.jsx";
+import video from "../../assets/octo-run.mp4"
 
 const Content = () => {
+
   return (
-    <div className='h-screen w-full flex justify-center items-start mt-10 bg-black'>
-      <div className="h-6/10 w-7/10 rounded-2xl border-2 border-[#dd53ff]">
-
-      </div>
+    <div className="w-full flex justify-center items-start mt-10 bg-black">
+      <ScrollZoomVideo src={video} />
     </div>
-  )
-}
+  );
+};
 
-export default Content
+export default Content;
