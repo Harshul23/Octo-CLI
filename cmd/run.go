@@ -86,6 +86,12 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to read configuration: %w", err)
 	}
 
+	// Check if running inside the Octo project itself
+	if ui.IsOctoProject(bp.Name, bp.Language, cwd) {
+		ui.RunWelcomeScreen()
+		return nil
+	}
+
 	// Pre-run environment validation and auto-provisioning
 	if !skipEnvCheck {
 		valid, _ := secrets.PreRunEnvValidation(cwd, bp.Language)

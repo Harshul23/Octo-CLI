@@ -1,4 +1,4 @@
-name: landing-page
+name: Octo-landing-page
 language: Node
 run: npm run dev
 setup: npm run build
