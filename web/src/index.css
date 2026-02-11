@@ -3,3 +3,7 @@
 .cursor {
     @apply h-4.5 w-1.5 bg-white inline-block relative top-0.5 ml-2;
 }
+
+html, body {
+  @apply m-0 p-0 bg-black
+}
