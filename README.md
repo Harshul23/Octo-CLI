@@ -37,7 +37,7 @@ Octo is a CLI tool that analyzes your codebase, detects the tech stack, and gene
 ### From Source
 
 ```bash
-git clone https://github.com/harshul/octo-cli.git
+git clone https://github.com/harshul23/octo-cli.git
 cd octo-cli
 ./scripts/install.sh
 ```
