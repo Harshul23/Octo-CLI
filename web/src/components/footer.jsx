@@ -7,9 +7,9 @@ const Footer = () => {
             <p className='text-3xl font-light text-[#ffffffe1]'><span className='font-bold mr-1.5'>Octo</span> for Developers</p>
         </div>
         <div className='flex items-center gap-4 mt-2'>
-            <p className='text-sm text-[#ffffffbb]'>Terms</p>
+            <p className='text-lg text-[#ffffffbb] hover:underline'>Terms</p>
             <p className='bg-[#ffffffb0] h-4 w-0.5'></p>
-            <p className='text-sm text-[#ffffffbb]'>Privacy</p>
+            <p className='text-lg text-[#ffffffbb] hover:underline'>Privacy</p>
         </div>
     </div>
   )
