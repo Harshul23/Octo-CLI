@@ -4,7 +4,7 @@
 
 Octo is a CLI tool that analyzes your codebase, detects the tech stack, and generates a deployment configuration file to run your application locally.
 
-![Downloads](https://img.shields.io/badge/Downloads-nullnull-blue)
+![Downloads](https://img.shields.io/badge/Downloads-nullnullnull-blue)
 
 ## Features
 
