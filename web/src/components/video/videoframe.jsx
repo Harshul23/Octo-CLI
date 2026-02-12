@@ -5,33 +5,24 @@ export default function ScrollZoomVideo({ src }) {
   const sectionRef = useRef(null);
   const videoRef = useRef(null);
 
-  const rawScale = useMotionValue(0.8);
+  const rawScale = useMotionValue(0.6);
   const scale = useSpring(rawScale, {
     stiffness: 80,
     damping: 20,
     mass: 0.5,
   });
 
-  const [locked, setLocked] = useState(false);
   const [isInViewport, setIsInViewport] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
 
-  const MIN = 0.6;
-  const MAX = 0.9;
-  const UNLOCK_THRESHOLD = 100;
-  const extraScrollRef = useRef(0);
+  const MAX = 1.05;
 
-  // Visibility detection
+  // Detect visibility
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
         setIsInViewport(entry.isIntersecting);
-
-        if (!entry.isIntersecting) {
-          setLocked(false);
-          document.body.style.overflow = "auto";
-        }
       },
       { threshold: 0.8 }
     );
@@ -40,51 +31,23 @@ export default function ScrollZoomVideo({ src }) {
       observer.observe(sectionRef.current);
     }
 
-    return () => {
-      observer.disconnect();
-      document.body.style.overflow = "auto";
-    };
+    return () => observer.disconnect();
   }, []);
 
-  // Scroll zoom logic
+  // ONLY zoom in on scroll down
   useEffect(() => {
     const handleWheel = (e) => {
       if (!isInViewport) return;
+      if (e.deltaY <= 0) return; // Ignore scroll up
 
       const current = rawScale.get();
+      if (current >= MAX) return; // Stop at max
+
+      e.preventDefault();
+
       const delta = e.deltaY * 0.0008;
-      let next = current + delta;
-
-      const atMin = current <= MIN;
-      const atMax = current >= MAX;
-      const scrollingUp = e.deltaY < 0;
-      const scrollingDown = e.deltaY > 0;
-
-      const canZoomOut = scrollingUp && !atMin;
-      const canZoomIn = scrollingDown && !atMax;
-      const canZoom = canZoomOut || canZoomIn;
-
-      if (canZoom) {
-        e.preventDefault();
-
-        if (!locked) {
-          setLocked(true);
-          document.body.style.overflow = "hidden";
-        }
-
-        extraScrollRef.current = 0;
-        rawScale.set(Math.max(MIN, Math.min(MAX, next)));
-      } else if (locked) {
-        e.preventDefault();
-
-        extraScrollRef.current += Math.abs(e.deltaY);
-
-        if (extraScrollRef.current > UNLOCK_THRESHOLD) {
-          document.body.style.overflow = "auto";
-          setLocked(false);
-          extraScrollRef.current = 0;
-        }
-      }
+      const next = Math.min(MAX, current + delta);
+      rawScale.set(next);
     };
 
     window.addEventListener("wheel", handleWheel, { passive: false });
@@ -92,7 +55,7 @@ export default function ScrollZoomVideo({ src }) {
     return () => {
       window.removeEventListener("wheel", handleWheel);
     };
-  }, [isInViewport, locked, rawScale]);
+  }, [isInViewport, rawScale]);
 
   // Cursor follow
   const handleMouseMove = (e) => {
@@ -119,11 +82,11 @@ export default function ScrollZoomVideo({ src }) {
   return (
     <section
       ref={sectionRef}
-      className="h-screen flex items-center justify-center bg-black relative"
+      className="min-h-[100dvh] overflow-hidden flex items-center justify-center bg-black relative"
     >
       <motion.div
         style={{ scale }}
-        className={`w-[90%] max-w-5xl border-2 border-[white] rounded-2xl overflow-hidden shadow-2xl ${
+        className={`w-[90%] max-w-5xl border-2 border-white rounded-2xl overflow-hidden shadow-2xl ${
           hovered ? "cursor-none" : ""
         }`}
         onClick={togglePlay}
@@ -134,7 +97,7 @@ export default function ScrollZoomVideo({ src }) {
         <video
           ref={videoRef}
           src={src}
-          className="w-full h-full object-cover"
+          className="h-full object-cover"
           autoPlay
           playsInline
           preload="metadata"

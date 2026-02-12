@@ -32,7 +32,6 @@ const Navbar = () => {
             return (
               <div key={index} className="flex items-center  h-full">
                 <button
-                  onClick={() => alert("Hello")}
                   className={`flex justify-center items-center h-full z-10 text-xl font-normal ${theme == 'dark' ? "text-[#dadada]" : "text-[#292929]"}`}
                 >{item.label}
                 </button>
@@ -43,7 +42,7 @@ const Navbar = () => {
       </div>
 
       <div className="flex items-center h-full gap-4 px-3 mt-3">
-        <div className="text-white flex gap-2">
+        <div onClick={() => window.open("https://github.com/Harshul23/Octo-CLI", "_blank")} className="text-white flex gap-2">
           <FaGithub size={20} className={theme == 'dark' ? "text-white" : "text-black"}/>
           <span className={`text-sm font-normal ${theme == 'dark' ? "text-white" : "text-black"}`}>100 K</span>
         </div>
