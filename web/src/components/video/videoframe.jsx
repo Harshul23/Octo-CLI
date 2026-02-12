@@ -136,7 +136,8 @@ export default function ScrollZoomVideo({ src }) {
           src={src}
           className="w-full h-full object-cover"
           autoPlay
-          preload="auto"
+          playsInline
+          preload="metadata"
           muted
           loop
         />
