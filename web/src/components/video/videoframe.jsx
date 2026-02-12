@@ -17,8 +17,8 @@ export default function ScrollZoomVideo({ src }) {
   const [hovered, setHovered] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
 
-  const MIN = 0.8;
-  const MAX = 1.1;
+  const MIN = 0.6;
+  const MAX = 0.9;
   const UNLOCK_THRESHOLD = 100;
   const extraScrollRef = useRef(0);
 
@@ -136,6 +136,7 @@ export default function ScrollZoomVideo({ src }) {
           src={src}
           className="w-full h-full object-cover"
           autoPlay
+          preload="auto"
           muted
           loop
         />
