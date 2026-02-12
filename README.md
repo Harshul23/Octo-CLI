@@ -1,4 +1,21 @@
+<p align="center">
+  <img src="./assets/octo-banner.png" alt="Octo CLI Banner" width="100%" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/Harshul23/Octo-CLI/releases">
+    <img src="https://img.shields.io/github/v/release/Harshul23/Octo-CLI?label=Release&style=for-the-badge" />
+  </a>
+  <a href="https://github.com/Harshul23/Octo-CLI/stargazers">
+    <img src="https://img.shields.io/github/stars/Harshul23/Octo-CLI?style=for-the-badge" />
+  </a>
+  <a href="https://github.com/Harshul23/Octo-CLI/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/Harshul23/Octo-CLI?style=for-the-badge" />
+  </a>
+</p>
+
 # Octo CLI
+
 
 **Automate local deployment of any software with zero configuration.**
 
