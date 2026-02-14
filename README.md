@@ -25,10 +25,10 @@ Octo is a CLI tool that analyzes your codebase, detects the tech stack, and gene
 
 ## Features
 
-- 🔍 **Automatic Detection** - Detects programming languages, frameworks, and package managers
-- ⚡ **Zero Configuration** - Get started with a single command
-- 🐳 **Multiple Runtimes** - Supports Docker, Nix, and shell-based execution
-- 📦 **Framework Aware** - Understands popular frameworks and their conventions
+- **Automatic Detection** - Detects programming languages, frameworks, and package managers
+- **Zero Configuration** - Get started with a single command
+- **Multiple Runtimes** - Supports Docker, Nix, and shell-based execution
+- **Framework Aware** - Understands popular frameworks and their conventions
 
 ## Installation
 
