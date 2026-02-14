@@ -16,7 +16,7 @@ export default function ScrollZoomVideo({ src }) {
   const [hovered, setHovered] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
 
-  const MAX = 1.05;
+  const MAX = 1;
 
   // Detect visibility
   useEffect(() => {

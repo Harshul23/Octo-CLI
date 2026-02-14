@@ -1,19 +1,20 @@
-import Homepage from './components/homepage.jsx'
-import Entrypage from './components/entrypage.jsx'
-import { useEffect, useState } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+import Homepage from "./components/homepage.jsx";
+import Entrypage from "./components/entrypage.jsx";
+import Docs from "./components/Docs.jsx";
+import Layout from "./components/Layout.jsx";
 
 function App() {
-  const [showEntry, setShowEntry] = useState(true);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowEntry(false);
-    }, 1200);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  return showEntry ? <Entrypage /> : <Homepage />;
+  return (
+    <Routes>
+      <Route path="/" element={<Entrypage />} />
+      <Route element={<Layout />}>
+        <Route path="/home" element={<Homepage />} />
+        <Route path="/docs" element={<Docs />} />
+        <Route path="*" element={<Navigate to="/" />} />
+      </Route>
+    </Routes>
+  );
 }
 
-export default App
+export default App;
