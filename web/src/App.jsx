@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Homepage from "./components/homepage.jsx";
 import Entrypage from "./components/entrypage.jsx";
-import Docs from "./components/Docs.jsx";
+import Docs from "./components/docs.jsx";
 import Layout from "./components/Layout.jsx";
 
 function App() {
