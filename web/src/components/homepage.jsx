@@ -4,10 +4,8 @@ import Footer from './footer'
 
 const Homepage = () => {
   return (
-    <div className='flex flex-col w-full bg-black'>
-      <Navbar />
+    <div className='flex flex-col w-full bg-black'>   
       <Heropage />
-      <Footer />
     </div>
   )
 }
