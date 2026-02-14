@@ -3,6 +3,8 @@ import Homepage from "./components/homepage.jsx";
 import Entrypage from "./components/entrypage.jsx";
 import Docs from "./components/docs.jsx";
 import Layout from "./components/Layout.jsx";
+import DocsLayout from "./components/DocsLayout.jsx";
+import Install from "./components/install.jsx";
 
 function App() {
   return (
@@ -11,6 +13,10 @@ function App() {
       <Route element={<Layout />}>
         <Route path="/home" element={<Homepage />} />
         <Route path="/docs" element={<Docs />} />
+        <Route path="*" element={<Navigate to="/" />} />
+      </Route>
+      <Route element={<DocsLayout />}>
+        <Route path="/docs/installation" element={<Install />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Route>
     </Routes>

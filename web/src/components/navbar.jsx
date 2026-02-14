@@ -1,42 +1,45 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { FaGithub } from "react-icons/fa";
 import { NavLink } from "react-router-dom";
 
 const navItems = [
-  { label: "Docs", path: "/docs" },
+  { label: "Docs", path: "/docs/Installation" },
   { label: "Changelog", path: "/changelog" },
 ];
 
 const Navbar = () => {
-  const [theme, setTheme] = useState("dark");
 
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === "light" ? "dark" : "light"));
-  };
+  const [stars, setStars] = useState(null)
+
+  useEffect(() => {
+    fetch("https://api.github.com/repos/Harshul23/Octo-CLI")
+      .then((res) => res.json())
+      .then((data) => {
+        setStars(data.stargazers_count);
+      })
+      .catch((err) => console.error(err));
+  }, []);
 
   const baseLink =
     "flex justify-center items-center h-full z-10 text-xl font-normal transition-colors duration-200";
 
   return (
     <div
-      className={`flex fixed items-center z-20 justify-between w-full h-[10vh] px-2 ${
-        theme === "dark" ? "bg-black" : "bg-white"
-      }`}
+      className={`flex fixed items-center z-20 justify-between w-full h-[10vh] py-6 px-2 bg-black`}
     >
       <div className="flex items-center w-[21em] h-full justify-between">
         <div className="flex gap-2 items-center">
           <img
-            src={theme === "dark" ? "/dark-octo.svg" : "/light-octo.svg"}
+            src="/dark-octo.svg"
             alt="Octo CLI"
             className="inline-block w-10 h-10 ml-3"
           />
-          <span
-            className={`text-4xl font-bold ${
-              theme === "dark" ? "text-white" : "text-black"
-            }`}
+          <NavLink
+            to="/home"
+            className={`text-4xl font-bold text-white`}
           >
             Octo
-          </span>
+          </NavLink>
         </div>
 
         <div className="flex items-center mt-3 gap-6 h-full">
@@ -47,10 +50,7 @@ const Navbar = () => {
                 className={({ isActive }) =>
                   `${baseLink} ${
                     isActive
-                      ? "text-purple-500"
-                      : theme === "dark"
-                      ? "text-[#c3c3c3] hover:text-white"
-                      : "text-[#292929] hover:text-black"
+                        ? "text-white underline underline-offset-4" : "text-neutral-400 hover:text-white"
                   }`
                 }
               >
@@ -61,61 +61,30 @@ const Navbar = () => {
         </div>
       </div>
 
-      <div className="flex items-center h-full gap-4 px-3 mt-3">
+      <div className="flex items-center h-full gap-4 px-3 mr-8 mt-2">
         <div
           onClick={() =>
-            window.open(
-              "https://github.com/Harshul23/Octo-CLI",
-              "_blank"
-            )
+            window.open("https://github.com/Harshul23/Octo-CLI", "_blank")
           }
           className="flex gap-2 cursor-pointer"
         >
           <FaGithub
             size={20}
-            className={theme === "dark" ? "text-white" : "text-black"}
+            className="text-white"
           />
           <span
-            className={`text-sm font-normal ${
-              theme === "dark" ? "text-white" : "text-black"
-            }`}
+            className={`text-sm font-normal text-white`}
           >
-            100 K
+            {stars !== null ? stars : "..."}
           </span>
         </div>
 
         <div
-          className={`h-4 rounded-sm border ${
-            theme === "dark"
-              ? "border-[#ffffff9c]"
-              : "border-[#00000099]"
-          }`}
+          className={`h-4 rounded-sm border border-[#ffffff9c]`}
         ></div>
-
-        <button onClick={toggleTheme} className="h-5 w-5">
-          <svg
-            className={
-              theme === "dark"
-                ? "text-white"
-                : "text-black stroke-black"
-            }
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 3v18" />
-            <path d="M12 9l4.65-4.65" />
-            <path d="M12 14.3l7.37-7.37" />
-            <path d="M12 19.6l8.85-8.85" />
-          </svg>
-        </button>
+        <div className="flex justify-center items-center font-medium text-neutral-400 hover:text-white text-lg rounded-lg">
+          Feedback
+        </div>
       </div>
     </div>
   );

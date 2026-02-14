@@ -2,8 +2,6 @@ import FadeText from './FadeText'
 import Content from './mainContent/content.jsx'
 import { TbCopy } from "react-icons/tb";
 import { useCopy } from "../hooks/useCopy.js";
-import { style } from 'framer-motion/client';
-import { transform } from 'framer-motion';
 import React from 'react';
 
 const Heropage = () => {
@@ -20,11 +18,11 @@ const Heropage = () => {
   };
 
   return (
-    <div className='min-h-8/10 mt-25 gap-10 overflow-scroll w-full flex flex-col items-center justify-center'>
+    <div className='min-h-8/10 mt-45 gap-10 overflow-scroll w-full flex flex-col items-center justify-center'>
         <div className='flex-col gap-6 flex items-center justify-center w-full h-full'>
-            <p className='text-6xl font-medium px-[4em] text-white text-center h-full w-full'><FadeText text="Now local execution is automated from detection to deployment" /></p>
-            <p className='text-2xl font-normal px-[9em] text-[#ffffffb5] text-center h-full w-full'>A single command that understands your project, prepares everything it needs, and runs it the way it was meant to.</p>
-            <div className='text-sm bg-[#17131d] text-white px-4 py-2 rounded-xl border-2 border-[#ac87eb]'>
+            <p className='text-7xl font-normal py-4 leading-20 px-[3em] text-white text-center h-full w-full'><FadeText text="Now local execution is automated from detection to deployment" /></p>
+            <p className='text-3xl font-light py-4 px-[8em] text-[#ffffffb5] text-center h-full w-full'>A single command that understands your project, prepares everything it needs, and runs it the way it was meant to.</p>
+            <div className='text-sm bg-[#17131d] text-white px-4 py-2 rounded-xl border-2 border-blue-400'>
                 <code>
                   <pre className='flex items-center gap-4'>
                     $ brew install harshul23/tap/octo-cli       
@@ -39,7 +37,7 @@ const Heropage = () => {
                   </pre>
                 </code>
             </div>
-            <p className='text-sm text-[#ac87eb]'><pre>More install options</pre></p>
+            <p className='text-sm text-[#d786ff]'><pre>More install options</pre></p>
         </div>
         <Content />
     </div>
