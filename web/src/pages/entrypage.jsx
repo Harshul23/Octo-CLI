@@ -1,4 +1,4 @@
-import TypingText from './TypingText'
+import TypingText from '../components/ui/TypingText.jsx'
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 

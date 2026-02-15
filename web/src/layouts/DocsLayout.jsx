@@ -1,7 +1,7 @@
 import { Outlet } from "react-router-dom";
-import Navbar from "./navbar";
-import Footer from "./footer";
-import Sidebar from "./sidebar";
+import Navbar from "../components/navigation/navbar";
+import Footer from "../components/navigation/footer";
+import Sidebar from "../components/navigation/sidebar";
 
 export default function DocsLayout() {
   return (

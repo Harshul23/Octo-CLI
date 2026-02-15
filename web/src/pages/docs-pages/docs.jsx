@@ -1,5 +1,3 @@
-import Sidebar from './sidebar'
-
 const Docs = () => {
   return (
     <div className='h-screen mt-20 w-full text-white pt-2 bg-black flex'>

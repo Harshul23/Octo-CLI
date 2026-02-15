@@ -22,7 +22,7 @@ const Sidebar = () => {
       {dropdown && (
         <div className="border-l border-neutral-600 px-4 ml-2 mt-4">
           <NavLink
-            to="/docs/installation"
+            to="/docs/Overview"
             className={({ isActive }) =>
               `block text-[1.1em] mb-2 px-2 py-1 rounded-lg ${
                 isActive
@@ -34,11 +34,11 @@ const Sidebar = () => {
           </NavLink>
 
           <NavLink
-            to="/docs/quick-guide"
+            to="/docs/quickstart"
             className={({ isActive }) =>
-              `block text-[1.1em] mb-2 ${
+              `block text-[1.1em] mb-2 px-2 py-1 rounded-lg ${
                 isActive
-                  ? "text-white bg-neutral-600" : "text-neutral-400 hover:text-white"
+                  ? "text-white bg-blue-500" : "text-neutral-400 hover:text-white"
               }`
             }
           >

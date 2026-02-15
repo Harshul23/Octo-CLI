@@ -1,10 +1,11 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import Homepage from "./components/homepage.jsx";
-import Entrypage from "./components/entrypage.jsx";
-import Docs from "./components/docs.jsx";
-import Layout from "./components/Layout.jsx";
-import DocsLayout from "./components/DocsLayout.jsx";
-import Install from "./components/install.jsx";
+import Homepage from "./pages/homepage.jsx";
+import Entrypage from "./pages/entrypage.jsx";
+import Docs from "./pages/docs-pages/docs.jsx";
+import Layout from "./layouts/Layout.jsx";
+import DocsLayout from "./layouts/DocsLayout.jsx";
+import Overview from "./pages/docs-pages/overview.jsx";
+import Quickstart from "./pages/docs-pages/quickstart.jsx";
 
 function App() {
   return (
@@ -16,7 +17,8 @@ function App() {
         <Route path="*" element={<Navigate to="/" />} />
       </Route>
       <Route element={<DocsLayout />}>
-        <Route path="/docs/installation" element={<Install />} />
+        <Route path="/docs/overview" element={<Overview />} />
+        <Route path="/docs/quickstart" element={<Quickstart />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Route>
     </Routes>

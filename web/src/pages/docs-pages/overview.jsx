@@ -1,6 +1,6 @@
 import Onpage from "./onpage.jsx"
 
-const Install = () => {
+const Overview = () => {
   return (
     <div className='bg-black flex'>
       <div className="h-full mt-20 ml-60 w-5/10 text-white pt-2 bg-black flex flex-col gap-10">
@@ -57,4 +57,4 @@ const Install = () => {
   )
 }
 
-export default Install
+export default Overview
