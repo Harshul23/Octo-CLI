@@ -2,7 +2,7 @@ name: Update Download Count
 
 on:
   schedule:
-    - cron: "0 */6 * * *"  # every 6 hours
+    - cron: "0 */6 * * *"   # every 6 hours
   workflow_dispatch:
 
 permissions:
@@ -19,19 +19,24 @@ jobs:
       - name: Fetch releases and sum downloads
         run: |
           TOTAL=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases \
-          | jq '[.[].assets[].download_count] | add')
+          | jq '[.[].assets[].download_count] | add // 0')
 
           echo "Total downloads: $TOTAL"
-
           echo "DOWNLOADS=$TOTAL" >> $GITHUB_ENV
 
       - name: Update README badge
         run: |
           sed -i "s/Downloads-[0-9]*/Downloads-$DOWNLOADS/" README.md
 
-      - name: Commit changes
+      - name: Commit changes (only if modified)
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git commit -am "Update download count"
-          git push
+
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git add README.md
+            git commit -m "Update download count"
+            git push
+          else
+            echo "No changes to commit"
+          fi
