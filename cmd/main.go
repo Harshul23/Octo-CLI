@@ -30,6 +30,8 @@ func init() {
 	// Add subcommands
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(publishCmd)
 }
 
 func main() {

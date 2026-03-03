@@ -23,6 +23,14 @@ type ThermalConfig struct {
 	Mode string `yaml:"mode,omitempty"`
 }
 
+// Step represents a single step in the command pipeline
+type Step struct {
+	ID      string `yaml:"id" json:"id"`
+	Name    string `yaml:"name" json:"name"`
+	Command string `yaml:"command" json:"command"`
+	Order   int    `yaml:"order" json:"order"`
+}
+
 // Blueprint is a configuration derived from project analysis.
 type Blueprint struct {
 	Name           string        `yaml:"name"`
@@ -35,6 +43,7 @@ type Blueprint struct {
 	IsMonorepo     bool          `yaml:"is_monorepo,omitempty"`
 	MonorepoRoot   string        `yaml:"monorepo_root,omitempty"`
 	EnvVars        []EnvVar      `yaml:"env_vars,omitempty"`
+	Steps          []Step        `yaml:"steps,omitempty" json:"steps,omitempty"`
 	Thermal        ThermalConfig `yaml:"thermal,omitempty"`
 }
 
@@ -51,7 +60,7 @@ func FromAnalysis(a analyzer.Analysis) Blueprint {
 
 // FromProjectInfo converts a ProjectInfo result into a full blueprint.
 func FromProjectInfo(p analyzer.ProjectInfo) Blueprint {
-	return Blueprint{
+	bp := Blueprint{
 		Name:           p.Name,
 		Language:       p.Language,
 		Version:        p.Version,
@@ -62,6 +71,41 @@ func FromProjectInfo(p analyzer.ProjectInfo) Blueprint {
 		IsMonorepo:     p.IsMonorepo,
 		MonorepoRoot:   p.MonorepoRoot,
 	}
+
+	// Auto-generate pipeline steps from setup/run commands
+	stepOrder := 0
+	if p.PackageManager != "" {
+		installCmd := p.PackageManager + " install"
+		if p.PackageManager == "yarn" || p.PackageManager == "bun" {
+			installCmd = p.PackageManager + " install"
+		}
+		bp.Steps = append(bp.Steps, Step{
+			ID:      "step-install",
+			Name:    "Install Dependencies",
+			Command: installCmd,
+			Order:   stepOrder,
+		})
+		stepOrder++
+	}
+	if p.SetupCommand != "" {
+		bp.Steps = append(bp.Steps, Step{
+			ID:      "step-setup",
+			Name:    "Setup / Build",
+			Command: p.SetupCommand,
+			Order:   stepOrder,
+		})
+		stepOrder++
+	}
+	if p.RunCommand != "" {
+		bp.Steps = append(bp.Steps, Step{
+			ID:      "step-run",
+			Name:    "Run Application",
+			Command: p.RunCommand,
+			Order:   stepOrder,
+		})
+	}
+
+	return bp
 }
 
 // Write writes the blueprint as a YAML file.

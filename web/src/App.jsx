@@ -1,26 +1,30 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import Homepage from "./pages/homepage.jsx";
-import Entrypage from "./pages/entrypage.jsx";
-import Docs from "./pages/docs-pages/docs.jsx";
-import Layout from "./layouts/Layout.jsx";
-import DocsLayout from "./layouts/DocsLayout.jsx";
-import Overview from "./pages/docs-pages/overview.jsx";
-import Quickstart from "./pages/docs-pages/quickstart.jsx";
+import DashboardLayout from "./layouts/DashboardLayout.jsx";
+import Landing from "./pages/Landing.jsx";
+import Dashboard from "./pages/Dashboard.jsx";
+import Analyze from "./pages/Analyze.jsx";
+import ProjectDetail from "./pages/ProjectDetail.jsx";
+import Explore from "./pages/Explore.jsx";
+import ExploreDetail from "./pages/ExploreDetail.jsx";
+import Settings from "./pages/Settings.jsx";
+import AuthCallback from "./pages/AuthCallback.jsx";
+import RepoSelector from "./pages/RepoSelector.jsx";
 
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Entrypage />} />
-      <Route element={<Layout />}>
-        <Route path="/home" element={<Homepage />} />
-        <Route path="/docs" element={<Docs />} />
-        <Route path="*" element={<Navigate to="/" />} />
+      <Route path="/" element={<Landing />} />
+      <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route element={<DashboardLayout />}>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/repos" element={<RepoSelector />} />
+        <Route path="/analyze" element={<Analyze />} />
+        <Route path="/projects/:id" element={<ProjectDetail />} />
+        <Route path="/explore" element={<Explore />} />
+        <Route path="/explore/:id" element={<ExploreDetail />} />
+        <Route path="/settings" element={<Settings />} />
       </Route>
-      <Route element={<DocsLayout />}>
-        <Route path="/docs/overview" element={<Overview />} />
-        <Route path="/docs/quickstart" element={<Quickstart />} />
-        <Route path="*" element={<Navigate to="/" />} />
-      </Route>
+      <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );
 }

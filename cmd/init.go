@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/harshul/octo-cli/internal/analyzer"
@@ -230,13 +231,56 @@ func runInit(cmd *cobra.Command, args []string) error {
 				// ========================================
 				ui.PrintStep(3, 5, fmt.Sprintf("Installing dependencies (%s)...", diagnosis.Dependencies.InstallCommand))
 
+				// ATTEMPT 1: Project-Specific or Primary Manager
 				err := doctor.InstallDependencies(cwd, diagnosis.Dependencies.InstallCommand)
 
+				// ========================================
+				// SMART RETRY / FALLBACK MECHANISM
+				// ========================================
 				if err != nil {
-					ui.PrintError(fmt.Sprintf("Installation failed: %v", err))
-				} else {
-					ui.PrintSuccess("Dependencies installed")
+					ui.PrintWarning(fmt.Sprintf("Primary install failed: %v", err))
+					
+					// ATTEMPT 2: System Fallback (If project used specific path like ./oppia_tools/yarn)
+					// If the project specified 'yarn' but the specific binary failed, try global 'yarn'
+					if projectInfo.PackageManager == "yarn" {
+						ui.PrintInfo("ℹ ⚠️  Local yarn failed. Attempting system 'yarn install'...")
+						
+						yarnFallback := exec.Command("yarn", "install")
+						yarnFallback.Dir = cwd
+						yarnFallback.Stdout = os.Stdout
+						yarnFallback.Stderr = os.Stderr
+						
+						if fallbackErr := yarnFallback.Run(); fallbackErr == nil {
+							ui.PrintSuccess("Dependencies installed via system yarn")
+							err = nil // Clear error
+						}
+					}
 
+					// ATTEMPT 3: The "Legacy Peer Deps" Hammer
+					// If Yarn failed or wasn't used, and previous attempts failed, try npm with legacy flags
+					if err != nil {
+						ui.PrintInfo("ℹ ⚠️  Dependency resolution failed. Attempting 'npm install --legacy-peer-deps'...")
+						
+						legacyFallback := exec.Command("npm", "install", "--legacy-peer-deps")
+						legacyFallback.Dir = cwd
+						legacyFallback.Stdout = os.Stdout
+						legacyFallback.Stderr = os.Stderr
+
+						if legacyErr := legacyFallback.Run(); legacyErr == nil {
+							ui.PrintSuccess("Dependencies installed via npm (legacy mode)")
+							err = nil // Clear error
+						} else {
+							ui.PrintError(fmt.Sprintf("Legacy fallback failed: %v", legacyErr))
+						}
+					}
+				}
+				// ========================================
+				// END RETRY MECHANISM
+				// ========================================
+
+				if err != nil {
+					ui.PrintError("All installation attempts failed.")
+				} else {
 					// ========================================
 					// STEP 6: Verify Installation
 					// ========================================
