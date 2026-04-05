@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useAuth } from "../contexts/AuthContext.jsx";
 import { useProjectStore, useEnvVarStore } from "../store/index.js";
 import api from "../services/api.js";
 import {
@@ -33,7 +32,7 @@ import {
 export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { accessToken } = useAuth();
+  const { isAuthenticated } = useAuth();
   const {
     currentProject,
     loading,
@@ -52,12 +51,11 @@ export default function ProjectDetail() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (accessToken) {
-      api.setToken(accessToken);
+    if (isAuthenticated) {
       fetchProject(id);
       fetchEnvVars(id);
     }
-  }, [id, accessToken]);
+  }, [id, isAuthenticated]);
 
   const project = currentProject;
 

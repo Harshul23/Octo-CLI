@@ -1,4 +1,14 @@
+@import url("https://fonts.googleapis.com/css2?family=Schoolbell&display=swap");
 @import "tailwindcss";
+
+@theme {
+  --font-school: "Schoolbell", cursive;
+  --font-cursive: "Schoolbell", cursive;
+}
+
+.cursor {
+  @apply h-4.5 w-1.5 bg-white inline-block relative top-0.5 ml-2;
+}
 
 /* ─── shadcn-inspired B&W Design Tokens ─── */
 :root {

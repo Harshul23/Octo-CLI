@@ -41,11 +41,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 		fmt.Printf("🐙 Web dashboard directory: %s\n", webDir)
 	}
 
-	if cfg.SupabaseURL == "" {
-		fmt.Println("⚠️  SUPABASE_URL not set — database features will be unavailable")
-		fmt.Println("   See DB_SETUP.md for Supabase configuration instructions")
+	if cfg.DatabaseURL == "" {
+		fmt.Println("⚠️  DATABASE_URL not set — database features will be unavailable")
+		fmt.Println("   See NEON_SETUP.md for Neon configuration instructions")
+		return fmt.Errorf("DATABASE_URL is required")
 	}
 
-	srv := server.NewServer(cfg)
+	srv, err := server.NewServer(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create server: %w", err)
+	}
 	return srv.Start()
 }
