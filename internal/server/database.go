@@ -15,11 +15,13 @@ import (
 
 // User represents an authenticated user
 type User struct {
-	ID          string `json:"id"`
-	Email       string `json:"email"`
-	Name        string `json:"name"`
-	AvatarURL   string `json:"avatar_url"`
-	GitHubToken string `json:"github_token,omitempty"`
+	ID             string `json:"id"`
+	GitHubID       string `json:"github_id"`
+	Email          string `json:"email"`
+	Name           string `json:"name"`
+	AvatarURL      string `json:"avatar_url"`
+	GitHubUsername string `json:"github_username"`
+	GitHubToken    string `json:"github_token,omitempty"`
 }
 
 // Project represents a saved project configuration

@@ -177,13 +177,14 @@ func (s *Server) handleAnalyzeGitHub(w http.ResponseWriter, r *http.Request) {
 // --- Project CRUD Handlers ---
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
-	user := userFromContext(r.Context())
+	ctx := r.Context()
+	user := userFromContext(ctx)
 	if user == nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
 		return
 	}
 
-	projects, err := s.db.ListProjects(user.ID)
+	projects, err := s.db.ListProjects(ctx, user.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -196,10 +197,11 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id := r.PathValue("id")
-	user := userFromContext(r.Context())
+	user := userFromContext(ctx)
 
-	project, err := s.db.GetProject(id, user.ID)
+	project, err := s.db.GetProject(ctx, id, user.ID)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Project not found"})
 		return
@@ -209,7 +211,8 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
-	user := userFromContext(r.Context())
+	ctx := r.Context()
+	user := userFromContext(ctx)
 	var req CreateProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -235,7 +238,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		project.Blueprint = req.Blueprint
 	}
 
-	created, err := s.db.CreateProject(project)
+	created, err := s.db.CreateProject(ctx, project)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -245,8 +248,9 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id := r.PathValue("id")
-	user := userFromContext(r.Context())
+	user := userFromContext(ctx)
 
 	var req UpdateProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -254,7 +258,19 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := s.db.UpdateProject(id, user.ID, req)
+	// Convert request to map for dynamic update
+	updateMap := make(map[string]interface{})
+	if req.Name != nil {
+		updateMap["name"] = *req.Name
+	}
+	if req.Description != nil {
+		updateMap["description"] = *req.Description
+	}
+	if req.IsPublic != nil {
+		updateMap["is_public"] = *req.IsPublic
+	}
+
+	updated, err := s.db.UpdateProject(ctx, id, user.ID, updateMap)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -264,10 +280,11 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id := r.PathValue("id")
-	user := userFromContext(r.Context())
+	user := userFromContext(ctx)
 
-	if err := s.db.DeleteProject(id, user.ID); err != nil {
+	if err := s.db.DeleteProject(ctx, id, user.ID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -278,10 +295,11 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 // --- Blueprint Handlers ---
 
 func (s *Server) handleGetBlueprint(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id := r.PathValue("id")
-	user := userFromContext(r.Context())
+	user := userFromContext(ctx)
 
-	project, err := s.db.GetProject(id, user.ID)
+	project, err := s.db.GetProject(ctx, id, user.ID)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Project not found"})
 		return
@@ -296,8 +314,9 @@ func (s *Server) handleGetBlueprint(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateBlueprint(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id := r.PathValue("id")
-	user := userFromContext(r.Context())
+	user := userFromContext(ctx)
 
 	var req UpdateBlueprintRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -305,7 +324,7 @@ func (s *Server) handleUpdateBlueprint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.db.UpdateBlueprint(id, user.ID, &req.Blueprint)
+	err := s.db.UpdateBlueprint(ctx, id, user.ID, &req.Blueprint)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -317,11 +336,12 @@ func (s *Server) handleUpdateBlueprint(w http.ResponseWriter, r *http.Request) {
 // --- Explore Handlers (Public) ---
 
 func (s *Server) handleExplore(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	language := r.URL.Query().Get("language")
 	search := r.URL.Query().Get("search")
 	sortBy := r.URL.Query().Get("sort")
 
-	projects, err := s.db.ListPublicProjects(language, search, sortBy)
+	projects, err := s.db.ListPublicProjects(ctx, language, search, sortBy, 50)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -334,9 +354,10 @@ func (s *Server) handleExplore(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleExploreProject(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id := r.PathValue("id")
 
-	project, err := s.db.GetPublicProject(id)
+	project, err := s.db.GetPublicProject(ctx, id)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Project not found"})
 		return
@@ -348,6 +369,7 @@ func (s *Server) handleExploreProject(w http.ResponseWriter, r *http.Request) {
 // --- Publish Handler (from CLI) ---
 
 func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	var req PublishRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -359,10 +381,17 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify token
-	user, err := s.db.VerifyToken(req.Token)
+	// Validate session token
+	userID, err := s.db.ValidateSession(ctx, req.Token)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid token"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid or expired token"})
+		return
+	}
+
+	// Get user info
+	user, err := s.db.GetUserByID(ctx, userID)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "User not found"})
 		return
 	}
 
@@ -378,7 +407,7 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 
-	created, err := s.db.UpsertProject(project)
+	created, err := s.db.UpsertProject(ctx, project)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -435,6 +464,171 @@ func (s *Server) handleGitHubAuth(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("GitHub auth callback received (code exchange handled by Supabase)")
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Auth handled by Supabase client"})
+}
+
+// handleGitHubAuthStart initiates the GitHub OAuth flow
+func (s *Server) handleGitHubAuthStart(w http.ResponseWriter, r *http.Request) {
+	// Generate random state for CSRF protection
+	state := fmt.Sprintf("%d", time.Now().UnixNano())
+	
+	// Store state in cookie for verification
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    state,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false, // Set to true in production with HTTPS
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   600, // 10 minutes
+	})
+
+	// Redirect to GitHub OAuth
+	authURL := s.oauth.GetAuthorizationURL(state)
+	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
+}
+
+// handleGitHubAuthCallback handles the GitHub OAuth callback
+func (s *Server) handleGitHubAuthCallback(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Verify state for CSRF protection
+	stateCookie, err := r.Cookie("oauth_state")
+	if err != nil {
+		http.Error(w, "Missing state cookie", http.StatusBadRequest)
+		return
+	}
+
+	state := r.URL.Query().Get("state")
+	if state != stateCookie.Value {
+		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Clear the state cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:   "oauth_state",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+
+	// Get authorization code
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		http.Error(w, "Missing authorization code", http.StatusBadRequest)
+		return
+	}
+
+	// Exchange code for access token
+	accessToken, err := s.oauth.ExchangeCodeForToken(code)
+	if err != nil {
+		log.Printf("Failed to exchange code for token: %v", err)
+		http.Error(w, "Failed to authenticate with GitHub", http.StatusInternalServerError)
+		return
+	}
+
+	// Get GitHub user info
+	githubUser, err := s.oauth.GetGitHubUser(accessToken)
+	if err != nil {
+		log.Printf("Failed to get GitHub user: %v", err)
+		http.Error(w, "Failed to get user info from GitHub", http.StatusInternalServerError)
+		return
+	}
+
+	// Get user email if not provided
+	email := githubUser.Email
+	if email == "" {
+		email, _ = s.oauth.GetGitHubUserEmails(accessToken)
+	}
+
+	// Create or update user in database
+	user, err := s.db.CreateOrUpdateUser(
+		ctx,
+		fmt.Sprintf("%d", githubUser.ID),
+		email,
+		githubUser.Name,
+		githubUser.AvatarURL,
+		githubUser.Login,
+		accessToken,
+	)
+	if err != nil {
+		log.Printf("Failed to create/update user: %v", err)
+		http.Error(w, "Failed to create user session", http.StatusInternalServerError)
+		return
+	}
+
+	// Create session
+	sessionToken, err := s.db.CreateSession(ctx, user.ID, time.Now().Add(30*24*time.Hour))
+	if err != nil {
+		log.Printf("Failed to create session: %v", err)
+		http.Error(w, "Failed to create user session", http.StatusInternalServerError)
+		return
+	}
+
+	// Set session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_token",
+		Value:    sessionToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false, // Set to true in production with HTTPS
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 3600, // 30 days
+	})
+
+	// Redirect to dashboard with token
+	redirectURL := fmt.Sprintf("http://localhost:5173/dashboard?token=%s", sessionToken)
+	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+}
+
+// handleGetCurrentUser returns the currently authenticated user
+func (s *Server) handleGetCurrentUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get session token from cookie
+	cookie, err := r.Cookie("session_token")
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
+		return
+	}
+
+	// Validate session
+	userID, err := s.db.ValidateSession(ctx, cookie.Value)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid or expired session"})
+		return
+	}
+
+	// Get user info
+	user, err := s.db.GetUserByID(ctx, userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get user"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, user)
+}
+
+// handleLogout logs out the user
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get session token from cookie
+	cookie, err := r.Cookie("session_token")
+	if err == nil {
+		// Delete session from database
+		s.db.DeleteSession(ctx, cookie.Value)
+	}
+
+	// Clear the session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:   "session_token",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out successfully"})
 }
 
 // --- Helpers ---

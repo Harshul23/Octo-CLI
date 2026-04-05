@@ -12,32 +12,50 @@ import (
 
 // Config holds server configuration
 type Config struct {
-	Port           string
-	SupabaseURL    string
-	SupabaseKey    string
-	SupabaseSecret string
-	GitHubToken    string
-	AllowedOrigins []string
+	Port              string
+	DatabaseURL       string
+	GitHubClientID    string
+	GitHubClientSecret string
+	GitHubCallbackURL string
+	GitHubToken       string
+	SessionSecret     string
+	AllowedOrigins    []string
 }
 
 // Server represents the Octo web API server
 type Server struct {
 	config Config
 	mux    *http.ServeMux
-	db     *SupabaseClient
+	db     *NeonDB
 	gh     *GitHubClient
+	oauth  *GitHubOAuthHandler
 }
 
 // NewServer creates and configures a new server instance
-func NewServer(cfg Config) *Server {
+func NewServer(cfg Config) (*Server, error) {
+	// Connect to Neon database
+	db, err := NewNeonDB(cfg.DatabaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Create GitHub OAuth handler
+	oauthConfig := GitHubOAuthConfig{
+		ClientID:     cfg.GitHubClientID,
+		ClientSecret: cfg.GitHubClientSecret,
+		CallbackURL:  cfg.GitHubCallbackURL,
+	}
+	oauth := NewGitHubOAuthHandler(oauthConfig, db)
+
 	s := &Server{
 		config: cfg,
 		mux:    http.NewServeMux(),
-		db:     NewSupabaseClient(cfg.SupabaseURL, cfg.SupabaseKey, cfg.SupabaseSecret),
+		db:     db,
 		gh:     NewGitHubClient(cfg.GitHubToken),
+		oauth:  oauth,
 	}
 	s.registerRoutes()
-	return s
+	return s, nil
 }
 
 // LoadConfigFromEnv loads server configuration from environment variables
@@ -54,12 +72,14 @@ func LoadConfigFromEnv() Config {
 	}
 
 	return Config{
-		Port:           port,
-		SupabaseURL:    os.Getenv("SUPABASE_URL"),
-		SupabaseKey:    os.Getenv("SUPABASE_ANON_KEY"),
-		SupabaseSecret: os.Getenv("SUPABASE_SERVICE_KEY"),
-		GitHubToken:    os.Getenv("GITHUB_TOKEN"),
-		AllowedOrigins: allowedOrigins,
+		Port:               port,
+		DatabaseURL:        os.Getenv("DATABASE_URL"),
+		GitHubClientID:     os.Getenv("GITHUB_CLIENT_ID"),
+		GitHubClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
+		GitHubCallbackURL:  os.Getenv("GITHUB_CALLBACK_URL"),
+		GitHubToken:        os.Getenv("GITHUB_TOKEN"),
+		SessionSecret:      os.Getenv("SESSION_SECRET"),
+		AllowedOrigins:     allowedOrigins,
 	}
 }
 
@@ -94,8 +114,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/github/repos", s.corsMiddleware(s.authMiddleware(s.handleGitHubRepos)))
 	s.mux.HandleFunc("GET /api/github/repo/{owner}/{repo}", s.corsMiddleware(s.authMiddleware(s.handleGitHubRepoInfo)))
 
-	// Auth callback
-	s.mux.HandleFunc("POST /api/auth/github", s.corsMiddleware(s.handleGitHubAuth))
+	// Auth endpoints
+	s.mux.HandleFunc("GET /api/auth/github", s.corsMiddleware(s.handleGitHubAuthStart))
+	s.mux.HandleFunc("GET /api/auth/github/callback", s.corsMiddleware(s.handleGitHubAuthCallback))
+	s.mux.HandleFunc("GET /api/auth/me", s.corsMiddleware(s.handleGetCurrentUser))
+	s.mux.HandleFunc("POST /api/auth/logout", s.corsMiddleware(s.authMiddleware(s.handleLogout)))
 
 	// Serve preflight CORS requests for all API routes
 	s.mux.HandleFunc("OPTIONS /api/", s.handleCORS)
@@ -160,22 +183,38 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Missing authorization header"})
+		// Get session token from cookie or Authorization header
+		var token string
+
+		// Try cookie first
+		cookie, err := r.Cookie("session_token")
+		if err == nil {
+			token = cookie.Value
+		} else {
+			// Fallback to Authorization header
+			authHeader := r.Header.Get("Authorization")
+			if authHeader != "" {
+				token = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+		}
+
+		if token == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Missing authentication"})
 			return
 		}
 
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token == authHeader {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid authorization format"})
-			return
-		}
-
-		// Verify with Supabase
-		user, err := s.db.VerifyToken(token)
+		// Validate session with Neon
+		ctx := r.Context()
+		userID, err := s.db.ValidateSession(ctx, token)
 		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid or expired token"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid or expired session"})
+			return
+		}
+
+		// Get user info
+		user, err := s.db.GetUserByID(ctx, userID)
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "User not found"})
 			return
 		}
 

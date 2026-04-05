@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../contexts/AuthContext.jsx";
+import { useAuth } from "../contexts/AuthContext";
 import { useAnalysisStore, useProjectStore } from "../store/index.js";
 import api from "../services/api.js";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,8 +24,7 @@ import OctoLogo from "../components/ui/OctoLogo.jsx";
 
 export default function RepoSelector() {
   const navigate = useNavigate();
-  const { isAuthenticated, accessToken, providerToken, signInWithGitHub } =
-    useAuth();
+  const { isAuthenticated, signInWithGitHub } = useAuth();
   const {
     analyzeGitHub,
     loading: analyzing,
@@ -41,15 +40,14 @@ export default function RepoSelector() {
   const [visibilityFilter, setVisibilityFilter] = useState("all"); // all, public, private
   const [langFilter, setLangFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [initializingRepoId, setInitializingRepoId] = useState(null);
   const perPage = 12;
 
   useEffect(() => {
-    if (isAuthenticated && accessToken) {
-      api.setToken(accessToken);
-      if (providerToken) api.setProviderToken(providerToken);
+    if (isAuthenticated) {
       fetchRepos();
     }
-  }, [isAuthenticated, accessToken, providerToken]);
+  }, [isAuthenticated]);
 
   const fetchRepos = async () => {
     setLoading(true);
@@ -93,20 +91,24 @@ export default function RepoSelector() {
 
   const handleInitialize = async (repo) => {
     try {
+      setInitializingRepoId(repo.id);
       const result = await analyzeGitHub(repo.clone_url, repo.default_branch);
       if (result?.blueprint) {
-        const project = await createProject({
-          name: result.blueprint.name || repo.name,
-          repo_url: repo.html_url,
-          description:
-            repo.description || `${result.blueprint.language} project`,
-          is_public: !repo.private,
-          blueprint: result.blueprint,
+        navigate("/analyze", {
+          state: {
+            repoUrl: repo.clone_url,
+            htmlUrl: repo.html_url,
+            branch: repo.default_branch,
+            isPrivate: repo.private,
+            repoName: repo.name,
+            repoDescription: repo.description,
+          },
         });
-        navigate(`/projects/${project.id}`);
       }
     } catch (err) {
       console.error("Init failed:", err);
+    } finally {
+      setInitializingRepoId(null);
     }
   };
 
@@ -324,9 +326,13 @@ export default function RepoSelector() {
                       size="sm"
                       disabled={analyzing}
                       onClick={() => handleInitialize(repo)}
-                      className="text-xs gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className={`text-xs gap-1 transition-opacity ${
+                        initializingRepoId === repo.id
+                          ? "opacity-100 disabled:opacity-100"
+                          : "opacity-0 group-hover:opacity-100 disabled:opacity-0 disabled:group-hover:opacity-50"
+                      }`}
                     >
-                      {analyzing ? (
+                      {initializingRepoId === repo.id ? (
                         <Loader2 size={12} className="animate-spin" />
                       ) : (
                         <Zap size={12} />
