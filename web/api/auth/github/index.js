@@ -14,6 +14,16 @@ export default function handler(req, res) {
   // If no predefined callback, build it from host (helpful in Vercel previews)
   if (!callbackUrl && host) {
     callbackUrl = `${proto}://${host}/api/auth/github/callback`;
+  } else if (callbackUrl) {
+    // Ensure we don't just redirect to the root platform if the user mistakenly configured it
+    try {
+      const url = new URL(callbackUrl);
+      if (url.pathname === '/' || url.pathname === '') {
+        callbackUrl = `${url.origin}/api/auth/github/callback`;
+      }
+    } catch (e) {
+      // ignore
+    }
   }
 
   // Generate random state for CSRF protection
