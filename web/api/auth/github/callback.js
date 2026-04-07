@@ -87,11 +87,15 @@ export default async function handler(req, res) {
     }
 
     // Connect to Neon Database
-    if (!process.env.DATABASE_URL) {
+    let dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
         return res.status(500).send('Missing DATABASE_URL');
     }
     
-    const sql = neon(process.env.DATABASE_URL);
+    // Remove surrounding quotes if any
+    dbUrl = dbUrl.replace(/^["']|["']$/g, '');
+    
+    const sql = neon(dbUrl);
     
     // Create or update user
     const users = await sql`
