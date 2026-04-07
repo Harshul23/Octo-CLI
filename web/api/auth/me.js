@@ -21,10 +21,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    if (!process.env.DATABASE_URL) {
+    let dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
         return res.status(500).json({ error: 'Missing DATABASE_URL' });
     }
-    const sql = neon(process.env.DATABASE_URL);
+    
+    // Remove surrounding quotes if any
+    dbUrl = dbUrl.replace(/^["']|["']$/g, '');
+    
+    const sql = neon(dbUrl);
     
     // Validate session
     const sessions = await sql`
