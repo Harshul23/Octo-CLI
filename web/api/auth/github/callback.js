@@ -1,17 +1,17 @@
-import { neon } from '@neondatabase/serverless';
+import { neon } from "@neondatabase/serverless";
 
 export default async function handler(req, res) {
   const { code, state } = req.query;
-  
+
   // Parse cookies from headers since req.cookies might not be fully populated depending on config
   let cookies = {};
   if (req.headers.cookie) {
-    req.headers.cookie.split(';').forEach(cookie => {
-      const parts = cookie.split('=');
-      cookies[parts.shift().trim()] = decodeURI(parts.join('='));
+    req.headers.cookie.split(";").forEach((cookie) => {
+      const parts = cookie.split("=");
+      cookies[parts.shift().trim()] = decodeURI(parts.join("="));
     });
   }
-  
+
   const stateCookie = req.cookies?.oauth_state || cookies.oauth_state;
 
   // State cookie validation — best-effort in serverless.
@@ -19,84 +19,97 @@ export default async function handler(req, res) {
   // cross-domain redirect through github.com in some browsers, so we
   // log a warning but don't hard-fail if the cookie is missing.
   if (stateCookie && state !== stateCookie) {
-    return res.status(400).send('Invalid state parameter');
+    return res.status(400).send("Invalid state parameter");
   }
   if (!stateCookie) {
-    console.warn('oauth_state cookie missing — skipping CSRF check (expected in some serverless environments)');
+    console.warn(
+      "oauth_state cookie missing — skipping CSRF check (expected in some serverless environments)",
+    );
   }
 
-  const clientId = process.env.GITHUB_CLIENT_ID || process.env.VITE_GITHUB_CLIENT_ID;
+  const clientId =
+    process.env.GITHUB_CLIENT_ID || process.env.VITE_GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-     return res.status(500).send('Missing GitHub credentials in environment variables');
+    return res
+      .status(500)
+      .send("Missing GitHub credentials in environment variables");
   }
 
   try {
     // Exchange code for token
-    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+    const tokenRes = await fetch(
+      "https://github.com/login/oauth/access_token",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+        }),
       },
-      body: JSON.stringify({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code
-      })
-    });
-    
+    );
+
     const tokenData = await tokenRes.json();
     if (tokenData.error) {
-      return res.status(400).send('OAuth error: ' + tokenData.error_description);
+      return res
+        .status(400)
+        .send("OAuth error: " + tokenData.error_description);
     }
-    
+
     const accessToken = tokenData.access_token;
-    
+
     // Get GitHub user info
-    const userRes = await fetch('https://api.github.com/user', {
+    const userRes = await fetch("https://api.github.com/user", {
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Accept': 'application/vnd.github+json'
-      }
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/vnd.github+json",
+      },
     });
-    
+
     if (!userRes.ok) {
-        return res.status(500).send('Failed to get user info from GitHub');
+      return res.status(500).send("Failed to get user info from GitHub");
     }
-    
+
     const githubUser = await userRes.json();
-    
+
     // Get user email
     let email = githubUser.email;
     if (!email) {
-      const emailRes = await fetch('https://api.github.com/user/emails', {
+      const emailRes = await fetch("https://api.github.com/user/emails", {
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/vnd.github+json'
-        }
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/vnd.github+json",
+        },
       });
       if (emailRes.ok) {
-          const emails = await emailRes.json();
-          const primary = emails.find(e => e.primary && e.verified) || emails.find(e => e.verified) || (emails.length > 0 ? emails[0] : null);
-          email = primary ? primary.email : '';
+        const emails = await emailRes.json();
+        const primary =
+          emails.find((e) => e.primary && e.verified) ||
+          emails.find((e) => e.verified) ||
+          (emails.length > 0 ? emails[0] : null);
+        email = primary ? primary.email : "";
       } else {
-          email = '';
+        email = "";
       }
     }
 
     // Connect to Neon Database
     let dbUrl = process.env.DATABASE_URL;
     if (!dbUrl) {
-        return res.status(500).send('Missing DATABASE_URL');
+      return res.status(500).send("Missing DATABASE_URL");
     }
-    
+
     // Remove surrounding quotes if any
-    dbUrl = dbUrl.replace(/^["']|["']$/g, '');
-    
+    dbUrl = dbUrl.replace(/^["']|["']$/g, "");
+
     const sql = neon(dbUrl);
-    
+
     // Create or update user
     const users = await sql`
       INSERT INTO users (github_id, email, name, avatar_url, github_username, access_token)
@@ -111,32 +124,33 @@ export default async function handler(req, res) {
       RETURNING id
     `;
     const userId = users[0].id;
-    
+
     // Create session
     const sessionToken = crypto.randomUUID() + crypto.randomUUID(); // secure enough for this
-    const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
-    
+    const expiresAt = new Date(
+      Date.now() + 30 * 24 * 3600 * 1000,
+    ).toISOString();
+
     await sql`
       INSERT INTO sessions (user_id, token, expires_at)
       VALUES (${userId}, ${sessionToken}, ${expiresAt})
     `;
-    
+
     // Set session cookie and clear oauth_state
     const cookieHeader = [
-      'oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
-      `session_token=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000` // 30 days
+      "oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
+      `session_token=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`, // 30 days
     ];
-    res.setHeader('Set-Cookie', cookieHeader);
-    
+    res.setHeader("Set-Cookie", cookieHeader);
+
     // Redirect to frontend dashboard
-    const proto = req.headers['x-forwarded-proto'] || 'http';
+    const proto = req.headers["x-forwarded-proto"] || "http";
     const host = req.headers.host;
     const redirectUrl = `${proto}://${host}/dashboard?token=${sessionToken}`;
-    
-    res.redirect(redirectUrl);
 
+    res.redirect(redirectUrl);
   } catch (error) {
-    console.error('Callback error:', error);
-    res.status(500).send('Internal Server Error: ' + error.message);
+    console.error("Callback error:", error);
+    res.status(500).send("Internal Server Error: " + error.message);
   }
 }
