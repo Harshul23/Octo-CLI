@@ -12,6 +12,7 @@ import {
   GitBranch,
   AlertCircle,
   Save,
+  Star,
 } from "lucide-react";
 import BlueprintEditor from "../components/BlueprintEditor.jsx";
 import AnalysisProgress from "../components/AnalysisProgress.jsx";
@@ -39,7 +40,7 @@ export default function Analyze() {
         .listGitHubRepos()
         .then((data) => setGhRepos(data.repos || []))
         .catch((err) =>
-          console.warn("Could not fetch GitHub repos:", err.message)
+          console.warn("Could not fetch GitHub repos:", err.message),
         );
     }
   }, [isAuthenticated]);
@@ -60,9 +61,14 @@ export default function Analyze() {
     setSaving(true);
 
     try {
-      const isPublic = location.state?.isPrivate !== undefined ? !location.state.isPrivate : true;
+      const isPublic =
+        location.state?.isPrivate !== undefined
+          ? !location.state.isPrivate
+          : true;
       const projName = location.state?.repoName || result.blueprint.name;
-      const projDesc = location.state?.repoDescription || `${result.blueprint.language} project analyzed from GitHub`;
+      const projDesc =
+        location.state?.repoDescription ||
+        `${result.blueprint.language} project analyzed from GitHub`;
       const finalRepoUrl = location.state?.htmlUrl || repoUrl;
 
       const project = await createProject({
@@ -97,14 +103,19 @@ export default function Analyze() {
   return (
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white tracking-tight">Analyze Repository</h1>
+        <h1 className="text-2xl font-bold text-white tracking-tight">
+          Analyze Repository
+        </h1>
         <p className="text-neutral-400 text-sm mt-1">
-          Paste a GitHub URL or pick from your repos to generate an Octo blueprint.
+          Paste a GitHub URL or pick from your repos to generate an Octo
+          blueprint.
         </p>
       </div>
 
       <Card className="p-6 mb-6 bg-[#0A0A0A] border-[#222]">
-        <label className="block text-sm font-medium mb-2 text-neutral-200">Repository URL</label>
+        <label className="block text-sm font-medium mb-2 text-neutral-200">
+          Repository URL
+        </label>
 
         <div className="flex gap-3">
           <div className="flex-1 relative">
@@ -193,21 +204,30 @@ export default function Analyze() {
         )}
 
         <div className="flex items-center gap-3 mt-5">
-          <Button 
-            onClick={handleAnalyze} 
+          <Button
+            onClick={handleAnalyze}
             disabled={loading || !repoUrl.trim()}
             className="bg-white text-black hover:bg-neutral-200 transition-colors"
           >
             {loading ? (
               <Loader2 size={16} className="mr-2 animate-spin" />
             ) : (
-              <Zap size={16} fill="currentColor" strokeWidth={2} className="mr-2" />
+              <Zap
+                size={16}
+                fill="currentColor"
+                strokeWidth={2}
+                className="mr-2"
+              />
             )}
             {loading ? "Analyzing..." : "Analyze"}
           </Button>
 
           {result && (
-            <Button variant="outline" className="border-[#333] text-white hover:bg-[#141414]" onClick={handleReset}>
+            <Button
+              variant="outline"
+              className="border-[#333] text-white hover:bg-[#141414]"
+              onClick={handleReset}
+            >
               Reset
             </Button>
           )}
@@ -236,9 +256,7 @@ export default function Analyze() {
           <AlertCircle size={18} className="text-red-500 mt-0.5 shrink-0" />
 
           <div>
-            <p className="text-sm font-medium text-red-500">
-              Analysis failed
-            </p>
+            <p className="text-sm font-medium text-red-500">Analysis failed</p>
 
             <p className="text-xs text-red-400 mt-1">{error}</p>
           </div>
@@ -257,14 +275,18 @@ export default function Analyze() {
 
               <p className="text-xs text-neutral-400 mt-0.5">
                 Detected: {result.blueprint.language}{" "}
-                {result.blueprint.version &&
-                  `(${result.blueprint.version})`}
+                {result.blueprint.version && `(${result.blueprint.version})`}
                 {result.blueprint.package_manager &&
                   ` • ${result.blueprint.package_manager}`}
               </p>
             </div>
 
-            <Button onClick={handleSave} disabled={saving} size="sm" className="bg-white text-black hover:bg-neutral-200">
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              size="sm"
+              className="bg-white text-black hover:bg-neutral-200"
+            >
               {saving ? (
                 <Loader2 size={14} className="mr-1.5 animate-spin" />
               ) : (
