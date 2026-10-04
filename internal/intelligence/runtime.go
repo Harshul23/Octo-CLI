@@ -94,45 +94,6 @@ func (ComposeAdapter) Execute(ctx context.Context, step ExecutionStep, env Resol
 	return nil
 }
 
-// ExecutePlan executes a plan in its validated topological order.
-// This is intentionally separate from the legacy orchestrator.
-func ExecutePlan(ctx context.Context, plan ExecutionPlan, resolver RuntimeResolver, env ResolvedEnvironment) error {
-	if err := ValidateExecutionPlan(plan); err != nil {
-		return fmt.Errorf("invalid execution plan: %w", err)
-	}
-
-	order, err := TopologicalOrder(plan)
-	if err != nil {
-		return err
-	}
-
-	steps := make(map[string]ExecutionStep, len(plan.Steps))
-	for _, step := range plan.Steps {
-		steps[step.ID] = step
-	}
-
-	for _, id := range order {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		step := steps[id]
-		if step.Command == "" {
-			// Preparation/metadata steps may intentionally have no executable command.
-			continue
-		}
-		adapter, err := resolver.Resolve(step)
-		if err != nil {
-			return err
-		}
-		if err := adapter.Execute(ctx, step, env); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-
 func mergedEnvironment(values map[string]string) []string {
 	env := append([]string(nil), os.Environ()...)
 	for name, value := range values {
