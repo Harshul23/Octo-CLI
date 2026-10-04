@@ -226,6 +226,14 @@ func runWithIntelligence(cmd *cobra.Command) error {
 		return fmt.Errorf("intelligence analysis failed: %w", err)
 	}
 
+	lock, err := intelligence.LoadOctoLock(cwd)
+	if err != nil {
+		return fmt.Errorf("failed to read .octo.lock: %w", err)
+	}
+	if err := intelligence.ApplyVerifiedStrategies(cwd, &model, lock); err != nil {
+		return fmt.Errorf("failed to validate verified strategies: %w", err)
+	}
+
 	planner := intelligence.DeterministicPlanner{}
 	plan, err := planner.Plan(cmd.Context(), model)
 	if err != nil {
@@ -264,6 +272,9 @@ func runWithIntelligence(cmd *cobra.Command) error {
 		return fmt.Errorf("intelligence execution failed: %s", report.FailureReason)
 	}
 
+	if err := intelligence.RecordVerifiedStrategies(cwd, model, plan, report, lock); err != nil {
+		return fmt.Errorf("failed to update .octo.lock: %w", err)
+	}
 	fmt.Println("Execution verified successfully.")
 	return nil
 }
