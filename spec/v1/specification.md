@@ -93,3 +93,15 @@ Docker Compose is an explicit topology source. When a supported Compose file is 
 
 This separation allows application components and infrastructure services to participate in one future execution graph without conflating source-code execution with infrastructure provisioning.
 
+## Unified Topology Graph
+
+Components and infrastructure services are represented as typed nodes in one canonical dependency graph.
+
+Node IDs use explicit namespaces:
+- `component:<name>`
+- `service:<name>`
+
+Dependency edges point from a dependent node to the node it depends on. The graph rejects dangling references, duplicate edges, and dependency cycles.
+
+This graph is the topology layer. Execution planning remains a separate concern and can map topology nodes to runtime-specific execution steps later.
+
