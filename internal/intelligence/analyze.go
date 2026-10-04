@@ -46,6 +46,12 @@ func Analyze(path string) (ProjectModel, error) {
     m.Components = []Component{{Name:m.Name, Path:".", Language:m.Language, Framework:m.Framework,
       PackageManager:m.PackageManager, RunCommand:m.RunCommand, Port:m.Port, Confidence:m.Confidence, Evidence:m.Evidence}}
   }
+  services, composeEvidence, composeFound, err := discoverComposeServices(root)
+  if err != nil { return ProjectModel{}, err }
+  if composeFound {
+    m.Services = services
+    m.Evidence = append(m.Evidence, composeEvidence...)
+  }
   return m,nil
 }
 
