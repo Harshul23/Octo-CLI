@@ -27,6 +27,7 @@ type Component struct {
 	Framework string `json:"framework,omitempty" yaml:"framework,omitempty"`
 	PackageManager string `json:"package_manager,omitempty" yaml:"package_manager,omitempty"`
 	RunCommand string `json:"run_command,omitempty" yaml:"run_command,omitempty"`
+	DependsOn []string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
 	Port int `json:"port,omitempty" yaml:"port,omitempty"`
 	Confidence float64 `json:"confidence" yaml:"confidence"`
 	Evidence []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`

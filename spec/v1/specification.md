@@ -51,3 +51,19 @@ This is a design contract, not a claim that the complete v1 schema is implemente
 ## Decision providers
 
 Decision making is an interface, not a vendor dependency. A bounded decision may eventually be answered by deterministic rules, Jev, an LLM, or a human. Octo must remain fully functional without an external decision provider.
+
+## Execution Plan
+
+The execution plan is the deterministic bridge between repository understanding and execution.
+
+An implementation should model execution as a directed acyclic graph where:
+- each node is an explicit execution step;
+- each dependency is an explicit edge;
+- step ordering is derived from dependencies rather than hard-coded globally;
+- invalid references and dependency cycles are rejected before execution;
+- each step can explain why it exists.
+
+The initial implementation provides a deterministic planner and supports component-level dependencies. It does not yet claim complete multi-service discovery. The analyzer will progressively populate richer component and service graphs as repository detection improves.
+
+Decision systems such as Jev or an LLM may eventually resolve bounded ambiguity, but they are not required to produce a valid baseline plan.
+
