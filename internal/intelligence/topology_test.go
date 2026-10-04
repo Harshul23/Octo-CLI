@@ -6,12 +6,12 @@ func TestBuildTopologyGraphCombinesComponentsAndServices(t *testing.T) {
 	model := ProjectModel{
 		Name: "stack",
 		Components: []Component{
-			{Name: "web", Path: "web", DependsOn: []string{"api"}, Confidence: 0.9},
+			{Name: "web", Path: "web", DependsOn: []string{"api"}, Confidence: 0.9, Evidence: []Evidence{{Kind: EvidenceManifest, Path: "web/package.json", Strength: 0.95}}},
 			{Name: "api", Path: "api", Confidence: 0.95},
 		},
 		Services: []Service{
 			{Name: "postgres", Image: "postgres:17", Confidence: 0.99},
-			{Name: "redis", Image: "redis:7", Confidence: 0.99, DependsOn: []string{"postgres"}},
+			{Name: "redis", Image: "redis:7", Confidence: 0.99, DependsOn: []string{"postgres"}, Evidence: []Evidence{{Kind: EvidenceConfig, Path: "compose.yaml", Strength: 0.99}}},
 		},
 	}
 
@@ -30,6 +30,45 @@ func TestBuildTopologyGraphCombinesComponentsAndServices(t *testing.T) {
 	}
 	if !hasEdge(graph, "service:redis", "service:postgres") {
 		t.Fatal("missing redis -> postgres edge")
+	}
+}
+
+func TestTopologyEdgesRetainConfidenceAndEvidence(t *testing.T) {
+	model := ProjectModel{
+		Components: []Component{
+			{
+				Name: "web",
+				DependsOn: []string{"api"},
+				Evidence: []Evidence{{
+					Kind: EvidenceManifest,
+					Path: "web/package.json",
+					Strength: 0.95,
+				}},
+			},
+			{Name: "api"},
+		},
+	}
+
+	graph, err := BuildTopologyGraph(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(graph.Edges) != 1 {
+		t.Fatalf("edges=%d, want 1", len(graph.Edges))
+	}
+	edge := graph.Edges[0]
+	if edge.Confidence != 0.99 {
+		t.Fatalf("confidence=%v, want 0.99", edge.Confidence)
+	}
+	if len(edge.Evidence) != 1 {
+		t.Fatalf("evidence=%d, want 1", len(edge.Evidence))
+	}
+	if edge.Evidence[0].Path != "web/package.json" {
+		t.Fatalf("evidence path=%q, want web/package.json", edge.Evidence[0].Path)
+	}
+	if edge.Evidence[0].Kind != EvidenceManifest {
+		t.Fatalf("evidence kind=%q, want manifest", edge.Evidence[0].Kind)
 	}
 }
 

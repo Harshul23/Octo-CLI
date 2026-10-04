@@ -23,11 +23,14 @@ type TopologyNode struct {
 	Confidence float64  `json:"confidence" yaml:"confidence"`
 }
 
-// TopologyEdge describes an explicit dependency between topology nodes.
+// TopologyEdge describes a dependency between topology nodes.
+// Evidence records where the dependency declaration came from.
 type TopologyEdge struct {
-	From string `json:"from" yaml:"from"`
-	To   string `json:"to" yaml:"to"`
-	Kind string `json:"kind" yaml:"kind"`
+	From       string     `json:"from" yaml:"from"`
+	To         string     `json:"to" yaml:"to"`
+	Kind       string     `json:"kind" yaml:"kind"`
+	Confidence float64    `json:"confidence" yaml:"confidence"`
+	Evidence   []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
 }
 
 // TopologyGraph is the canonical dependency graph for a ProjectModel.
@@ -40,8 +43,9 @@ type TopologyGraph struct {
 func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 	graph := TopologyGraph{}
 	ids := make(map[string]struct{})
+	nodeEvidence := make(map[string][]Evidence)
 
-	addNode := func(node TopologyNode) error {
+	addNode := func(node TopologyNode, evidence []Evidence) error {
 		if strings.TrimSpace(node.Name) == "" {
 			return fmt.Errorf("topology node has empty name")
 		}
@@ -50,6 +54,7 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 		}
 		ids[node.ID] = struct{}{}
 		graph.Nodes = append(graph.Nodes, node)
+		nodeEvidence[node.ID] = append([]Evidence(nil), evidence...)
 		return nil
 	}
 
@@ -60,7 +65,7 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 			ID: topologyID(NodeComponent, component.Name),
 			Name: component.Name, Kind: NodeComponent,
 			Path: component.Path, Confidence: component.Confidence,
-		}); err != nil {
+		}, component.Evidence); err != nil {
 			return TopologyGraph{}, err
 		}
 	}
@@ -72,26 +77,31 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 			ID: topologyID(NodeService, service.Name),
 			Name: service.Name, Kind: NodeService,
 			Confidence: service.Confidence,
-		}); err != nil {
+		}, service.Evidence); err != nil {
 			return TopologyGraph{}, err
 		}
 	}
 
-	addEdge := func(from, to string) error {
+	addEdge := func(from, to string, confidence float64, evidence []Evidence) error {
 		if _, ok := ids[from]; !ok {
 			return fmt.Errorf("topology dependency references unknown node %q", from)
 		}
 		if _, ok := ids[to]; !ok {
 			return fmt.Errorf("topology dependency references unknown node %q", to)
 		}
-		graph.Edges = append(graph.Edges, TopologyEdge{From: from, To: to, Kind: "depends_on"})
+		graph.Edges = append(graph.Edges, TopologyEdge{
+			From: from, To: to, Kind: "depends_on",
+			Confidence: confidence, Evidence: evidence,
+		})
 		return nil
 	}
 
 	for _, component := range components {
 		from := topologyID(NodeComponent, component.Name)
 		for _, dep := range component.DependsOn {
-			if err := addEdge(from, topologyDependencyID(dep, ids)); err != nil {
+			target := topologyDependencyID(dep, ids)
+			evidence := dependencyEvidence(nodeEvidence[from], dep, "Component dependency is explicitly declared in the component manifest.")
+			if err := addEdge(from, target, 0.99, evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
 			}
 		}
@@ -100,7 +110,8 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 		from := topologyID(NodeService, service.Name)
 		for _, dep := range service.DependsOn {
 			target := topologyID(NodeService, dep)
-			if err := addEdge(from, target); err != nil {
+			evidence := dependencyEvidence(nodeEvidence[from], dep, "Service dependency is explicitly declared in the Compose configuration.")
+			if err := addEdge(from, target, 0.99, evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)
 			}
 		}
@@ -118,6 +129,25 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 		return TopologyGraph{}, err
 	}
 	return graph, nil
+}
+
+func dependencyEvidence(source []Evidence, dependency, fallbackDetail string) []Evidence {
+	evidence := make([]Evidence, 0, len(source))
+	for _, item := range source {
+		if item.Kind == EvidenceManifest || item.Kind == EvidenceConfig {
+			detail := fallbackDetail
+			if dependency != "" {
+				detail += " Dependency: " + dependency + "."
+			}
+			evidence = append(evidence, Evidence{
+				Kind: item.Kind,
+				Path: item.Path,
+				Detail: detail,
+				Strength: item.Strength,
+			})
+		}
+	}
+	return evidence
 }
 
 func topologyID(kind NodeKind, name string) string {
