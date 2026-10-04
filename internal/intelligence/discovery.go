@@ -103,7 +103,7 @@ func discoverWorkspaceComponents(root string, rootInfo DetectedProject) ([]Compo
 			Language: pkg.info.Language, Framework: framework,
 			PackageManager: pkg.info.PackageManager,
 			RunCommand: pkg.info.RunCommand, DependsOn: dependsOn,
-			Port: pkg.info.PortConfig.Port, Confidence: conf,
+			Port: pkg.info.Port, Confidence: conf,
 			Evidence: componentEvidence,
 		})
 	}
