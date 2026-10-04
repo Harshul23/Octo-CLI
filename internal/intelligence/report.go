@@ -26,13 +26,13 @@ type ExecutionStepResult struct {
 
 // ExecutionReport is the canonical result of an intelligence execution.
 type ExecutionReport struct {
-	ProjectName        string                 `json:"project_name" yaml:"project_name"`
-	Confidence         float64                `json:"confidence" yaml:"confidence"`
-	Plan               ExecutionPlan          `json:"plan" yaml:"plan"`
-	Steps              []ExecutionStepResult  `json:"steps" yaml:"steps"`
-	Verification       []VerificationResult   `json:"verification,omitempty" yaml:"verification,omitempty"`
-	Success            bool                   `json:"success" yaml:"success"`
-	FailureReason      string                 `json:"failure_reason,omitempty" yaml:"failure_reason,omitempty"`
+	ProjectName   string               `json:"project_name" yaml:"project_name"`
+	Confidence    float64              `json:"confidence" yaml:"confidence"`
+	Plan          ExecutionPlan        `json:"plan" yaml:"plan"`
+	Steps         []ExecutionStepResult `json:"steps" yaml:"steps"`
+	Verification  []VerificationResult `json:"verification,omitempty" yaml:"verification,omitempty"`
+	Success       bool                 `json:"success" yaml:"success"`
+	FailureReason string               `json:"failure_reason,omitempty" yaml:"failure_reason,omitempty"`
 }
 
 // ExecutePlanReport executes a plan and returns a serializable execution report.
@@ -82,7 +82,10 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 		}
 
 		result := ExecutionStepResult{ID: id, Status: StepRunning, Adapter: adapter.Name()}
-		if err := adapter.Execute(ctx, step, env); err != nil {
+		// Resolve the environment at the execution boundary so component-local
+		// values are visible only to steps belonging to that component.
+		stepEnv := env.ForStep(step)
+		if err := adapter.Execute(ctx, step, stepEnv); err != nil {
 			result.Status = StepFailed
 			result.Reason = err.Error()
 			report.Steps = append(report.Steps, result)
