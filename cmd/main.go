@@ -15,7 +15,7 @@ var (
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "octo",
-	Short: "Automate local deployment of any software with zero configuration",
+	Short: "Understand and run software repositories locally",
 	Long: `Octo is a CLI tool that automates the local deployment of any software 
 with zero configuration. It analyzes your codebase, detects the tech stack,
 and generates a deployment configuration file.

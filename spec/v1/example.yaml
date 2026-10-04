@@ -1,0 +1,23 @@
+spec: octo.dev/v1
+project:
+  name: example-app
+components:
+  web:
+    type: application
+    source:
+      path: .
+    runtime:
+      language: node
+      version: "22"
+    command:
+      dev: pnpm dev
+    ports:
+      - 3000
+services:
+  postgres:
+    type: database
+    image: postgres:17
+environment:
+  required:
+    DATABASE_URL:
+      secret: true
