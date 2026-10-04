@@ -56,7 +56,6 @@ func findEnvironmentVariable(model EnvironmentModel, name string) *EnvironmentVa
 	return nil
 }
 
-
 func TestResolveEnvironmentBindingsIsSecretSafeAndDeterministic(t *testing.T) {
 	model := ProjectModel{
 		Name: "stack",
@@ -98,5 +97,62 @@ func TestResolveEnvironmentBindingsIsSecretSafeAndDeterministic(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestResolveEnvironmentScopesComponentLocalFiles(t *testing.T) {
+	root := t.TempDir()
+	web := filepath.Join(root, "apps", "web")
+	api := filepath.Join(root, "apps", "api")
+	if err := os.MkdirAll(web, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(api, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	write := func(path, value string) {
+		if err := os.WriteFile(path, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(root, ".env"), "SHARED=root\nROOT_ONLY=root-value\n")
+	write(filepath.Join(web, ".env"), "SHARED=web\nWEB_ONLY=web-value\n")
+	write(filepath.Join(web, ".env.local"), "LOCAL_ONLY=local-value\nSHARED=web-local\n")
+	write(filepath.Join(api, ".env"), "SHARED=api\nAPI_ONLY=api-value\n")
+
+	project := ProjectModel{
+		Environment: EnvironmentModel{Variables: []EnvironmentVariable{
+			{Name: "SHARED", Required: true},
+			{Name: "ROOT_ONLY", Required: true},
+			{Name: "WEB_ONLY", Required: true},
+			{Name: "LOCAL_ONLY", Required: true},
+			{Name: "API_ONLY", Required: true},
+		}},
+		Components: []Component{
+			{Name: "web", Path: "apps/web"},
+			{Name: "api", Path: "apps/api"},
+		},
+	}
+
+	resolved, err := ResolveProjectEnvironment(root, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	webEnv := resolved.ForStep(ExecutionStep{WorkDir: "apps/web"})
+	if webEnv.Values["SHARED"] != "web-local" || webEnv.Values["WEB_ONLY"] != "web-value" || webEnv.Values["ROOT_ONLY"] != "root-value" || webEnv.Values["LOCAL_ONLY"] != "local-value" {
+		t.Fatalf("web environment=%v", webEnv.Values)
+	}
+	if webEnv.Values["API_ONLY"] != "" {
+		t.Fatal("api-only variable leaked into web environment")
+	}
+
+	apiEnv := resolved.ForStep(ExecutionStep{WorkDir: "apps/api"})
+	if apiEnv.Values["SHARED"] != "api" || apiEnv.Values["API_ONLY"] != "api-value" {
+		t.Fatalf("api environment=%v", apiEnv.Values)
+	}
+	if apiEnv.Values["WEB_ONLY"] != "" || apiEnv.Values["LOCAL_ONLY"] != "" {
+		t.Fatal("web-only variable leaked into api environment")
 	}
 }

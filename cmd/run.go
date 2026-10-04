@@ -235,7 +235,7 @@ func runWithIntelligence(cmd *cobra.Command) error {
 	fmt.Printf("Detected %d component(s) and %d service(s).\n", len(model.Components), len(model.Services))
 	fmt.Printf("Execution plan contains %d step(s).\n", len(plan.Steps))
 
-	env, err := intelligence.ResolveEnvironment(cwd, model.Environment)
+	env, err := intelligence.ResolveProjectEnvironment(cwd, model)
 	if err != nil {
 		return fmt.Errorf("environment resolution failed: %w", err)
 	}

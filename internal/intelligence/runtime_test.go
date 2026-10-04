@@ -87,3 +87,22 @@ func TestAdaptersDoNotClaimEmptyCommands(t *testing.T) {
 		t.Fatal("compose adapter must not claim empty command")
 	}
 }
+
+
+func TestResolvedEnvironmentForStepAppliesScopedValues(t *testing.T) {
+	env := ResolvedEnvironment{
+		Values: map[string]string{"SHARED": "root", "ROOT_ONLY": "root-value"},
+		ScopedValues: map[string]map[string]string{
+			"apps/web": {"SHARED": "web", "WEB_ONLY": "web-value"},
+		},
+	}
+	stepEnv := env.ForStep(ExecutionStep{WorkDir: "apps/web"})
+	if stepEnv.Values["SHARED"] != "web" || stepEnv.Values["ROOT_ONLY"] != "root-value" || stepEnv.Values["WEB_ONLY"] != "web-value" {
+		t.Fatalf("step environment=%v", stepEnv.Values)
+	}
+
+	other := env.ForStep(ExecutionStep{WorkDir: "apps/api"})
+	if other.Values["WEB_ONLY"] != "" || other.Values["SHARED"] != "root" {
+		t.Fatalf("unrelated component environment leaked: %v", other.Values)
+	}
+}
