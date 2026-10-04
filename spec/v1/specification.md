@@ -157,3 +157,16 @@ Environment values are never stored in ProjectModel, ExecutionPlan, topology out
 
 Environment value resolution is a separate runtime concern. Future providers may read shell variables, local env files, templates, or explicit user input while keeping secret values out of the planning model.
 
+## Runtime Environment Resolution
+
+Environment values are resolved only at execution time and are never part of the ProjectModel or ExecutionPlan.
+
+Resolution precedence is:
+1. existing process environment;
+2. repository `.env.local`;
+3. repository `.env`.
+
+Only variables declared by the ProjectModel are exposed to runtime commands. Missing required variables prevent execution before the first executable step starts.
+
+Resolved values remain in memory for the duration of execution and are not included in plan explanations or serialized artifacts.
+

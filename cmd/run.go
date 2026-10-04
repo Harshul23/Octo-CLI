@@ -241,7 +241,12 @@ func runWithIntelligence(cmd *cobra.Command) error {
 	fmt.Printf("Detected %d component(s) and %d service(s).\n", len(model.Components), len(model.Services))
 	fmt.Printf("Execution plan contains %d step(s).\n", len(plan.Steps))
 
-	if err := intelligence.ExecutePlan(context.Background(), plan, intelligence.NewRuntimeResolver()); err != nil {
+	env, err := intelligence.ResolveEnvironment(cwd, model.Environment)
+	if err != nil {
+		return fmt.Errorf("environment resolution failed: %w", err)
+	}
+
+	if err := intelligence.ExecutePlan(context.Background(), plan, intelligence.NewRuntimeResolver(), env); err != nil {
 		return fmt.Errorf("intelligence execution failed: %w", err)
 	}
 	return nil
