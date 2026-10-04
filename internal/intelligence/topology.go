@@ -98,14 +98,20 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 	for _, component := range components {
 		from := topologyID(NodeComponent, component.Name)
 		for _, dep := range component.DependsOn {
-			target := topologyDependencyID(dep, ids)
+			target, err := topologyDependencyID(dep, ids)
+			if err != nil {
+				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
+			}
 			evidence := dependencyEvidence(nodeEvidence[from], dep, "Component dependency is explicitly declared in the component manifest.")
 			if err := addEdge(from, target, "depends_on", 0.99, evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
 			}
 		}
 		for _, reference := range component.References {
-			target := topologyDependencyID(reference.Target, ids)
+			target, err := topologyDependencyID(reference.Target, ids)
+			if err != nil {
+				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
+			}
 			if err := addEdge(from, target, reference.Kind, reference.Confidence, reference.Evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
 			}
@@ -123,7 +129,11 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 		for _, reference := range service.References {
 			target := topologyID(NodeService, reference.Target)
 			if _, ok := ids[target]; !ok {
-				target = topologyDependencyID(reference.Target, ids)
+				resolved, err := topologyDependencyID(reference.Target, ids)
+				if err != nil {
+					return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)
+				}
+				target = resolved
 			}
 			if err := addEdge(from, target, reference.Kind, reference.Confidence, reference.Evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)
@@ -168,16 +178,22 @@ func topologyID(kind NodeKind, name string) string {
 	return string(kind) + ":" + name
 }
 
-func topologyDependencyID(name string, ids map[string]struct{}) string {
+func topologyDependencyID(name string, ids map[string]struct{}) (string, error) {
 	componentID := topologyID(NodeComponent, name)
-	if _, ok := ids[componentID]; ok {
-		return componentID
-	}
 	serviceID := topologyID(NodeService, name)
-	if _, ok := ids[serviceID]; ok {
-		return serviceID
+	_, hasComponent := ids[componentID]
+	_, hasService := ids[serviceID]
+
+	if hasComponent && hasService {
+		return "", fmt.Errorf("ambiguous dependency %q: both %q and %q exist; use an explicit node namespace", name, componentID, serviceID)
 	}
-	return componentID
+	if hasComponent {
+		return componentID, nil
+	}
+	if hasService {
+		return serviceID, nil
+	}
+	return "", fmt.Errorf("unknown dependency %q", name)
 }
 
 // ValidateTopologyGraph rejects dangling edges, duplicate edges, and dependency cycles.
