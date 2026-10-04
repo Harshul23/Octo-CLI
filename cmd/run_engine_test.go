@@ -1,19 +1,13 @@
 package main
 
-import (
-	"testing"
-
-	"github.com/spf13/cobra"
-)
+import "testing"
 
 func TestRunDefaultsToIntelligenceEngine(t *testing.T) {
-	cmd := &cobra.Command{}
-	cmd.Flags().String("engine", "intelligence", "")
-	value, err := cmd.Flags().GetString("engine")
-	if err != nil {
-		t.Fatal(err)
+	flag := runCmd.Flags().Lookup("engine")
+	if flag == nil {
+		t.Fatal("engine flag is not registered")
 	}
-	if value != "intelligence" {
-		t.Fatalf("engine default=%q, want intelligence", value)
+	if flag.DefValue != "intelligence" {
+		t.Fatalf("engine default=%q, want intelligence", flag.DefValue)
 	}
 }
