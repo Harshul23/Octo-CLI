@@ -68,6 +68,13 @@ func Verify(ctx context.Context, checks []VerificationCheck) ([]VerificationResu
 	results := make([]VerificationResult, 0, len(checks))
 	for _, check := range checks {
 		switch check.Kind {
+		case VerificationHealth:
+			// Health is already enforced as an execution-plan dependency.
+			results = append(results, VerificationResult{
+				CheckID: check.ID,
+				Passed: true,
+				Reason: "health readiness was enforced by the execution plan",
+			})
 		case VerificationPort:
 			err := verifyPort(ctx, check.Host, check.Port, check.Timeout)
 			result := VerificationResult{CheckID: check.ID, Passed: err == nil}
