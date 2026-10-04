@@ -14,7 +14,7 @@ func TestExecutePlanReportRecordsSuccessfulSteps(t *testing.T) {
 		},
 	}
 	report := ExecutePlanReport(context.Background(), model, plan, RuntimeResolver{
-		adapters: []RuntimeAdapter{recordingAdapterForReport{}},
+		adapters: []RuntimeAdapter{&recordingAdapterForReport{}},
 	}, ResolvedEnvironment{Values: map[string]string{}})
 
 	if !report.Success {
@@ -24,7 +24,7 @@ func TestExecutePlanReportRecordsSuccessfulSteps(t *testing.T) {
 		t.Fatalf("steps=%+v", report.Steps)
 	}
 	if report.Steps[0].Adapter != "recording" {
-		t.Fatalf("step=%+v", report.Steps[0])
+		t.Fatalf("step=%+v", report.Steps)
 	}
 	if report.Confidence != 0.91 {
 		t.Fatalf("confidence=%v", report.Confidence)
@@ -44,15 +44,72 @@ func TestExecutePlanReportStopsOnFailure(t *testing.T) {
 		t.Fatal("expected failure")
 	}
 	if len(report.Steps) != 1 || report.Steps[0].Status != StepFailed {
-		t.Fatalf("steps=%+v", report.Steps)
+		t.Fatalf("steps=%v", report.Steps)
 	}
 	if report.FailureReason == "" {
 		t.Fatal("expected failure reason")
 	}
 }
 
-type recordingAdapterForReport struct{}
+func TestExecutePlanReportAppliesScopedEnvironmentPerStep(t *testing.T) {
+	adapter := &recordingAdapterForReport{}
+	plan := ExecutionPlan{
+		ProjectName: "demo",
+		Steps: []ExecutionStep{
+			{ID: "component.api.start", Component: "api", NodeID: "component:api", Phase: PhaseStart, Command: "true", WorkDir: "apps/api"},
+			{ID: "component.web.start", Component: "web", NodeID: "component:web", Phase: PhaseStart, Command: "true", WorkDir: "apps/web"},
+		},
+	}
+	env := ResolvedEnvironment{
+		Values: map[string]string{"SHARED": "root"},
+		ScopedValues: map[string]map[string]string{
+			"apps/api": {"SHARED": "api", "API_ONLY": "api-value"},
+			"apps/web": {"SHARED": "web", "WEB_ONLY": "web-value"},
+		},
+	}
 
-func (recordingAdapterForReport) Name() string { return "recording" }
-func (recordingAdapterForReport) Supports(step ExecutionStep) bool { return true }
-func (recordingAdapterForReport) Execute(context.Context, ExecutionStep, ResolvedEnvironment) error { return nil }
+	report := ExecutePlanReport(context.Background(), ProjectModel{Name: "demo"}, plan, RuntimeResolver{
+		adapters: []RuntimeAdapter{adapter},
+	}, env)
+	if !report.Success {
+		t.Fatalf("report=%+v", report)
+	}
+
+	if got := adapter.seen["component.api.start"]["SHARED"]; got != "api" {
+		t.Fatalf("api shared=%q, want api", got)
+	}
+	if got := adapter.seen["component.api.start"]["API_ONLY"]; got != "api-value" {
+		t.Fatalf("api-only=%q, want api-value", got)
+	}
+	if _, ok := adapter.seen["component.api.start"]["WEB_ONLY"]; ok {
+		t.Fatal("web-only variable leaked into api step")
+	}
+
+	if got := adapter.seen["component.web.start"]["SHARED"]; got != "web" {
+		t.Fatalf("web shared=%q, want web", got)
+	}
+	if got := adapter.seen["component.web.start"]["WEB_ONLY"]; got != "web-value" {
+		t.Fatalf("web-only=%q, want web-value", got)
+	}
+	if _, ok := adapter.seen["component.web.start"]["API_ONLY"]; ok {
+		t.Fatal("api-only variable leaked into web step")
+	}
+}
+
+type recordingAdapterForReport struct {
+	seen map[string]map[string]string
+}
+
+func (a *recordingAdapterForReport) Name() string { return "recording" }
+func (a *recordingAdapterForReport) Supports(step ExecutionStep) bool { return true }
+func (a *recordingAdapterForReport) Execute(_ context.Context, step ExecutionStep, env ResolvedEnvironment) error {
+	if a.seen == nil {
+		a.seen = make(map[string]map[string]string)
+	}
+	values := make(map[string]string, len(env.Values))
+	for key, value := range env.Values {
+		values[key] = value
+	}
+	a.seen[step.ID] = values
+	return nil
+}
