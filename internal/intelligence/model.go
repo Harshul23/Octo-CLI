@@ -44,6 +44,7 @@ type Evidence struct {
 type Reference struct {
 	Target     string           `json:"target" yaml:"target"`
 	Kind       RelationshipKind `json:"kind" yaml:"kind"`
+	Variable   string           `json:"variable,omitempty" yaml:"variable,omitempty"`
 	Confidence float64          `json:"confidence" yaml:"confidence"`
 	Evidence   []Evidence       `json:"evidence,omitempty" yaml:"evidence,omitempty"`
 }
@@ -88,8 +89,20 @@ type EnvironmentVariable struct {
 	Sources []string `json:"sources,omitempty" yaml:"sources,omitempty"`
 }
 
+// EnvironmentResolution describes a secret-safe binding from an environment
+// variable to a known topology target. It contains no resolved value.
+type EnvironmentResolution struct {
+	Variable   string           `json:"variable" yaml:"variable"`
+	Source     string           `json:"source" yaml:"source"`
+	Target     string           `json:"target" yaml:"target"`
+	Kind       RelationshipKind `json:"kind" yaml:"kind"`
+	Confidence float64          `json:"confidence" yaml:"confidence"`
+	Evidence   []Evidence       `json:"evidence,omitempty" yaml:"evidence,omitempty"`
+}
+
 type EnvironmentModel struct {
-	Variables []EnvironmentVariable `json:"variables,omitempty" yaml:"variables,omitempty"`
+	Variables   []EnvironmentVariable   `json:"variables,omitempty" yaml:"variables,omitempty"`
+	Resolutions []EnvironmentResolution `json:"resolutions,omitempty" yaml:"resolutions,omitempty"`
 }
 
 // ProjectModel is Octo's provider-neutral representation of a repository.

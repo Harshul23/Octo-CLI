@@ -41,6 +41,7 @@ type ExecutionPlan struct {
 	Steps        []ExecutionStep           `json:"steps" yaml:"steps"`
 	Ports        []PortAssignment          `json:"ports,omitempty" yaml:"ports,omitempty"`
 	Provisioning []ProvisioningRequirement `json:"provisioning,omitempty" yaml:"provisioning,omitempty"`
+	Environment  []EnvironmentResolution  `json:"environment,omitempty" yaml:"environment,omitempty"`
 }
 
 // Planner converts repository understanding into an executable plan.
@@ -189,7 +190,15 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		}
 	}
 
-	plan := ExecutionPlan{ProjectName: model.Name, Root: model.Root, Topology: topology, Steps: steps, Ports: ports, Provisioning: provisioning}
+	plan := ExecutionPlan{
+		ProjectName: model.Name,
+		Root: model.Root,
+		Topology: topology,
+		Steps: steps,
+		Ports: ports,
+		Provisioning: provisioning,
+		Environment: ResolveEnvironmentBindings(model),
+	}
 	if err := ValidateExecutionPlan(plan); err != nil {
 		return ExecutionPlan{}, err
 	}

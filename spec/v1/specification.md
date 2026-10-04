@@ -184,6 +184,26 @@ Only variables declared by the ProjectModel are exposed to runtime commands. Mis
 
 Resolved values remain in memory for the duration of execution and are not included in plan explanations or serialized artifacts.
 
+## Topology Environment Bindings
+
+Octo may derive secret-safe environment bindings from explicit static network references.
+
+An environment binding contains only:
+- the environment variable name;
+- the source topology node;
+- the referenced target;
+- the relationship kind;
+- confidence and supporting evidence.
+
+For example:
+
+    api
+      DATABASE_URL -> service:postgres
+
+A binding MUST NOT contain the resolved URL, credentials, tokens, or any other environment value. Static bindings are descriptive planning facts; runtime values remain in the existing execution-time environment resolver.
+
+Bindings are derived only from explicit repository evidence. Interpolated values such as \`http://${POSTGRES_HOST}:5432\` remain unresolved rather than being guessed. Multiple variables may reference the same target and MUST remain distinct bindings.
+
 ## Health and Readiness
 
 A topology dependency is not necessarily a readiness dependency.

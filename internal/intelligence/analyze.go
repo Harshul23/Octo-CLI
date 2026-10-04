@@ -61,6 +61,7 @@ func Analyze(path string) (ProjectModel, error) {
   if err := discoverComponentNetworkReferences(root, m.Components, m.Services); err != nil {
     return ProjectModel{}, err
   }
+  m.Environment.Resolutions = ResolveEnvironmentBindings(m)
   return m,nil
 }
 
