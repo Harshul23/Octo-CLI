@@ -151,7 +151,7 @@ func parseDotenvAssignment(line string) (string, string, bool) {
 func mergeReferences(existing, discovered []Reference) []Reference {
 	byTarget := make(map[string]Reference, len(existing)+len(discovered))
 	for _, ref := range append(existing, discovered...) {
-		key := ref.Kind + "\x00" + ref.Target
+		key := string(ref.Kind) + "\x00" + ref.Target
 		if current, ok := byTarget[key]; ok {
 			current.Evidence = append(current.Evidence, ref.Evidence...)
 			if ref.Confidence > current.Confidence {
