@@ -1,6 +1,8 @@
 package intelligence
 
 import (
+	"context"
+	"fmt"
 	"net"
 	"testing"
 )
@@ -49,11 +51,8 @@ func TestPlannerInjectsResolvedPort(t *testing.T) {
 		t.Fatalf("ports=%+v", plan.Ports)
 	}
 	step := findExecutionStep(plan, "component.web.start")
-	if step == nil || step.Environment["PORT"] != string(rune(port)) {
-		// Validate below without relying on rune conversion.
-		if step == nil || step.Environment["PORT"] != fmt.Sprintf("%d", port) {
-			t.Fatalf("step environment=%v", step)
-		}
+	if step == nil || step.Environment["PORT"] != fmt.Sprintf("%d", port) {
+		t.Fatalf("step environment=%v", step)
 	}
 }
 
