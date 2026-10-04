@@ -223,7 +223,7 @@ func ValidateTopologyGraph(graph TopologyGraph) error {
 		if _, ok := ids[edge.To]; !ok {
 			return fmt.Errorf("edge references unknown target %q", edge.To)
 		}
-		key := edge.From + "->" + edge.To + ":" + edge.Kind
+		key := edge.From + "->" + edge.To + ":" + string(edge.Kind)
 		if _, exists := edges[key]; exists {
 			return fmt.Errorf("duplicate topology edge %q", key)
 		}
