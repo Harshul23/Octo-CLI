@@ -60,7 +60,8 @@ func (ShellAdapter) Execute(ctx context.Context, step ExecutionStep, env Resolve
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	cmd.Env = mergedEnvironmentWithStep(env.Values, step.Environment)
+	stepEnv := env.ForStep(step)
+	cmd.Env = mergedEnvironmentWithStep(stepEnv.Values, step.Environment)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("shell step %q failed: %w", step.ID, err)
 	}
