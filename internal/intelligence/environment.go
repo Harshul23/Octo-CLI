@@ -133,8 +133,19 @@ func resolveEnvironment(root string, model EnvironmentModel, components []Compon
 
 
 func requiredEnvironmentScopes(variable EnvironmentVariable, components []Component) []string {
-	if len(variable.Sources) == 0 || len(components) == 0 {
+	if len(components) == 0 {
 		return nil
+	}
+	if len(variable.Sources) == 0 {
+		scopes := make([]string, 0, len(components))
+		for _, component := range components {
+			path := filepath.ToSlash(filepath.Clean(component.Path))
+			if path != "" && path != "." {
+				scopes = append(scopes, path)
+			}
+		}
+		sort.Strings(scopes)
+		return scopes
 	}
 
 	// Prefer the most specific component path when components are nested.
