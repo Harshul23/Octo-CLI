@@ -11,6 +11,29 @@ import (
 // It must never be embedded in ProjectModel or ExecutionPlan.
 type ResolvedEnvironment struct {
 	Values map[string]string
+	// ScopedValues contains component-local runtime values keyed by the
+	// component work directory. Values never enter ProjectModel or ExecutionPlan.
+	ScopedValues map[string]map[string]string
+}
+
+func (e ResolvedEnvironment) ForStep(step ExecutionStep) ResolvedEnvironment {
+	values := make(map[string]string, len(e.Values))
+	for name, value := range e.Values {
+		values[name] = value
+	}
+	if scoped, ok := e.ScopedValues[step.WorkDir]; ok {
+		for name, value := range scoped {
+			values[name] = value
+		}
+	}
+	// The caller's process environment is always authoritative.
+	for _, entry := range os.Environ() {
+		name, value, ok := splitEnv(entry)
+		if ok {
+			values[name] = value
+		}
+	}
+	return ResolvedEnvironment{Values: values}
 }
 
 // ResolveEnvironment resolves required and optional variables for a project.
@@ -55,7 +78,28 @@ func ResolveEnvironment(root string, model EnvironmentModel) (ResolvedEnvironmen
 		return ResolvedEnvironment{}, fmt.Errorf("missing required environment variables: %v", missing)
 	}
 
-	return ResolvedEnvironment{Values: resolved}, nil
+	scoped := make(map[string]map[string]string)
+	for _, component := range model.Components {
+		if component.Path == "" || component.Path == "." {
+			continue
+		}
+		componentRoot := filepath.Join(root, filepath.FromSlash(component.Path))
+		componentValues := make(map[string]string)
+		for _, path := range []string{filepath.Join(componentRoot, ".env"), filepath.Join(componentRoot, ".env.local")} {
+			fileValues, err := readEnvFile(path)
+			if err != nil {
+				return ResolvedEnvironment{}, err
+			}
+			for name, value := range fileValues {
+				componentValues[name] = value
+			}
+		}
+		if len(componentValues) > 0 {
+			scoped[component.Path] = componentValues
+		}
+	}
+
+	return ResolvedEnvironment{Values: resolved, ScopedValues: scoped}, nil
 }
 
 func readEnvFile(path string) (map[string]string, error) {
