@@ -188,3 +188,11 @@ For application components, the planner checks the requested host port. If it is
 
 Infrastructure service ports declared by Docker Compose are currently treated as strict declarations. Octo reports conflicts rather than silently rewriting Compose configuration. Future runtime adapters may support parameterized or safely rewritten service port mappings.
 
+## Verification
+
+Verification is a post-execution phase that checks expected runtime state without exposing environment values.
+
+Verification checks are derived from explicit execution-plan/model facts. Current deterministic checks include resolved application TCP ports. Explicit service health checks are already enforced as readiness dependencies by the execution plan.
+
+Verification failures are returned as structured results and do not mutate the execution plan.
+
