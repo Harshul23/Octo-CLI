@@ -76,7 +76,7 @@ func (ComposeAdapter) Supports(step ExecutionStep) bool {
 }
 
 func (ComposeAdapter) Execute(ctx context.Context, step ExecutionStep) error {
-	if !ComposeAdapter{}.Supports(step) {
+	if !(ComposeAdapter{}).Supports(step) {
 		return fmt.Errorf("step %q is not a Compose step", step.ID)
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", step.Command)
