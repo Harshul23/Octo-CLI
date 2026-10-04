@@ -155,3 +155,31 @@ func TestTopologyGraphRejectsAmbiguousReference(t *testing.T) {
 		t.Fatal("expected ambiguous reference error")
 	}
 }
+
+
+func TestTopologyGraphRejectsUnknownRelationshipKind(t *testing.T) {
+	_, err := BuildTopologyGraph(ProjectModel{
+		Components: []Component{
+			{
+				Name: "web",
+				References: []Reference{{Target: "api", Kind: RelationshipKind("made_up"), Confidence: 0.5}},
+			},
+			{Name: "api"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected unknown relationship kind error")
+	}
+}
+
+func TestRelationshipKindsAreExplicit(t *testing.T) {
+	if !RelationshipDependsOn.IsKnown() {
+		t.Fatal("depends_on must be a known relationship kind")
+	}
+	if !RelationshipNetworkReference.IsKnown() {
+		t.Fatal("network_reference must be a known relationship kind")
+	}
+	if RelationshipKind("unknown").IsKnown() {
+		t.Fatal("unknown relationship kind must not be accepted")
+	}
+}

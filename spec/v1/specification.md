@@ -264,3 +264,15 @@ These references MUST:
 - reject ambiguous targets when a component and service share the same name rather than guessing.
 
 Raw environment values, credentials, tokens, and URL contents MUST NOT be serialized into the ProjectModel, topology, plan, explanation, or report.
+
+
+## Topology Relationship Semantics
+
+Topology edges have an explicit relationship kind. Octo v1 defines:
+
+- `depends_on`: an execution dependency. A consumer MUST NOT be scheduled before the referenced node satisfies the planner's required readiness gate.
+- `network_reference`: an informational communication relationship. It MUST NOT create execution ordering or participate in dependency-cycle detection.
+
+Consumers MUST reject unknown relationship kinds rather than silently assigning execution semantics. This keeps topology facts and execution policy separate and makes future relationship kinds safe to introduce deliberately.
+
+The relationship kind is part of the canonical topology identity for duplicate-edge validation: two nodes may have both a `depends_on` and a `network_reference` relationship without those relationships being treated as duplicates.

@@ -27,7 +27,7 @@ type TopologyNode struct {
 type TopologyEdge struct {
 	From       string     `json:"from" yaml:"from"`
 	To         string     `json:"to" yaml:"to"`
-	Kind       string     `json:"kind" yaml:"kind"`
+	Kind       RelationshipKind `json:"kind" yaml:"kind"`
 	Confidence float64    `json:"confidence" yaml:"confidence"`
 	Evidence   []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
 }
@@ -81,7 +81,7 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 		}
 	}
 
-	addEdge := func(from, to, kind string, confidence float64, evidence []Evidence) error {
+	addEdge := func(from, to string, kind RelationshipKind, confidence float64, evidence []Evidence) error {
 		if _, ok := ids[from]; !ok {
 			return fmt.Errorf("topology relationship references unknown source %q", from)
 		}
@@ -103,7 +103,7 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
 			}
 			evidence := dependencyEvidence(nodeEvidence[from], dep, "Component dependency is explicitly declared in the component manifest.")
-			if err := addEdge(from, target, "depends_on", 0.99, evidence); err != nil {
+			if err := addEdge(from, target, RelationshipDependsOn, 0.99, evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
 			}
 		}
@@ -111,6 +111,9 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 			target, err := topologyDependencyID(reference.Target, ids)
 			if err != nil {
 				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
+			}
+			if !reference.Kind.IsKnown() {
+				return TopologyGraph{}, fmt.Errorf("component %q: unknown topology relationship kind %q", component.Name, reference.Kind)
 			}
 			if err := addEdge(from, target, reference.Kind, reference.Confidence, reference.Evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
@@ -122,7 +125,7 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 		for _, dep := range service.DependsOn {
 			target := topologyID(NodeService, dep)
 			evidence := dependencyEvidence(nodeEvidence[from], dep, "Service dependency is explicitly declared in the Compose configuration.")
-			if err := addEdge(from, target, "depends_on", 0.99, evidence); err != nil {
+			if err := addEdge(from, target, RelationshipDependsOn, 0.99, evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)
 			}
 		}
@@ -134,6 +137,9 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 					return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)
 				}
 				target = resolved
+			}
+			if !reference.Kind.IsKnown() {
+				return TopologyGraph{}, fmt.Errorf("service %q: unknown topology relationship kind %q", service.Name, reference.Kind)
 			}
 			if err := addEdge(from, target, reference.Kind, reference.Confidence, reference.Evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)
@@ -217,13 +223,13 @@ func ValidateTopologyGraph(graph TopologyGraph) error {
 		if _, ok := ids[edge.To]; !ok {
 			return fmt.Errorf("edge references unknown target %q", edge.To)
 		}
-		key := edge.From + "->" + edge.To + ":" + edge.Kind
+		key := edge.From + "->" + edge.To + ":" + string(edge.Kind)
 		if _, exists := edges[key]; exists {
 			return fmt.Errorf("duplicate topology edge %q", key)
 		}
 		edges[key] = struct{}{}
 
-		if edge.Kind == "depends_on" {
+		if edge.Kind == RelationshipDependsOn {
 			indegree[edge.From]++
 			out[edge.To] = append(out[edge.To], edge.From)
 		}
