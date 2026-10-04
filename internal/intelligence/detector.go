@@ -1,54 +1,154 @@
 package intelligence
 
 import (
-    "github.com/harshul/octo-cli/internal/analyzer"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
-// DetectedProject is the minimal repository-level detection result consumed by
-// the intelligence pipeline. Keeping this contract here lets the legacy
-// analyzer implementation be replaced without changing the rest of the system.
 type DetectedProject struct {
-    Name           string
-    Language       string
-    Version        string
-    RunCommand     string
-    Port           int
-    PackageManager string
-    SetupCommand   string
-    SetupRequired  bool
-    IsMonorepo     bool
-    MonorepoRoot   string
+	Name string
+	Language string
+	Version string
+	RunCommand string
+	Port int
+	PackageManager string
+	SetupCommand string
+	SetupRequired bool
+	IsMonorepo bool
+	MonorepoRoot string
 }
 
-// ProjectDetector discovers repository facts needed by the intelligence layer.
-type ProjectDetector interface {
-    Detect(path string) (DetectedProject, error)
+type ProjectDetector interface { Detect(path string) (DetectedProject, error) }
+
+type signalDefinition struct {
+	File string
+	Language string
+	Detect func(root string) (DetectedProject, error)
 }
 
-// LegacyProjectDetector is the temporary compatibility implementation.
-// The analyzer package can be removed once a native detector implements the
-// same contract.
-type LegacyProjectDetector struct{}
+type NativeProjectDetector struct{}
 
-func (LegacyProjectDetector) Detect(path string) (DetectedProject, error) {
-    info, err := analyzer.AnalyzeProject(path)
-    if err != nil {
-        return DetectedProject{}, err
-    }
-    return DetectedProject{
-        Name:           info.Name,
-        Language:       info.Language,
-        Version:        info.Version,
-        RunCommand:     info.RunCommand,
-        Port:           info.PortConfig.Port,
-        PackageManager: info.PackageManager,
-        SetupCommand:   info.SetupCommand,
-        SetupRequired:  info.SetupRequired,
-        IsMonorepo:     info.IsMonorepo,
-        MonorepoRoot:   info.MonorepoRoot,
-    }, nil
+var projectSignals = []signalDefinition{
+	{File: "package.json", Language: "Node", Detect: detectNodeProject},
+	{File: "go.mod", Language: "Go", Detect: detectGoProject},
+	{File: "pyproject.toml", Language: "Python", Detect: detectPythonProject},
+	{File: "requirements.txt", Language: "Python", Detect: detectPythonProject},
+	{File: "Cargo.toml", Language: "Rust", Detect: detectRustProject},
+	{File: "pom.xml", Language: "Java", Detect: detectJavaProject},
+	{File: "build.gradle", Language: "Java", Detect: detectJavaProject},
+	{File: "Gemfile", Language: "Ruby", Detect: detectRubyProject},
 }
 
-func detectProject(path string) (DetectedProject, error) {
-    return (LegacyProjectDetector{}).Detect(path)
+func (NativeProjectDetector) Detect(path string) (DetectedProject, error) {
+	root, err := filepath.Abs(path)
+	if err != nil { return DetectedProject{}, err }
+	info, err := os.Stat(root)
+	if err != nil { return DetectedProject{}, err }
+	if !info.IsDir() { return DetectedProject{}, errors.New("project path is not a directory") }
+
+	for _, signal := range projectSignals {
+		if _, err := os.Stat(filepath.Join(root, signal.File)); err != nil { continue }
+		project, err := signal.Detect(root)
+		if err != nil { return DetectedProject{}, err }
+		if project.Name == "" { project.Name = filepath.Base(root) }
+		project.Language = signal.Language
+		project.Monorepo, project.MonorepoRoot = detectMonorepo(root)
+		project.Port = defaultProjectPort(project.Language)
+		return project, nil
+	}
+	return detectSimpleProject(root)
 }
+
+func detectNodeProject(root string) (DetectedProject, error) {
+	data, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil { return DetectedProject{}, err }
+	var pkg struct {
+		Name string `json:"name"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(data, &pkg); err != nil { return DetectedProject{}, err }
+	return DetectedProject{Name: firstNonEmpty(pkg.Name, filepath.Base(root)), Version: pkg.Version, PackageManager: detectNodePackageManager(root)}, nil
+}
+
+func detectGoProject(root string) (DetectedProject, error) {
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil { return DetectedProject{}, err }
+	project := DetectedProject{Name: filepath.Base(root)}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "go" { project.Version = fields[1] }
+		if len(fields) >= 2 && fields[0] == "module" {
+			parts := strings.Split(fields[1], "/")
+			if len(parts) > 0 && parts[len(parts)-1] != "" { project.Name = parts[len(parts)-1] }
+		}
+	}
+	return project, nil
+}
+
+func detectPythonProject(root string) (DetectedProject, error) { return DetectedProject{Name: filepath.Base(root)}, nil }
+func detectJavaProject(root string) (DetectedProject, error) { return DetectedProject{Name: filepath.Base(root)}, nil }
+func detectRubyProject(root string) (DetectedProject, error) { return DetectedProject{Name: filepath.Base(root)}, nil }
+
+func detectRustProject(root string) (DetectedProject, error) {
+	data, err := os.ReadFile(filepath.Join(root, "Cargo.toml"))
+	if err != nil { return DetectedProject{}, err }
+	project := DetectedProject{Name: filepath.Base(root)}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[0] == "name" && fields[1] == "=" { project.Name = strings.Trim(fields[2], "\""+"'") }
+		if len(fields) >= 3 && fields[0] == "version" && fields[1] == "=" { project.Version = strings.Trim(fields[2], "\""+"'") }
+	}
+	return project, nil
+}
+
+func detectSimpleProject(root string) (DetectedProject, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil { return DetectedProject{}, err }
+	for _, entry := range entries {
+		if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".html") || strings.HasSuffix(entry.Name(), ".htm")) {
+			return DetectedProject{Name: filepath.Base(root), Language: "HTML"}, nil
+		}
+	}
+	return DetectedProject{Name: filepath.Base(root), Language: "Unknown"}, nil
+}
+
+func detectNodePackageManager(root string) string {
+	for _, candidate := range []struct{ file, manager string }{
+		{"bun.lockb", "bun"}, {"bun.lock", "bun"}, {"pnpm-lock.yaml", "pnpm"}, {"yarn.lock", "yarn"}, {"package-lock.json", "npm"},
+	} {
+		if _, err := os.Stat(filepath.Join(root, candidate.file)); err == nil { return candidate.manager }
+	}
+	return "npm"
+}
+
+func detectMonorepo(root string) (bool, string) {
+	for _, file := range []string{"pnpm-workspace.yaml", "nx.json", "turbo.json", "lerna.json", "rush.json"} {
+		if _, err := os.Stat(filepath.Join(root, file)); err == nil { return true, root }
+	}
+	data, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err == nil {
+		var pkg struct { Workspaces any `json:"workspaces"` }
+		if json.Unmarshal(data, &pkg) == nil && pkg.Workspaces != nil { return true, root }
+	}
+	return false, ""
+}
+
+func defaultProjectPort(language string) int {
+	switch language {
+	case "Node": return 3000
+	case "Python": return 5000
+	case "Java", "Go", "Rust": return 8080
+	case "Ruby": return 3000
+	default: return 0
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values { if value != "" { return value } }
+	return ""
+}
+
+func detectProject(path string) (DetectedProject, error) { return NativeProjectDetector{}.Detect(path) }
