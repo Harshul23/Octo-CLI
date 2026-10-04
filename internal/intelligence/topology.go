@@ -112,7 +112,10 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 			if err != nil {
 				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
 			}
-			if err := if !reference.Kind.IsKnown() { return TopologyGraph{}, fmt.Errorf("component %q: unknown topology relationship kind %q", component.Name, reference.Kind) }\n\t\t\tif err := if !reference.Kind.IsKnown() { return TopologyGraph{}, fmt.Errorf("service %q: unknown topology relationship kind %q", service.Name, reference.Kind) }\n\t\t\tif err := addEdge(from, target, reference.Kind, reference.Confidence, reference.Evidence); err != nil; err != nil; err != nil {
+			if !reference.Kind.IsKnown() {
+				return TopologyGraph{}, fmt.Errorf("component %q: unknown topology relationship kind %q", component.Name, reference.Kind)
+			}
+			if err := addEdge(from, target, reference.Kind, reference.Confidence, reference.Evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
 			}
 		}
@@ -134,6 +137,9 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 					return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)
 				}
 				target = resolved
+			}
+			if !reference.Kind.IsKnown() {
+				return TopologyGraph{}, fmt.Errorf("service %q: unknown topology relationship kind %q", service.Name, reference.Kind)
 			}
 			if err := addEdge(from, target, reference.Kind, reference.Confidence, reference.Evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)
