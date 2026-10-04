@@ -118,3 +118,17 @@ This separates:
 - **planning** — the ordered execution steps required;
 - **runtime adapters** — how a specific node is actually executed.
 
+## Runtime Adapters
+
+Execution plans are runtime-neutral. A RuntimeAdapter maps an executable plan step to a concrete execution mechanism.
+
+The built-in boundary currently includes:
+- **shell** for ordinary command execution;
+- **compose** for Docker Compose commands.
+
+Adapters are selected explicitly by capability rather than by a global language switch.
+
+The execution engine validates the plan, obtains a stable topological order, resolves an adapter for each executable step, and executes steps in dependency order.
+
+The new execution engine is intentionally separate from the legacy Blueprint/Orchestrator path while it matures.
+
