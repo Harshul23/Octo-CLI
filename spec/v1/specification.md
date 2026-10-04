@@ -197,6 +197,8 @@ Precedence is:
 
 A component-local variable MUST NOT be exposed to another component merely because both belong to the same repository. Shared process-level variables remain globally available.
 
+For required variables, a component-local value satisfies the requirement only for components whose analyzed source references that variable. An unrelated component's local value MUST NOT satisfy another component's required variable. If a required variable is referenced outside a known component, it requires a shared value.
+
 Scoped values are runtime-only. They MUST NOT be serialized into the ProjectModel, ExecutionPlan, topology, decision trace, or execution report.
 
 The execution engine MUST resolve the environment separately for each executable step using that step's component/work directory. A component-local value MUST be visible only to steps in the matching component scope. The engine MUST NOT pass one repository-wide resolved environment object unchanged to every step.
