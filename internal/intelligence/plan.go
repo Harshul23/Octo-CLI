@@ -27,6 +27,8 @@ type ExecutionStep struct {
 	NodeID      string         `json:"node_id" yaml:"node_id"`
 	Phase       ExecutionPhase `json:"phase" yaml:"phase"`
 	Command     string         `json:"command,omitempty" yaml:"command,omitempty"`
+	Candidates  []ExecutionCandidate `json:"candidates,omitempty" yaml:"candidates,omitempty"`
+	SelectedCandidate string       `json:"selected_candidate,omitempty" yaml:"selected_candidate,omitempty"`
 	WorkDir     string         `json:"work_dir,omitempty" yaml:"work_dir,omitempty"`
 	DependsOn   []string       `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
 	Environment map[string]string `json:"environment,omitempty" yaml:"environment,omitempty"`
@@ -131,9 +133,11 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 			}
 		}
 
-		steps = append(steps, ExecutionStep{
+		startCandidates := append([]ExecutionCandidate(nil), component.ExecutionCandidates...)
+	steps = append(steps, ExecutionStep{
 			ID: prefix + ".start", Component: component.Name, NodeID: nodeID, Phase: PhaseStart,
-			Command: component.RunCommand, WorkDir: component.Path, DependsOn: uniqueStrings(deps),
+			Command: component.RunCommand, Candidates: startCandidates, SelectedCandidate: selectedCandidateID(component),
+			WorkDir: component.Path, DependsOn: uniqueStrings(deps),
 			Explanation: "Start the component after all topology dependencies are started.",
 		})
 	}
@@ -203,6 +207,15 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		return ExecutionPlan{}, err
 	}
 	return plan, nil
+}
+
+func selectedCandidateID(component Component) string {
+	for _, candidate := range component.ExecutionCandidates {
+		if candidate.Command == component.RunCommand {
+			return candidate.ID
+		}
+	}
+	return ""
 }
 
 func startStepID(nodeID string) string {
