@@ -1,0 +1,80 @@
+package intelligence
+
+import (
+  "encoding/json"
+  "os"
+  "path/filepath"
+  "strings"
+  "github.com/harshul/octo-cli/internal/analyzer"
+)
+
+func Analyze(path string) (ProjectModel, error) {
+  info, err := analyzer.AnalyzeProject(path)
+  if err != nil { return ProjectModel{}, err }
+  root, err := filepath.Abs(path)
+  if err != nil { return ProjectModel{}, err }
+
+  m := ProjectModel{Name: info.Name, Root: root, Language: info.Language, RuntimeVersion: info.Version,
+    PackageManager: info.PackageManager, RunCommand: info.RunCommand, SetupCommand: info.SetupCommand,
+    Monorepo: info.IsMonorepo, Port: info.PortConfig.Port, Confidence: 0.20}
+
+  if f := signalFile(root, info.Language); f != "" {
+    m.Evidence = append(m.Evidence, Evidence{Kind: EvidenceSignalFile, Path:f, Detail:"Primary language signal.", Strength:0.85})
+  }
+  if f := lockfile(root, info.PackageManager); f != "" {
+    m.Evidence = append(m.Evidence, Evidence{Kind: EvidenceLockfile, Path:f, Detail:"Lockfile supports the detected package manager.", Strength:0.95})
+  }
+  if info.RunCommand != "" {
+    m.Evidence = append(m.Evidence, Evidence{Kind: EvidenceScript, Path:"package.json", Detail:"Selected run command: "+info.RunCommand, Strength:0.80})
+  }
+  if f := monorepoMarker(root); f != "" {
+    m.Evidence = append(m.Evidence, Evidence{Kind: EvidenceConfig, Path:f, Detail:"Workspace configuration indicates a monorepo.", Strength:0.95})
+  }
+  m.Framework = detectFramework(root, info.Language)
+  if m.Framework != "" {
+    m.Evidence = append(m.Evidence, Evidence{Kind:EvidenceManifest, Path:frameworkPath(root, info.Language),
+      Detail:"Detected framework: "+m.Framework, Strength:0.90})
+  }
+  m.Confidence = confidence(m.Evidence, m.RunCommand != "")
+  m.Components = []Component{{Name:m.Name, Path:".", Language:m.Language, Framework:m.Framework,
+    PackageManager:m.PackageManager, RunCommand:m.RunCommand, Port:m.Port, Confidence:m.Confidence, Evidence:m.Evidence}}
+  return m,nil
+}
+
+func signalFile(root, lang string) string {
+  files:=map[string]string{"Node":"package.json","Java":"pom.xml","Python":"pyproject.toml","Go":"go.mod","Rust":"Cargo.toml","Ruby":"Gemfile"}
+  f:=files[lang]; if f=="" { return "" }; if _,e:=os.Stat(filepath.Join(root,f)); e!=nil{return ""}; return f
+}
+func lockfile(root, pm string) string {
+  files:=map[string]string{"pnpm":"pnpm-lock.yaml","yarn":"yarn.lock","bun":"bun.lock","npm":"package-lock.json"}
+  f:=files[pm]; if f=="" {return ""}; if _,e:=os.Stat(filepath.Join(root,f));e!=nil{return ""};return f
+}
+func monorepoMarker(root string) string {
+  for _,f:=range []string{"pnpm-workspace.yaml","nx.json","turbo.json","lerna.json","rush.json"} {
+    if _,e:=os.Stat(filepath.Join(root,f));e==nil{return f}
+  }; return ""
+}
+func detectFramework(root, lang string) string {
+  if lang=="Node" {
+    data,e:=os.ReadFile(filepath.Join(root,"package.json")); if e!=nil{return ""}
+    var p struct{Dependencies map[string]string `json:"dependencies"`; DevDependencies map[string]string `json:"devDependencies"`}
+    if json.Unmarshal(data,&p)!=nil{return ""}
+    deps:=map[string]bool{};for k:=range p.Dependencies{deps[k]=true};for k:=range p.DevDependencies{deps[k]=true}
+    for _,f:=range []struct{name,dep string}{{"Next.js","next"},{"React","react"},{"Vue","vue"},{"Nuxt","nuxt"},{"Svelte","svelte"},{"Express","express"},{"Fastify","fastify"},{"NestJS","@nestjs/core"}}{
+      if deps[f.dep]{return f.name}
+    }
+  }
+  if lang=="Python" {
+    for _,f:=range []string{"requirements.txt","pyproject.toml"}{
+      data,e:=os.ReadFile(filepath.Join(root,f));if e!=nil{continue};s:=strings.ToLower(string(data))
+      if strings.Contains(s,"fastapi"){return "FastAPI"};if strings.Contains(s,"django"){return "Django"};if strings.Contains(s,"flask"){return "Flask"}
+    }
+  }
+  return ""
+}
+func frameworkPath(root,lang string) string {
+  if lang=="Node"{return "package.json"};if _,e:=os.Stat(filepath.Join(root,"requirements.txt"));e==nil{return "requirements.txt"};return "pyproject.toml"
+}
+func confidence(ev []Evidence, hasRun bool) float64 {
+  if len(ev)==0{return 0.20};var sum float64;for _,e:=range ev{sum+=e.Strength};c:=sum/float64(len(ev));if hasRun{c+=0.10};if c>0.99{c=0.99};return c
+}
