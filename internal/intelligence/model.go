@@ -20,6 +20,17 @@ type Evidence struct {
 }
 
 // Component represents a runnable part of a repository.
+// Service represents an infrastructure/runtime service explicitly declared by a repository.
+type Service struct {
+	Name string `json:"name" yaml:"name"`
+	Image string `json:"image,omitempty" yaml:"image,omitempty"`
+	Build string `json:"build,omitempty" yaml:"build,omitempty"`
+	DependsOn []string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	Ports []string `json:"ports,omitempty" yaml:"ports,omitempty"`
+	Confidence float64 `json:"confidence" yaml:"confidence"`
+	Evidence []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
+}
+
 type Component struct {
 	Name string `json:"name" yaml:"name"`
 	Path string `json:"path" yaml:"path"`
@@ -47,5 +58,6 @@ type ProjectModel struct {
 	Port int `json:"port,omitempty" yaml:"port,omitempty"`
 	Confidence float64 `json:"confidence" yaml:"confidence"`
 	Components []Component `json:"components,omitempty" yaml:"components,omitempty"`
+	Services []Service `json:"services,omitempty" yaml:"services,omitempty"`
 	Evidence []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
 }
