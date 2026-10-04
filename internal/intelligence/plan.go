@@ -145,10 +145,11 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 
 		if service.HealthCheck != nil && strings.TrimSpace(service.HealthCheck.Command) != "" {
 			healthID := readinessStepID(nodeID, model)
+			healthCommand, healthExplanation := serviceHealthCommand(service, model)
 			steps = append(steps, ExecutionStep{
 				ID: healthID, Component: service.Name, NodeID: nodeID, Phase: PhaseHealth,
-				Command: service.HealthCheck.Command, WorkDir: model.Root, DependsOn: []string{stepID},
-				Explanation: "Wait for the service readiness check to succeed before dependents start.",
+				Command: healthCommand, WorkDir: model.Root, DependsOn: []string{stepID},
+				Explanation: healthExplanation,
 			})
 		}
 	}
@@ -284,4 +285,21 @@ func readinessStepID(nodeID string, model ProjectModel) string {
 		}
 	}
 	return startStepID(nodeID)
+}
+
+
+func serviceHealthCommand(service Service, model ProjectModel) (string, string) {
+	command := strings.TrimSpace(service.HealthCheck.Command)
+	for _, evidence := range service.Evidence {
+		base := filepath.Base(evidence.Path)
+		if evidence.Kind == EvidenceConfig && strings.Contains(base, "compose") {
+			return fmt.Sprintf("docker compose -f %s exec -T %s sh -c %s", evidence.Path, service.Name, shellQuote(command)),
+				"Run the declared Compose health check inside the service container."
+		}
+	}
+	return command, "Run the explicitly declared service health check."
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
