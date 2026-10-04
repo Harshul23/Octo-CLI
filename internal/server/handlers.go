@@ -54,7 +54,7 @@ type PublishRequest struct {
 
 type AnalysisResponse struct {
 	Success   bool                 `json:"success"`
-	Project   *intelligence.ProjectInfo `json:"project,omitempty"`
+	Project   *intelligence.ProjectModel `json:"project,omitempty"`
 	Blueprint *blueprint.Blueprint  `json:"blueprint,omitempty"`
 	Error     string               `json:"error,omitempty"`
 	Duration  string               `json:"duration,omitempty"`
@@ -76,8 +76,8 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 
-	// Use the existing analyzer
-	info, err := intelligence.AnalyzeProject(req.Path)
+	// Analyze the repository using the native intelligence model.
+	model, err := intelligence.Analyze(req.Path)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, AnalysisResponse{
 			Success: false,
@@ -87,11 +87,11 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert to blueprint
-	bp := blueprint.FromProjectInfo(info)
+	bp := blueprint.FromProjectModel(model)
 
 	writeJSON(w, http.StatusOK, AnalysisResponse{
 		Success:   true,
-		Project:   &info,
+		Project:   &model,
 		Blueprint: &bp,
 		Duration:  time.Since(start).String(),
 	})
@@ -150,8 +150,8 @@ func (s *Server) handleAnalyzeGitHub(w http.ResponseWriter, r *http.Request) {
 		tmpDir = tmpDir2
 	}
 
-	// Run analysis on the cloned repo
-	info, err := intelligence.AnalyzeProject(tmpDir)
+	// Analyze the cloned repository using the native intelligence model.
+	model, err := intelligence.Analyze(tmpDir)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, AnalysisResponse{
 			Success: false,
@@ -160,15 +160,14 @@ func (s *Server) handleAnalyzeGitHub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fix the name from the repo URL
-	info.Name = extractRepoName(req.RepoURL)
+	// Use the repository name from the URL as the public project name.
+	model.Name = extractRepoName(req.RepoURL)
 
-	bp := blueprint.FromProjectInfo(info)
-	bp.Name = info.Name
+	bp := blueprint.FromProjectModel(model)
 
 	writeJSON(w, http.StatusOK, AnalysisResponse{
 		Success:   true,
-		Project:   &info,
+		Project:   &model,
 		Blueprint: &bp,
 		Duration:  time.Since(start).String(),
 	})
