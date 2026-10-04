@@ -220,9 +220,8 @@ func runWithIntelligence(cmd *cobra.Command) error {
 
 	watch, _ := cmd.Flags().GetBool("watch")
 	detach, _ := cmd.Flags().GetBool("detach")
-	noTUI, _ := cmd.Flags().GetBool("no-tui")
-	if watch || detach || !noTUI {
-		return fmt.Errorf("the intelligence engine currently requires --no-tui and does not support --watch or --detach")
+	if watch || detach {
+		return fmt.Errorf("the intelligence engine currently does not support --watch or --detach")
 	}
 
 	fmt.Println("Octo intelligence engine")
