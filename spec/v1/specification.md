@@ -268,6 +268,18 @@ Verification checks are derived from explicit execution-plan/model facts. Curren
 
 Verification failures are returned as structured results and do not mutate the execution plan.
 
+## Verified Strategies and Lock State
+
+Octo may persist successfully verified execution strategies in `.octo.lock` using the `octo.dev/lock/v1` schema.
+
+A verified strategy records the component, evidence-backed candidate, command, execution-relevant repository fingerprint, and verification time. The lock is a record of verified state, not a replacement for `.octo.yaml` configuration.
+
+Before reusing a locked strategy, Octo MUST confirm that the same candidate still exists and that its execution-relevant fingerprint matches the current repository. Changes to execution-relevant source, manifests, scripts, lockfiles, or runtime configuration invalidate the strategy. Unrelated documentation and generated/dependency trees SHOULD NOT invalidate it.
+
+When a lock entry is stale, Octo MUST fall back to normal evidence discovery and candidate selection. After a complete execution and deterministic verification succeed, Octo MAY refresh the corresponding lock entry.
+
+The lock MUST NOT contain resolved environment values, credentials, command output, or other secrets.
+
 ## Execution Report
 
 The intelligence execution path produces a serializable ExecutionReport.
