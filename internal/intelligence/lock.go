@@ -124,7 +124,7 @@ func RecordVerifiedStrategies(root string, model ProjectModel, plan ExecutionPla
 		if candidate == nil {
 			continue
 		}
-		component := findComponent(model.Components, step.Component)
+		component := findVerifiedStrategyComponent(model.Components, step.Component)
 		if component == nil {
 			continue
 		}
@@ -163,7 +163,7 @@ func RecordVerifiedStrategies(root string, model ProjectModel, plan ExecutionPla
 	return SaveOctoLock(root, lock)
 }
 
-func findComponent(components []Component, name string) *Component {
+func findVerifiedStrategyComponent(components []Component, name string) *Component {
 	for i := range components {
 		if components[i].Name == name {
 			return &components[i]
