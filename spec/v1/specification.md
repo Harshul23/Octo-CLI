@@ -209,3 +209,17 @@ The report contains:
 
 Command output and resolved environment values are not part of the report.
 
+## Decision Trace
+
+Octo exposes a decision trace derived from repository evidence and the deterministic execution plan.
+
+Each decision records:
+- the decision name and selected value;
+- the reason for the decision;
+- supporting evidence where available;
+- a confidence score.
+
+Execution-step explanations are included as decisions so users can understand dependency ordering, runtime selection, health/readiness gates, and port allocation.
+
+Decision traces contain no resolved environment values or command output.
+
