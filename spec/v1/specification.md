@@ -196,3 +196,16 @@ Verification checks are derived from explicit execution-plan/model facts. Curren
 
 Verification failures are returned as structured results and do not mutate the execution plan.
 
+## Execution Report
+
+The intelligence execution path produces a serializable ExecutionReport.
+
+The report contains:
+- project identity and analysis confidence;
+- the execution plan;
+- per-step status and selected runtime adapter;
+- deterministic verification results;
+- a top-level success state and safe failure reason.
+
+Command output and resolved environment values are not part of the report.
+
