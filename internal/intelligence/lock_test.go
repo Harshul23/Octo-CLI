@@ -88,12 +88,13 @@ func TestApplyVerifiedStrategiesRequiresMatchingFingerprint(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\nfunc main() { println(2) }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	model.Components[0].RunCommand = "go run ."
+	model.Components[0].RunCommand = ""
+	model.Components[0].Confidence = 0
 	if err := ApplyVerifiedStrategies(root, &model, lock); err != nil {
 		t.Fatal(err)
 	}
-	if model.Components[0].RunCommand != "go run ." {
-		t.Fatal("existing analysis should remain in control when lock is stale")
+	if model.Components[0].RunCommand != "" || model.Components[0].Confidence != 0 {
+		t.Fatal("stale lock must not be applied")
 	}
 }
 
