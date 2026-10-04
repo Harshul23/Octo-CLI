@@ -110,7 +110,7 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		deps := append([]string(nil), setupDepends...)
 		for _, edge := range topology.Edges {
 			if edge.From == nodeID {
-				deps = append(deps, startStepID(edge.To))
+				deps = append(deps, readinessStepID(edge.To, model))
 			}
 		}
 
@@ -142,6 +142,15 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 			Command: command, WorkDir: model.Root, DependsOn: uniqueStrings(deps),
 			Explanation: explanation,
 		})
+
+		if service.HealthCheck != nil && strings.TrimSpace(service.HealthCheck.Command) != "" {
+			healthID := readinessStepID(nodeID, model)
+			steps = append(steps, ExecutionStep{
+				ID: healthID, Component: service.Name, NodeID: nodeID, Phase: PhaseHealth,
+				Command: service.HealthCheck.Command, WorkDir: model.Root, DependsOn: []string{stepID},
+				Explanation: "Wait for the service readiness check to succeed before dependents start.",
+			})
+		}
 	}
 
 	plan := ExecutionPlan{ProjectName: model.Name, Root: model.Root, Steps: steps}
@@ -265,4 +274,14 @@ func TopologicalOrder(plan ExecutionPlan) ([]string, error) {
 		return nil, fmt.Errorf("execution plan contains a dependency cycle")
 	}
 	return order, nil
+}
+
+
+func readinessStepID(nodeID string, model ProjectModel) string {
+	for _, service := range model.Services {
+		if topologyID(NodeService, service.Name) == nodeID && service.HealthCheck != nil && strings.TrimSpace(service.HealthCheck.Command) != "" {
+			return startStepID(nodeID)[:len(startStepID(nodeID))-len(".start")] + ".health"
+		}
+	}
+	return startStepID(nodeID)
 }
