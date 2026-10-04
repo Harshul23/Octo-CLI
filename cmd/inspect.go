@@ -46,9 +46,16 @@ var explainCmd = &cobra.Command{
     if len(args) == 1 { path = args[0] }
     model, err := intelligence.Analyze(path)
     if err != nil { return err }
-    fmt.Printf("Why Octo chose these defaults for %s:\n\n", model.Name)
-    for _, e := range model.Evidence {
-      fmt.Printf("- [%s] %s — %s (strength %.0f%%)\n", e.Kind, e.Detail, e.Path, e.Strength*100)
+    planner := intelligence.DeterministicPlanner{}
+    plan, err := planner.Plan(cmd.Context(), model)
+    if err != nil { return err }
+
+    fmt.Printf("Why Octo made these decisions for %s:\n\n", model.Name)
+    for _, d := range intelligence.BuildDecisionTrace(model, plan) {
+      fmt.Printf("- %s = %s\n  %s (confidence %.0f%%)\n", d.Decision, unknown(d.Value), d.Reason, d.Confidence*100)
+      for _, e := range d.Evidence {
+        fmt.Printf("  evidence: [%s] %s — %s (strength %.0f%%)\n", e.Kind, e.Detail, e.Path, e.Strength*100)
+      }
     }
     fmt.Printf("\nOverall confidence: %.0f%%\n", model.Confidence*100)
     return nil
