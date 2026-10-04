@@ -103,7 +103,7 @@ Node IDs use explicit namespaces:
 
 Dependency edges point from a dependent node to the node it depends on. The graph rejects dangling references, duplicate edges, and dependency cycles.
 
-This graph is the topology layer. Execution planning remains a separate concern and can map topology nodes to runtime-specific execution steps later.
+This graph is the topology layer. The ExecutionPlan MUST retain the exact validated TopologyGraph that was used to derive execution-step dependencies. Consumers such as `inspect`, `graph`, execution reporting, and future runtime orchestration can therefore reason over the same canonical topology rather than reconstructing it independently.
 
 ## Topology-Aware Execution Planning
 
