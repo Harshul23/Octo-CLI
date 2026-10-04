@@ -95,8 +95,9 @@ func resolveEnvironment(root string, model EnvironmentModel, components []Compon
 		}
 	}
 
-	// Validate required variables against the shared environment or any
-	// component-local environment, but keep component-local-only values scoped.
+	// Validate required variables against the shared environment or the
+	// component scopes that actually reference them. A value in one
+	// component must never satisfy a requirement belonging to another.
 	resolved := make(map[string]string)
 	var missing []string
 	for _, variable := range model.Variables {
@@ -104,16 +105,39 @@ func resolveEnvironment(root string, model EnvironmentModel, components []Compon
 			resolved[variable.Name] = value
 			continue
 		}
+		if !variable.Required {
+			continue
+		}
 
-		foundScoped := false
-		for _, componentValues := range scoped {
-			if candidate, exists := componentValues[variable.Name]; exists && candidate != "" {
-				foundScoped = true
+		scopes, ownershipKnown := requiredEnvironmentScopes(variable, components)
+		if !ownershipKnown {
+			// Legacy/source-less variables have no reliable component owner.
+			// Preserve the pre-scoping behavior: any component-local value can
+			// satisfy the requirement, while runtime isolation still applies.
+			found := false
+			for _, componentValues := range scoped {
+				if value, ok := componentValues[variable.Name]; ok && value != "" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				missing = append(missing, variable.Name)
+			}
+			continue
+		}
+		if len(scopes) == 0 {
+			// The variable has known ownership, but no known component owns
+			// the source. It therefore requires a shared/root value.
+			missing = append(missing, variable.Name)
+			continue
+		}
+		for _, scope := range scopes {
+			componentValues := scoped[scope]
+			if value, ok := componentValues[variable.Name]; !ok || value == "" {
+				missing = append(missing, variable.Name)
 				break
 			}
-		}
-		if !foundScoped && variable.Required {
-			missing = append(missing, variable.Name)
 		}
 	}
 
@@ -123,6 +147,51 @@ func resolveEnvironment(root string, model EnvironmentModel, components []Compon
 	}
 
 	return ResolvedEnvironment{Values: resolved, ScopedValues: scoped}, nil
+}
+
+
+func requiredEnvironmentScopes(variable EnvironmentVariable, components []Component) ([]string, bool) {
+	if len(variable.Sources) == 0 {
+		// No source ownership was recorded. The caller must use the legacy
+		// any-component-scope fallback.
+		return nil, false
+	}
+	if len(components) == 0 {
+		// Sources exist, but there are no component scopes to own them.
+		return nil, true
+	}
+
+	// Prefer the most specific component path when components are nested.
+	matched := make(map[string]struct{})
+	for _, source := range variable.Sources {
+		source = filepath.ToSlash(filepath.Clean(source))
+		best := ""
+		for _, component := range components {
+			path := filepath.ToSlash(filepath.Clean(component.Path))
+			if path == "" || path == "." {
+				continue
+			}
+			prefix := path + "/"
+			if source == path || len(source) > len(prefix) && source[:len(prefix)] == prefix {
+				if len(path) > len(best) {
+					best = path
+				}
+			}
+		}
+		if best != "" {
+			matched[best] = struct{}{}
+		} else {
+			// A source outside every component requires a shared value.
+			return nil, true
+		}
+	}
+
+	scopes := make([]string, 0, len(matched))
+	for scope := range matched {
+		scopes = append(scopes, scope)
+	}
+	sort.Strings(scopes)
+	return scopes, true
 }
 
 func readEnvFile(path string) (map[string]string, error) {
