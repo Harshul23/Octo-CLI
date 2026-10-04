@@ -1,6 +1,7 @@
 package intelligence
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -53,7 +54,7 @@ func TestPlannerGatesDependentsOnHealth(t *testing.T) {
 			HealthCheck: &HealthCheck{Command: "pg_isready -U postgres"},
 		}},
 	}
-	plan, err := (DeterministicPlanner{}).Plan(nilContext{}, model)
+	plan, err := (DeterministicPlanner{}).Plan(context.Background(), model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,8 +71,3 @@ func TestPlannerGatesDependentsOnHealth(t *testing.T) {
 	}
 }
 
-type nilContext struct{}
-func (nilContext) Deadline() (time.Time, bool) { return time.Time{}, false }
-func (nilContext) Done() <-chan struct{} { return nil }
-func (nilContext) Err() error { return nil }
-func (nilContext) Value(any) any { return nil }
