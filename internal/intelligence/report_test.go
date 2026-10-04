@@ -144,6 +144,12 @@ func TestExecutePlanReportFallsBackToNextEvidenceBackedCandidate(t *testing.T) {
 	if report.Steps[1].CandidateID != "good" {
 		t.Fatalf("steps=%+v", report.Steps)
 	}
+	if len(report.Decisions) != 2 {
+		t.Fatalf("decisions=%+v", report.Decisions)
+	}
+	if report.Decisions[0].Outcome != "failed" || report.Decisions[1].Outcome != "succeeded" {
+		t.Fatalf("decision outcomes=%+v", report.Decisions)
+	}
 }
 
 type fallbackAdapterForReport struct{}

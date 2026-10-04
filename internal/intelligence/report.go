@@ -40,6 +40,7 @@ type ExecutionReport struct {
 	Steps         []ExecutionStepResult `json:"steps" yaml:"steps"`
 	Verification []VerificationResult `json:"verification,omitempty" yaml:"verification,omitempty"`
 	Failures     []ExecutionFailure  `json:"failures,omitempty" yaml:"failures,omitempty"`
+	Decisions    []DecisionTraceEntry `json:"decisions,omitempty" yaml:"decisions,omitempty"`
 	Success      bool                 `json:"success" yaml:"success"`
 	FailureReason string               `json:"failure_reason,omitempty" yaml:"failure_reason,omitempty"`
 }
@@ -88,6 +89,11 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 		for _, candidate := range candidates {
 			attempt := step
 			attempt.Command = candidate.Command
+			report.Decisions = append(report.Decisions, DecisionTraceEntry{
+				Name: "execution." + id, OptionID: candidate.ID, Value: candidate.Command,
+				Confidence: candidate.Confidence, Evidence: candidate.Evidence, Outcome: "selected",
+				Reason: "Selected from the bounded evidence-backed candidate set.",
+			})
 			adapter, err := resolver.Resolve(attempt)
 			if err != nil {
 				report.FailureReason = err.Error()
@@ -102,6 +108,12 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 			if err := adapter.Execute(ctx, attempt, stepEnv); err != nil {
 				result.Status = StepFailed
 				result.Reason = err.Error()
+				for i := len(report.Decisions)-1; i >= 0; i-- {
+					if report.Decisions[i].Name == "execution."+id && report.Decisions[i].OptionID == candidate.ID {
+						report.Decisions[i].Outcome = "failed"
+						break
+					}
+				}
 				report.Steps = append(report.Steps, result)
 				report.Failures = append(report.Failures, ExecutionFailure{
 					StepID: id, CandidateID: candidate.ID, Reason: err.Error(),
@@ -111,6 +123,12 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 				continue
 			}
 			result.Status = StepSucceeded
+			for i := len(report.Decisions)-1; i >= 0; i-- {
+				if report.Decisions[i].Name == "execution."+id && report.Decisions[i].OptionID == candidate.ID {
+					report.Decisions[i].Outcome = "succeeded"
+					break
+				}
+			}
 			report.Steps = append(report.Steps, result)
 			executed = true
 			break

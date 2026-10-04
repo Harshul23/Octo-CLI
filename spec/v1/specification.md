@@ -287,9 +287,13 @@ Octo exposes a decision trace derived from repository evidence and the determini
 
 Each decision records:
 - the decision name and selected value;
+- the bounded option ID;
+- the outcome (selected, failed, or succeeded);
 - the reason for the decision;
 - supporting evidence where available;
 - a confidence score.
+
+Execution candidate attempts MUST remain within the candidate set already present in the validated execution plan. A failed candidate may cause Octo to try another existing candidate, but execution MUST NOT invent a new command or runtime strategy from the failure alone.
 
 Execution-step explanations are included as decisions so users can understand dependency ordering, runtime selection, health/readiness gates, and port allocation.
 
