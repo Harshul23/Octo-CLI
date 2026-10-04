@@ -36,8 +36,16 @@ func Analyze(path string) (ProjectModel, error) {
       Detail:"Detected framework: "+m.Framework, Strength:0.90})
   }
   m.Confidence = confidence(m.Evidence, m.RunCommand != "")
-  m.Components = []Component{{Name:m.Name, Path:".", Language:m.Language, Framework:m.Framework,
-    PackageManager:m.PackageManager, RunCommand:m.RunCommand, Port:m.Port, Confidence:m.Confidence, Evidence:m.Evidence}}
+  components, workspaceEvidence, discovered, err := discoverWorkspaceComponents(root, info)
+  if err != nil { return ProjectModel{}, err }
+  m.Evidence = append(m.Evidence, workspaceEvidence...)
+  if discovered {
+    m.Components = components
+    m.Monorepo = true
+  } else {
+    m.Components = []Component{{Name:m.Name, Path:".", Language:m.Language, Framework:m.Framework,
+      PackageManager:m.PackageManager, RunCommand:m.RunCommand, Port:m.Port, Confidence:m.Confidence, Evidence:m.Evidence}}
+  }
   return m,nil
 }
 
