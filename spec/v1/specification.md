@@ -80,6 +80,18 @@ The initial topology rules are intentionally conservative:
 
 This makes the execution graph evidence-backed. Future detectors can add Docker Compose services, explicit service manifests, or other ecosystem-specific boundaries without changing the graph contract.
 
+## Dependency Edge Evidence
+
+Topology dependencies are not opaque relationships. Every dependency edge MUST retain:
+- the source and target node IDs;
+- the dependency kind;
+- a confidence score;
+- supporting repository evidence when available.
+
+For explicitly declared dependencies, the evidence should point to the manifest or configuration source that declared the relationship. Octo MUST NOT increase confidence merely because two components have compatible names or happen to coexist in the same repository.
+
+This distinction is important for extensibility: the core graph represents facts and evidence, while detectors are responsible for discovering those facts. Adding support for another ecosystem should add a detector or adapter rather than embedding ecosystem-specific execution rules into the topology planner.
+
 ## Infrastructure Service Discovery
 
 Infrastructure services are modeled separately from source-code components.
@@ -238,4 +250,3 @@ Provisioning is an explicit execution phase.
 The planner derives machine prerequisites from repository facts and emits deterministic provisioning checks before dependency installation. The initial provisioning implementation verifies required package managers with `command -v`.
 
 Planning MUST NOT mutate the user's machine. Automatic installation or bootstrap providers such as Corepack or Bun installation require an explicit provisioning policy and must remain visible in the execution report.
-
