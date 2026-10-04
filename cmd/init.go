@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/harshul/octo-cli/internal/analyzer"
+	"github.com/harshul/octo-cli/internal/intelligence"
 	"github.com/harshul/octo-cli/internal/blueprint"
 	"github.com/harshul/octo-cli/internal/doctor"
 	"github.com/harshul/octo-cli/internal/provisioner"
@@ -84,12 +84,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 	ui.PrintStep(1, 5, "Analyzing codebase...")
 
 	// Build analysis options based on environment flag
-	opts := analyzer.AnalysisOptions{
+	opts := intelligence.AnalysisOptions{
 		Environment: env,
 	}
 
 	// Analyze the project using options-based analysis
-	projectInfo, err := analyzer.AnalyzeProjectWithOptions(cwd, opts)
+	projectInfo, err := intelligence.AnalyzeProjectWithOptions(cwd, opts)
 	if err != nil {
 		ui.PrintError("Analysis failed")
 		return fmt.Errorf("analysis failed: %w", err)
@@ -304,7 +304,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// If interactive mode, prompt user for confirmation/modifications
 	if interactive {
 		// Convert to Analysis for backward compatibility with UI
-		analysis := analyzer.Analysis{
+		analysis := intelligence.Analysis{
 			Root: cwd,
 			Name: projectInfo.Name,
 		}
