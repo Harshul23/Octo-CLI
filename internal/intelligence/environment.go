@@ -11,14 +11,44 @@ import (
 // It must never be embedded in ProjectModel or ExecutionPlan.
 type ResolvedEnvironment struct {
 	Values map[string]string
+	// ScopedValues contains component-local runtime values keyed by the
+	// component work directory. Values never enter ProjectModel or ExecutionPlan.
+	ScopedValues map[string]map[string]string
+}
+
+func (e ResolvedEnvironment) ForStep(step ExecutionStep) ResolvedEnvironment {
+	values := make(map[string]string, len(e.Values))
+	for name, value := range e.Values {
+		values[name] = value
+	}
+	if scoped, ok := e.ScopedValues[step.WorkDir]; ok {
+		for name, value := range scoped {
+			values[name] = value
+		}
+	}
+	// The caller's process environment is always authoritative.
+	for _, entry := range os.Environ() {
+		name, value, ok := splitEnv(entry)
+		if ok {
+			values[name] = value
+		}
+	}
+	return ResolvedEnvironment{Values: values}
 }
 
 // ResolveEnvironment resolves required and optional variables for a project.
 // Precedence is: existing process environment > .env.local > .env.
 // Only variables declared in the ProjectModel are returned.
 func ResolveEnvironment(root string, model EnvironmentModel) (ResolvedEnvironment, error) {
-	values := make(map[string]string)
+	return resolveEnvironment(root, model, nil)
+}
 
+func ResolveProjectEnvironment(root string, project ProjectModel) (ResolvedEnvironment, error) {
+	return resolveEnvironment(root, project.Environment, project.Components)
+}
+
+func resolveEnvironment(root string, model EnvironmentModel, components []Component) (ResolvedEnvironment, error) {
+	values := make(map[string]string)
 	for _, path := range []string{filepath.Join(root, ".env"), filepath.Join(root, ".env.local")} {
 		fileValues, err := readEnvFile(path)
 		if err != nil {
@@ -29,25 +59,62 @@ func ResolveEnvironment(root string, model EnvironmentModel) (ResolvedEnvironmen
 		}
 	}
 
-	// The caller's environment is authoritative over project files.
+	// Component-local values are isolated by component path.
+	scoped := make(map[string]map[string]string)
+	for _, component := range components {
+		if component.Path == "" || component.Path == "." {
+			continue
+		}
+		componentRoot := filepath.Join(root, filepath.FromSlash(component.Path))
+		componentValues := make(map[string]string)
+		for _, path := range []string{filepath.Join(componentRoot, ".env"), filepath.Join(componentRoot, ".env.local")} {
+			fileValues, err := readEnvFile(path)
+			if err != nil {
+				return ResolvedEnvironment{}, err
+			}
+			for name, value := range fileValues {
+				componentValues[name] = value
+			}
+		}
+		if len(componentValues) > 0 {
+			scoped[component.Path] = componentValues
+		}
+	}
+
+	// The caller's environment is authoritative over all project files.
 	for _, entry := range os.Environ() {
 		name, value, ok := splitEnv(entry)
 		if ok {
 			values[name] = value
+			for path := range scoped {
+				if scoped[path] == nil {
+					scoped[path] = make(map[string]string)
+				}
+				scoped[path][name] = value
+			}
 		}
 	}
 
+	// Validate required variables against the shared environment or any
+	// component-local environment, but keep component-local-only values scoped.
 	resolved := make(map[string]string)
 	var missing []string
 	for _, variable := range model.Variables {
-		value, ok := values[variable.Name]
-		if !ok || value == "" {
-			if variable.Required {
-				missing = append(missing, variable.Name)
-			}
+		if value, ok := values[variable.Name]; ok && value != "" {
+			resolved[variable.Name] = value
 			continue
 		}
-		resolved[variable.Name] = value
+
+		foundScoped := false
+		for _, componentValues := range scoped {
+			if candidate, exists := componentValues[variable.Name]; exists && candidate != "" {
+				foundScoped = true
+				break
+			}
+		}
+		if !foundScoped && variable.Required {
+			missing = append(missing, variable.Name)
+		}
 	}
 
 	if len(missing) > 0 {
@@ -55,7 +122,7 @@ func ResolveEnvironment(root string, model EnvironmentModel) (ResolvedEnvironmen
 		return ResolvedEnvironment{}, fmt.Errorf("missing required environment variables: %v", missing)
 	}
 
-	return ResolvedEnvironment{Values: resolved}, nil
+	return ResolvedEnvironment{Values: resolved, ScopedValues: scoped}, nil
 }
 
 func readEnvFile(path string) (map[string]string, error) {
