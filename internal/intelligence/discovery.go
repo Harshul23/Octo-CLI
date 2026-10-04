@@ -8,18 +8,17 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/harshul/octo-cli/internal/analyzer"
 	"gopkg.in/yaml.v3"
 )
 
 type workspacePackage struct {
 	name         string
 	path         string
-	info         analyzer.ProjectInfo
+	info DetectedProject
 	dependencies []string
 }
 
-func discoverWorkspaceComponents(root string, rootInfo analyzer.ProjectInfo) ([]Component, []Evidence, bool, error) {
+func discoverWorkspaceComponents(root string, rootInfo DetectedProject) ([]Component, []Evidence, bool, error) {
 	if rootInfo.Language != "Node" || !rootInfo.IsMonorepo {
 		return nil, nil, false, nil
 	}
@@ -34,7 +33,7 @@ func discoverWorkspaceComponents(root string, rootInfo analyzer.ProjectInfo) ([]
 
 	packages := make([]workspacePackage, 0, len(paths))
 	for _, path := range paths {
-		info, err := analyzer.AnalyzeProject(path)
+		info, err := detectProject(path)
 		if err != nil {
 			return nil, nil, false, fmt.Errorf("analyze workspace component %q: %w", path, err)
 		}
@@ -104,7 +103,7 @@ func discoverWorkspaceComponents(root string, rootInfo analyzer.ProjectInfo) ([]
 			Language: pkg.info.Language, Framework: framework,
 			PackageManager: pkg.info.PackageManager,
 			RunCommand: pkg.info.RunCommand, DependsOn: dependsOn,
-			Port: pkg.info.PortConfig.Port, Confidence: conf,
+			Port: pkg.info.Port, Confidence: conf,
 			Evidence: componentEvidence,
 		})
 	}
