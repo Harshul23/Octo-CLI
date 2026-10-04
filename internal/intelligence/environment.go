@@ -40,6 +40,14 @@ func (e ResolvedEnvironment) ForStep(step ExecutionStep) ResolvedEnvironment {
 // Precedence is: existing process environment > .env.local > .env.
 // Only variables declared in the ProjectModel are returned.
 func ResolveEnvironment(root string, model EnvironmentModel) (ResolvedEnvironment, error) {
+	return resolveEnvironment(root, model, nil)
+}
+
+func ResolveProjectEnvironment(root string, project ProjectModel) (ResolvedEnvironment, error) {
+	return resolveEnvironment(root, project.Environment, project.Components)
+}
+
+func resolveEnvironment(root string, model EnvironmentModel, components []Component) (ResolvedEnvironment, error) {
 	values := make(map[string]string)
 	for _, path := range []string{filepath.Join(root, ".env"), filepath.Join(root, ".env.local")} {
 		fileValues, err := readEnvFile(path)
@@ -53,7 +61,7 @@ func ResolveEnvironment(root string, model EnvironmentModel) (ResolvedEnvironmen
 
 	// Component-local values are isolated by component path.
 	scoped := make(map[string]map[string]string)
-	for _, component := range model.Components {
+	for _, component := range components {
 		if component.Path == "" || component.Path == "." {
 			continue
 		}
