@@ -98,8 +98,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if model.PackageManager != "" {
 		ui.PrintHighlight("Package Manager", model.PackageManager)
 	}
-	if model.Version != "" {
-		ui.PrintHighlight("Version", model.Version)
+	if model.RuntimeVersion != "" {
+		ui.PrintHighlight("Version", model.RuntimeVersion)
 	}
 	if model.RunCommand != "" {
 		ui.PrintHighlight("Run Command", model.RunCommand)
