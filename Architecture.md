@@ -1286,6 +1286,50 @@ The trace records reasoning without storing command output or secrets.
 
 ---
 
+# 25.1 Dogfooding: Charmbracelet Gum
+
+Octo's own execution model is validated through real repositories. Charmbracelet Gum exposed an important failure mode.
+
+Octo initially selected:
+
+```text
+go run main.go
+```
+
+Gum has multiple Go source files and `main.go` references symbols defined in `gum.go`. The entry-file candidate therefore fails even though the repository itself is runnable.
+
+The successful candidate is:
+
+```text
+go run .
+```
+
+The architectural lesson is the feedback loop:
+
+```text
+Candidate A
+    ↓
+Execute
+    ↓
+FAIL: undefined: Gum
+    ↓
+Failure becomes evidence
+    ↓
+Candidate B
+    ↓
+Execute
+    ↓
+SUCCESS
+    ↓
+Verify
+    ↓
+Persist verified strategy
+```
+
+Candidate B must already be part of the bounded candidate set. Failure is evidence for selection; it is not permission to invent arbitrary commands.
+
+---
+
 # 26. Bounded execution feedback
 
 Execution failure is itself useful evidence.
@@ -1470,6 +1514,30 @@ The legacy path includes concepts such as:
 - compatibility UI flows
 
 It should not be used as the architectural template for new intelligence features.
+
+---
+
+## Migration rule
+
+The legacy analyzer is being removed by migration, not by deletion alone.
+
+The safe sequence is:
+
+```text
+Old analyzer
+    ↓
+Compatibility boundary
+    ↓
+Native intelligence
+    ↓
+Migrate consumers
+    ↓
+Delete analyzer
+```
+
+When removing compatibility code, first identify every consumer and migrate it to native concepts such as `ProjectModel`, topology, candidates, decisions, and planning. Do not recreate the old `ProjectInfo` architecture under another name.
+
+This matters particularly for command initialization, UI flows, blueprint conversion, and other consumers that may still depend on legacy-shaped fields.
 
 ---
 
