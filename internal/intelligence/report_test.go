@@ -14,7 +14,7 @@ func TestExecutePlanReportRecordsSuccessfulSteps(t *testing.T) {
 		},
 	}
 	report := ExecutePlanReport(context.Background(), model, plan, RuntimeResolver{
-		adapters: []RuntimeAdapter{recordingAdapterForReport{}},
+		adapters: []RuntimeAdapter{&recordingAdapterForReport{}},
 	}, ResolvedEnvironment{Values: map[string]string{}})
 
 	if !report.Success {
