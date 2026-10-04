@@ -58,18 +58,18 @@ func FromAnalysis(a intelligence.Analysis) Blueprint {
 	return Blueprint{Name: a.Name}
 }
 
-// FromProjectInfo converts a ProjectInfo result into a full blueprint.
-func FromProjectInfo(p intelligence.ProjectInfo) Blueprint {
+// FromProjectModel converts the native intelligence model into a blueprint.
+func FromProjectModel(p intelligence.ProjectModel) Blueprint {
 	bp := Blueprint{
 		Name:           p.Name,
 		Language:       p.Language,
-		Version:        p.Version,
+		Version:        p.RuntimeVersion,
 		RunCommand:     p.RunCommand,
 		SetupCommand:   p.SetupCommand,
-		SetupRequired:  p.SetupRequired,
+		SetupRequired:  p.SetupCommand != "",
 		PackageManager: p.PackageManager,
-		IsMonorepo:     p.IsMonorepo,
-		MonorepoRoot:   p.MonorepoRoot,
+		IsMonorepo:     p.Monorepo,
+		MonorepoRoot:   p.Root,
 	}
 
 	// Auto-generate pipeline steps from setup/run commands
@@ -106,6 +106,16 @@ func FromProjectInfo(p intelligence.ProjectInfo) Blueprint {
 	}
 
 	return bp
+}
+
+// FromProjectInfo converts a compatibility ProjectInfo into a blueprint.
+// New callers should use FromProjectModel so repository understanding stays native.
+func FromProjectInfo(p intelligence.ProjectInfo) Blueprint {
+	return FromProjectModel(intelligence.ProjectModel{
+		Name: p.Name, Root: p.MonorepoRoot, Language: p.Language, RuntimeVersion: p.Version,
+		PackageManager: p.PackageManager, RunCommand: p.RunCommand, SetupCommand: p.SetupCommand,
+		Monorepo: p.IsMonorepo,
+	})
 }
 
 // Write writes the blueprint as a YAML file.
