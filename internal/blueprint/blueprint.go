@@ -108,16 +108,6 @@ func FromProjectModel(p intelligence.ProjectModel) Blueprint {
 	return bp
 }
 
-// FromProjectInfo converts a compatibility ProjectInfo into a blueprint.
-// New callers should use FromProjectModel so repository understanding stays native.
-func FromProjectInfo(p intelligence.ProjectInfo) Blueprint {
-	return FromProjectModel(intelligence.ProjectModel{
-		Name: p.Name, Root: p.MonorepoRoot, Language: p.Language, RuntimeVersion: p.Version,
-		PackageManager: p.PackageManager, RunCommand: p.RunCommand, SetupCommand: p.SetupCommand,
-		Monorepo: p.IsMonorepo,
-	})
-}
-
 // Write writes the blueprint as a YAML file.
 func Write(path string, bp Blueprint) error {
 	f, err := os.Create(path)
