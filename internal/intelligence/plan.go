@@ -36,6 +36,7 @@ type ExecutionStep struct {
 // ExecutionPlan is the provider-neutral result of planning how a ProjectModel runs.
 type ExecutionPlan struct {
 	ProjectName  string                    `json:"project_name" yaml:"project_name"`
+	Topology     TopologyGraph             `json:"topology" yaml:"topology"`
 	Root         string                    `json:"root" yaml:"root"`
 	Steps        []ExecutionStep           `json:"steps" yaml:"steps"`
 	Ports        []PortAssignment          `json:"ports,omitempty" yaml:"ports,omitempty"`
@@ -188,7 +189,7 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		}
 	}
 
-	plan := ExecutionPlan{ProjectName: model.Name, Root: model.Root, Steps: steps, Ports: ports, Provisioning: provisioning}
+	plan := ExecutionPlan{ProjectName: model.Name, Root: model.Root, Topology: topology, Steps: steps, Ports: ports, Provisioning: provisioning}
 	if err := ValidateExecutionPlan(plan); err != nil {
 		return ExecutionPlan{}, err
 	}

@@ -25,6 +25,12 @@ func TestDeterministicPlannerCreatesStableSingleComponentPlan(t *testing.T) {
 	if len(plan.Steps) != len(wantPhases) {
 		t.Fatalf("steps=%d, want %d", len(plan.Steps), len(wantPhases))
 	}
+	if len(plan.Topology.Nodes) != 1 || plan.Topology.Nodes[0].ID != "component:demo" {
+		t.Fatalf("unexpected topology nodes: %+v", plan.Topology.Nodes)
+	}
+	if len(plan.Topology.Edges) != 0 {
+		t.Fatalf("unexpected topology edges: %+v", plan.Topology.Edges)
+	}
 	for i, phase := range wantPhases {
 		if plan.Steps[i].Phase != phase {
 			t.Fatalf("step %d phase=%q, want %q", i, plan.Steps[i].Phase, phase)
@@ -76,6 +82,9 @@ func TestPlannerSupportsComponentDependencies(t *testing.T) {
 	}
 	if position("component.api.start") > position("component.web.start") {
 		t.Fatalf("api must start before web: %v", order)
+	}
+	if !hasEdge(plan.Topology, "component:web", "component:api") {
+		t.Fatalf("missing topology edge: %+v", plan.Topology.Edges)
 	}
 }
 
