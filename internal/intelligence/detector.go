@@ -55,7 +55,7 @@ func (NativeProjectDetector) Detect(path string) (DetectedProject, error) {
 		if err != nil { return DetectedProject{}, err }
 		if project.Name == "" { project.Name = filepath.Base(root) }
 		project.Language = signal.Language
-		project.Monorepo, project.MonorepoRoot = detectMonorepo(root)
+		project.IsMonorepo, project.MonorepoRoot = detectMonorepo(root)
 		project.Port = defaultProjectPort(project.Language)
 		return project, nil
 	}
