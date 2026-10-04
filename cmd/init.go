@@ -56,7 +56,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	skipInstall, _ := cmd.Flags().GetBool("skip-install")
 	autoInstall, _ := cmd.Flags().GetBool("auto-install")
 	skipSecrets, _ := cmd.Flags().GetBool("skip-secrets")
-	env, _ := cmd.Flags().GetString("env")
 
 	// Resolve output path
 	if !filepath.IsAbs(outputPath) {
@@ -83,13 +82,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// ========================================
 	ui.PrintStep(1, 5, "Analyzing codebase...")
 
-	// Build analysis options based on environment flag
-	opts := intelligence.AnalysisOptions{
-		Environment: env,
-	}
-
-	// Analyze the project using options-based analysis
-	projectInfo, err := intelligence.AnalyzeProjectWithOptions(cwd, opts)
+	// Analyze the repository using the native intelligence model.
+	model, err := intelligence.Analyze(cwd)
 	if err != nil {
 		ui.PrintError("Analysis failed")
 		return fmt.Errorf("analysis failed: %w", err)
@@ -100,15 +94,15 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Display detected project information with nice formatting
 	ui.PrintDivider()
-	ui.PrintHighlight("Language", projectInfo.Language)
-	if projectInfo.PackageManager != "" {
-		ui.PrintHighlight("Package Manager", projectInfo.PackageManager)
+	ui.PrintHighlight("Language", model.Language)
+	if model.PackageManager != "" {
+		ui.PrintHighlight("Package Manager", model.PackageManager)
 	}
-	if projectInfo.Version != "" {
-		ui.PrintHighlight("Version", projectInfo.Version)
+	if model.RuntimeVersion != "" {
+		ui.PrintHighlight("Version", model.RuntimeVersion)
 	}
-	if projectInfo.RunCommand != "" {
-		ui.PrintHighlight("Run Command", projectInfo.RunCommand)
+	if model.RunCommand != "" {
+		ui.PrintHighlight("Run Command", model.RunCommand)
 	}
 	ui.PrintDivider()
 	fmt.Println()
@@ -118,7 +112,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// ========================================
 	ui.PrintStep(2, 5, "Running health check...")
 
-	diagnosis := doctor.Diagnose(cwd, projectInfo.Language)
+	diagnosis := doctor.Diagnose(cwd, model.Language)
 
 	ui.PrintSuccess("Health check complete")
 	fmt.Println()
@@ -169,7 +163,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 							// Verify installation
 							ui.PrintStep(4, 5, "Verifying installation...")
-							newDiagnosis := doctor.VerifyInstallation(cwd, projectInfo.Language)
+							newDiagnosis := doctor.VerifyInstallation(cwd, model.Language)
 							if newDiagnosis.Dependencies.Installed {
 								ui.PrintSuccess("All dependencies verified")
 							} else {
@@ -202,7 +196,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 					} else {
 						ui.PrintSuccess("Dependencies installed")
 						ui.PrintStep(4, 5, "Verifying installation...")
-						newDiagnosis := doctor.VerifyInstallation(cwd, projectInfo.Language)
+						newDiagnosis := doctor.VerifyInstallation(cwd, model.Language)
 						if newDiagnosis.Dependencies.Installed {
 							ui.PrintSuccess("All dependencies verified")
 						} else {
@@ -219,7 +213,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 				// Prompt the user with Vite-style navigation
 				fmt.Println()
 				shouldInstall = promptForInstallVite(
-					projectInfo.Language,
+					model.Language,
 					diagnosis.Dependencies.ConfigFile,
 					diagnosis.Dependencies.MissingPackages,
 				)
@@ -242,7 +236,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 					
 					// ATTEMPT 2: System Fallback (If project used specific path like ./oppia_tools/yarn)
 					// If the project specified 'yarn' but the specific binary failed, try global 'yarn'
-					if projectInfo.PackageManager == "yarn" {
+					if model.PackageManager == "yarn" {
 						ui.PrintInfo("ℹ ⚠️  Local yarn failed. Attempting system 'yarn install'...")
 						
 						yarnFallback := exec.Command("yarn", "install")
@@ -287,7 +281,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 					fmt.Println()
 					ui.PrintStep(4, 5, "Verifying installation...")
 
-					newDiagnosis := doctor.VerifyInstallation(cwd, projectInfo.Language)
+					newDiagnosis := doctor.VerifyInstallation(cwd, model.Language)
 
 					if newDiagnosis.Dependencies.Installed {
 						ui.PrintSuccess("All dependencies verified")
@@ -306,13 +300,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 		// Convert to Analysis for backward compatibility with UI
 		analysis := intelligence.Analysis{
 			Root: cwd,
-			Name: projectInfo.Name,
+			Name: model.Name,
 		}
 		analysis, err = ui.PromptForConfirmation(analysis)
 		if err != nil {
 			return fmt.Errorf("interactive prompt failed: %w", err)
 		}
-		projectInfo.Name = analysis.Name
+		model.Name = analysis.Name
 	}
 
 	// ========================================
@@ -325,7 +319,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		ui.PrintStep(4, 5, "Scanning for environment variables...")
 
 		// Use README-enhanced env status check
-		envStatus, err := secrets.CheckEnvStatusWithReadme(cwd, projectInfo.Language)
+		envStatus, err := secrets.CheckEnvStatusWithReadme(cwd, model.Language)
 
 		if err != nil {
 			ui.PrintWarning(fmt.Sprintf("Could not scan for environment variables: %v", err))
@@ -418,8 +412,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Generate the blueprint from project info
-	bp := blueprint.FromProjectInfo(projectInfo)
+	// Generate the blueprint directly from the native project model.
+	bp := blueprint.FromProjectModel(model)
 
 	// Add detected environment variables to blueprint
 	if len(allDetectedVars) > 0 {
