@@ -61,7 +61,7 @@ func Analyze(path string) (ProjectModel, error) {
   }
   m.Environment.Resolutions = ResolveEnvironmentBindings(m)
 
-  providers := ExecutionCandidateProviders{}
+  providers := NewExecutionCandidateProviders()
   for i := range m.Components {
     candidates, err := providers.Candidates(context.Background(), root, m.Components[i])
     if err != nil {
