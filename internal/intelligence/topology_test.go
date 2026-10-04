@@ -101,3 +101,16 @@ func hasEdge(graph TopologyGraph, from, to string) bool {
 	}
 	return false
 }
+
+func TestTopologyGraphKeepsNetworkReferencesInformational(t *testing.T) {
+	model := ProjectModel{
+		Components: []Component{{Name: "web", References: []Reference{{
+			Target: "api", Kind: "network_reference", Confidence: 0.95,
+			Evidence: []Evidence{{Kind: EvidenceConfig, Path: "compose.yaml", Strength: 0.95}},
+		}}}, {Name: "api"}},
+	}
+	graph, err := BuildTopologyGraph(model)
+	if err != nil { t.Fatal(err) }
+	if len(graph.Edges) != 1 { t.Fatalf("edges=%d, want 1", len(graph.Edges)) }
+	if graph.Edges[0].Kind != "network_reference" { t.Fatalf("kind=%q, want network_reference", graph.Edges[0].Kind) }
+}

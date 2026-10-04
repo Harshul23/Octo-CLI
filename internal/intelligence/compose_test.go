@@ -93,3 +93,30 @@ func findService(services []Service, name string) *Service {
 	}
 	return nil
 }
+
+func TestDiscoverComposeNetworkReferences(t *testing.T) {
+	root := t.TempDir()
+	compose := `services:
+  postgres:
+    image: postgres:17
+  api:
+    image: demo/api
+    environment:
+      DATABASE_URL: postgres://postgres:5432/app
+      REDIS_URL: ${REDIS_HOST}:6379
+`
+	if err := os.WriteFile(filepath.Join(root, "compose.yaml"), []byte(compose), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	services, _, found, err := discoverComposeServices(root)
+	if err != nil { t.Fatal(err) }
+	if !found { t.Fatal("expected compose topology") }
+
+	api := findService(services, "api")
+	if api == nil { t.Fatal("api service not found") }
+	if len(api.References) != 1 { t.Fatalf("references=%d, want 1", len(api.References)) }
+	if api.References[0].Target != "postgres" { t.Fatalf("target=%q, want postgres", api.References[0].Target) }
+	if api.References[0].Kind != "network_reference" { t.Fatalf("kind=%q, want network_reference", api.References[0].Kind) }
+	if len(api.References[0].Evidence) != 1 { t.Fatal("expected reference evidence") }
+}

@@ -23,8 +23,7 @@ type TopologyNode struct {
 	Confidence float64  `json:"confidence" yaml:"confidence"`
 }
 
-// TopologyEdge describes a dependency between topology nodes.
-// Evidence records where the dependency declaration came from.
+// TopologyEdge describes a relationship between topology nodes.
 type TopologyEdge struct {
 	From       string     `json:"from" yaml:"from"`
 	To         string     `json:"to" yaml:"to"`
@@ -33,7 +32,7 @@ type TopologyEdge struct {
 	Evidence   []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
 }
 
-// TopologyGraph is the canonical dependency graph for a ProjectModel.
+// TopologyGraph is the canonical dependency and relationship graph for a ProjectModel.
 type TopologyGraph struct {
 	Nodes []TopologyNode `json:"nodes" yaml:"nodes"`
 	Edges []TopologyEdge `json:"edges" yaml:"edges"`
@@ -82,15 +81,15 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 		}
 	}
 
-	addEdge := func(from, to string, confidence float64, evidence []Evidence) error {
+	addEdge := func(from, to, kind string, confidence float64, evidence []Evidence) error {
 		if _, ok := ids[from]; !ok {
-			return fmt.Errorf("topology dependency references unknown node %q", from)
+			return fmt.Errorf("topology relationship references unknown source %q", from)
 		}
 		if _, ok := ids[to]; !ok {
-			return fmt.Errorf("topology dependency references unknown node %q", to)
+			return fmt.Errorf("topology relationship references unknown target %q", to)
 		}
 		graph.Edges = append(graph.Edges, TopologyEdge{
-			From: from, To: to, Kind: "depends_on",
+			From: from, To: to, Kind: kind,
 			Confidence: confidence, Evidence: evidence,
 		})
 		return nil
@@ -101,7 +100,13 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 		for _, dep := range component.DependsOn {
 			target := topologyDependencyID(dep, ids)
 			evidence := dependencyEvidence(nodeEvidence[from], dep, "Component dependency is explicitly declared in the component manifest.")
-			if err := addEdge(from, target, 0.99, evidence); err != nil {
+			if err := addEdge(from, target, "depends_on", 0.99, evidence); err != nil {
+				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
+			}
+		}
+		for _, reference := range component.References {
+			target := topologyDependencyID(reference.Target, ids)
+			if err := addEdge(from, target, reference.Kind, reference.Confidence, reference.Evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
 			}
 		}
@@ -111,7 +116,16 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 		for _, dep := range service.DependsOn {
 			target := topologyID(NodeService, dep)
 			evidence := dependencyEvidence(nodeEvidence[from], dep, "Service dependency is explicitly declared in the Compose configuration.")
-			if err := addEdge(from, target, 0.99, evidence); err != nil {
+			if err := addEdge(from, target, "depends_on", 0.99, evidence); err != nil {
+				return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)
+			}
+		}
+		for _, reference := range service.References {
+			target := topologyID(NodeService, reference.Target)
+			if _, ok := ids[target]; !ok {
+				target = topologyDependencyID(reference.Target, ids)
+			}
+			if err := addEdge(from, target, reference.Kind, reference.Confidence, reference.Evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)
 			}
 		}
@@ -120,6 +134,9 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 	sort.Slice(graph.Nodes, func(i, j int) bool { return graph.Nodes[i].ID < graph.Nodes[j].ID })
 	sort.Slice(graph.Edges, func(i, j int) bool {
 		if graph.Edges[i].From == graph.Edges[j].From {
+			if graph.Edges[i].To == graph.Edges[j].To {
+				return graph.Edges[i].Kind < graph.Edges[j].Kind
+			}
 			return graph.Edges[i].To < graph.Edges[j].To
 		}
 		return graph.Edges[i].From < graph.Edges[j].From
@@ -140,10 +157,7 @@ func dependencyEvidence(source []Evidence, dependency, fallbackDetail string) []
 				detail += " Dependency: " + dependency + "."
 			}
 			evidence = append(evidence, Evidence{
-				Kind: item.Kind,
-				Path: item.Path,
-				Detail: detail,
-				Strength: item.Strength,
+				Kind: item.Kind, Path: item.Path, Detail: detail, Strength: item.Strength,
 			})
 		}
 	}
@@ -166,7 +180,8 @@ func topologyDependencyID(name string, ids map[string]struct{}) string {
 	return componentID
 }
 
-// ValidateTopologyGraph rejects dangling edges, duplicate edges, and cycles.
+// ValidateTopologyGraph rejects dangling edges, duplicate edges, and dependency cycles.
+// Only depends_on edges participate in execution dependency ordering.
 func ValidateTopologyGraph(graph TopologyGraph) error {
 	ids := make(map[string]struct{}, len(graph.Nodes))
 	for _, node := range graph.Nodes {
@@ -191,8 +206,11 @@ func ValidateTopologyGraph(graph TopologyGraph) error {
 			return fmt.Errorf("duplicate topology edge %q", key)
 		}
 		edges[key] = struct{}{}
-		indegree[edge.From]++
-		out[edge.To] = append(out[edge.To], edge.From)
+
+		if edge.Kind == "depends_on" {
+			indegree[edge.From]++
+			out[edge.To] = append(out[edge.To], edge.From)
+		}
 	}
 
 	ready := make([]string, 0)

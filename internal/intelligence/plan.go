@@ -125,7 +125,7 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 
 		deps := append([]string(nil), setupDepends...)
 		for _, edge := range topology.Edges {
-			if edge.From == nodeID {
+			if edge.From == nodeID && edge.Kind == "depends_on" {
 				deps = append(deps, readinessStepID(edge.To, model))
 			}
 		}
@@ -147,7 +147,7 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		stepID := startStepID(nodeID)
 		deps := make([]string, 0)
 		for _, edge := range topology.Edges {
-			if edge.From == nodeID {
+			if edge.From == nodeID && edge.Kind == "depends_on" {
 				deps = append(deps, startStepID(edge.To))
 			}
 		}
