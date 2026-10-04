@@ -48,6 +48,25 @@ The Project Model is the canonical internal representation. `.octo.yaml` is a se
 
 This is a design contract, not a claim that the complete v1 schema is implemented.
 
+## Decision Architecture
+
+Octo separates repository evidence, candidate generation, decision making, and execution.
+
+A detector SHOULD produce a bounded set of evidence-backed candidates instead of directly mutating the ProjectModel with an unverified guess. A decision provider selects only from those candidates.
+
+The decision boundary is provider-neutral:
+
+- deterministic providers provide the offline baseline;
+- Jev or another typed decision provider may resolve bounded ambiguity;
+- an LLM may resolve bounded ambiguity when explicitly enabled;
+- a human may resolve decisions that remain below an acceptable confidence threshold.
+
+A decision provider MUST NOT invent commands, paths, runtimes, dependencies, or other execution facts outside the supplied candidate set.
+
+This prevents ecosystem support from becoming an unbounded collection of execution-specific conditionals. Ecosystem detectors are responsible for discovering evidence and generating candidates; the core decision layer is responsible only for selecting among those candidates.
+
+The baseline implementation provides `DecisionProvider` and `DeterministicDecisionProvider`. External providers are optional and MUST NOT be required for Octo's core execution path.
+
 ## Decision providers
 
 Decision making is an interface, not a vendor dependency. A bounded decision may eventually be answered by deterministic rules, Jev, an LLM, or a human. Octo must remain fully functional without an external decision provider.
