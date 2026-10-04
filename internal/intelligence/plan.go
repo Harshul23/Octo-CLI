@@ -28,6 +28,7 @@ type ExecutionStep struct {
 	Command     string         `json:"command,omitempty" yaml:"command,omitempty"`
 	WorkDir     string         `json:"work_dir,omitempty" yaml:"work_dir,omitempty"`
 	DependsOn   []string       `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	Environment map[string]string `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Explanation string         `json:"explanation,omitempty" yaml:"explanation,omitempty"`
 }
 
@@ -36,6 +37,7 @@ type ExecutionPlan struct {
 	ProjectName string          `json:"project_name" yaml:"project_name"`
 	Root        string          `json:"root" yaml:"root"`
 	Steps       []ExecutionStep `json:"steps" yaml:"steps"`
+	Ports       []PortAssignment `json:"ports,omitempty" yaml:"ports,omitempty"`
 }
 
 // Planner converts repository understanding into an executable plan.
@@ -154,7 +156,26 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		}
 	}
 
-	plan := ExecutionPlan{ProjectName: model.Name, Root: model.Root, Steps: steps}
+	ports, err := AllocateComponentPorts(model.Components)
+	if err != nil {
+		return ExecutionPlan{}, err
+	}
+	portByComponent := make(map[string]int, len(ports))
+	for _, assignment := range ports {
+		portByComponent[assignment.Component] = assignment.Resolved
+	}
+	for i := range steps {
+		if steps[i].Phase == PhaseStart {
+			if port, ok := portByComponent[steps[i].Component]; ok {
+				if steps[i].Environment == nil {
+					steps[i].Environment = make(map[string]string)
+				}
+				steps[i].Environment["PORT"] = fmt.Sprintf("%d", port)
+			}
+		}
+	}
+
+	plan := ExecutionPlan{ProjectName: model.Name, Root: model.Root, Steps: steps, Ports: ports}
 	if err := ValidateExecutionPlan(plan); err != nil {
 		return ExecutionPlan{}, err
 	}
