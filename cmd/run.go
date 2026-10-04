@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/harshul/octo-cli/internal/blueprint"
+	"github.com/harshul/octo-cli/internal/intelligence"
 	"github.com/harshul/octo-cli/internal/orchestrator"
 	"github.com/harshul/octo-cli/internal/secrets"
 	"github.com/harshul/octo-cli/internal/ui"
@@ -42,9 +44,18 @@ func init() {
 	runCmd.Flags().Bool("no-port-shift", false, "Disable automatic port shifting on conflicts")
 	runCmd.Flags().Bool("skip-env-check", false, "Skip environment variable validation")
 	runCmd.Flags().Bool("no-tui", false, "Disable TUI dashboard (use plain scrolling output)")
+	runCmd.Flags().String("engine", "legacy", "Execution engine: legacy or intelligence")
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
+	engine, _ := cmd.Flags().GetString("engine")
+	if engine != "legacy" && engine != "intelligence" {
+		return fmt.Errorf("invalid execution engine %q: use legacy or intelligence", engine)
+	}
+	if engine == "intelligence" {
+		return runWithIntelligence(cmd)
+	}
+
 	// ========================================
 	// Show intro animation
 	// ========================================
@@ -198,4 +209,40 @@ func maskEnvValue(value string) string {
 
 	// Mask the middle of longer values
 	return value[:4] + strings.Repeat("*", len(value)-8) + value[len(value)-4:]
+}
+
+
+func runWithIntelligence(cmd *cobra.Command) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	watch, _ := cmd.Flags().GetBool("watch")
+	detach, _ := cmd.Flags().GetBool("detach")
+	if watch || detach {
+		return fmt.Errorf("the intelligence engine currently does not support --watch or --detach")
+	}
+
+	fmt.Println("Octo intelligence engine")
+	fmt.Println("Analyzing repository...")
+
+	model, err := intelligence.Analyze(cwd)
+	if err != nil {
+		return fmt.Errorf("intelligence analysis failed: %w", err)
+	}
+
+	planner := intelligence.DeterministicPlanner{}
+	plan, err := planner.Plan(context.Background(), model)
+	if err != nil {
+		return fmt.Errorf("execution planning failed: %w", err)
+	}
+
+	fmt.Printf("Detected %d component(s) and %d service(s).\n", len(model.Components), len(model.Services))
+	fmt.Printf("Execution plan contains %d step(s).\n", len(plan.Steps))
+
+	if err := intelligence.ExecutePlan(context.Background(), plan, intelligence.NewRuntimeResolver()); err != nil {
+		return fmt.Errorf("intelligence execution failed: %w", err)
+	}
+	return nil
 }
