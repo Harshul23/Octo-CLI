@@ -22,7 +22,7 @@ and generates a deployment configuration file.
 
 Usage:
   octo init    Analyze the codebase and generate a .octo.yaml file
-  octo run     Execute the software based on the .octo.yaml file`,
+  octo run     Analyze, plan, execute, and verify the repository locally`,
 	Version: version,
 }
 

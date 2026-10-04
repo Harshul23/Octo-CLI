@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,18 +17,13 @@ import (
 // runCmd represents the run command
 var runCmd = &cobra.Command{
 	Use:   "run",
-	Short: "Execute the software based on the .octo.yaml file",
-	Long: `The run command reads the .octo.yaml configuration file and
-executes your application using the detected environment settings.
+	Short: "Understand and run the repository locally",
+	Long: `The run command analyzes the repository, builds an execution plan,
+resolves the required environment, executes the plan, and verifies the
+result.
 
-It will:
-- Set up the required runtime environment
-- Install dependencies if needed
-- Execute build commands
-- Start your application
-
-The execution method (Docker, Nix, or Shell) is determined by your
-configuration and system capabilities.`,
+The intelligence engine is the default. Use --engine legacy only when
+you explicitly need the older .octo.yaml-based orchestrator.`,
 	RunE: runRun,
 }
 
@@ -44,7 +38,7 @@ func init() {
 	runCmd.Flags().Bool("no-port-shift", false, "Disable automatic port shifting on conflicts")
 	runCmd.Flags().Bool("skip-env-check", false, "Skip environment variable validation")
 	runCmd.Flags().Bool("no-tui", false, "Disable TUI dashboard (use plain scrolling output)")
-	runCmd.Flags().String("engine", "legacy", "Execution engine: legacy or intelligence")
+	runCmd.Flags().String("engine", "intelligence", "Execution engine: intelligence or legacy")
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -221,7 +215,7 @@ func runWithIntelligence(cmd *cobra.Command) error {
 	watch, _ := cmd.Flags().GetBool("watch")
 	detach, _ := cmd.Flags().GetBool("detach")
 	if watch || detach {
-		return fmt.Errorf("the intelligence engine currently does not support --watch or --detach")
+		return fmt.Errorf("the intelligence engine currently does not support --watch or --detach; use --engine legacy for these modes")
 	}
 
 	fmt.Println("Octo intelligence engine")
@@ -233,7 +227,7 @@ func runWithIntelligence(cmd *cobra.Command) error {
 	}
 
 	planner := intelligence.DeterministicPlanner{}
-	plan, err := planner.Plan(context.Background(), model)
+	plan, err := planner.Plan(cmd.Context(), model)
 	if err != nil {
 		return fmt.Errorf("execution planning failed: %w", err)
 	}
@@ -246,8 +240,31 @@ func runWithIntelligence(cmd *cobra.Command) error {
 		return fmt.Errorf("environment resolution failed: %w", err)
 	}
 
-	if err := intelligence.ExecutePlan(context.Background(), plan, intelligence.NewRuntimeResolver(), env); err != nil {
-		return fmt.Errorf("intelligence execution failed: %w", err)
+	report := intelligence.ExecutePlanReport(cmd.Context(), model, plan, intelligence.NewRuntimeResolver(), env)
+	for _, step := range report.Steps {
+		switch step.Status {
+		case intelligence.StepSucceeded:
+			fmt.Printf("✓ %s (%s)\n", step.ID, step.Adapter)
+		case intelligence.StepSkipped:
+			fmt.Printf("○ %s — %s\n", step.ID, step.Reason)
+		case intelligence.StepFailed:
+			fmt.Printf("✗ %s — %s\n", step.ID, step.Reason)
+		}
 	}
+
+	for _, check := range report.Verification {
+		if check.Passed {
+			fmt.Printf("✓ verification %s\n", check.CheckID)
+		} else {
+			fmt.Printf("✗ verification %s — %s\n", check.CheckID, check.Reason)
+		}
+	}
+
+	if !report.Success {
+		return fmt.Errorf("intelligence execution failed: %s", report.FailureReason)
+	}
+
+	fmt.Println("Execution verified successfully.")
 	return nil
 }
+
