@@ -67,3 +67,16 @@ The initial implementation provides a deterministic planner and supports compone
 
 Decision systems such as Jev or an LLM may eventually resolve bounded ambiguity, but they are not required to produce a valid baseline plan.
 
+## Repository Topology Discovery
+
+When a repository explicitly declares workspace boundaries, Octo should preserve those boundaries in the ProjectModel rather than flattening the repository into one runnable component.
+
+The initial topology rules are intentionally conservative:
+- declared Node workspaces are discoverable from npm/yarn-style `workspaces` or `pnpm-workspace.yaml`;
+- each discovered workspace must contain a supported project signal such as `package.json`;
+- workspace dependencies are edges only when the dependency is explicitly declared with the `workspace:` protocol;
+- every discovered component retains its own path, runtime information, run command, confidence, and evidence;
+- folders that merely look like services are not treated as services without repository evidence.
+
+This makes the execution graph evidence-backed. Future detectors can add Docker Compose services, explicit service manifests, or other ecosystem-specific boundaries without changing the graph contract.
+
