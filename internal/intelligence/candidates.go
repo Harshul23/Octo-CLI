@@ -18,23 +18,43 @@ type ExecutionCandidate struct {
 }
 
 type CandidateProvider interface {
+	Name() string
+	Supports(component Component) bool
 	Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error)
 }
 
 type ExecutionCandidateProviders struct {
-	Go   GoExecutionCandidateProvider
-	Node NodeExecutionCandidateProvider
+	providers []CandidateProvider
+}
+
+func NewExecutionCandidateProviders() ExecutionCandidateProviders {
+	return ExecutionCandidateProviders{
+		providers: []CandidateProvider{
+			GoExecutionCandidateProvider{},
+			NodeExecutionCandidateProvider{},
+		},
+	}
 }
 
 func (p ExecutionCandidateProviders) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
-	switch component.Language {
-	case "Go":
-		return p.Go.Candidates(ctx, root, component)
-	case "Node":
-		return p.Node.Candidates(ctx, root, component)
-	default:
-		return nil, nil
+	var candidates []ExecutionCandidate
+	for _, provider := range p.providers {
+		if !provider.Supports(component) {
+			continue
+		}
+		found, err := provider.Candidates(ctx, root, component)
+		if err != nil {
+			return nil, fmt.Errorf("%s candidate provider: %w", provider.Name(), err)
+		}
+		candidates = append(candidates, found...)
 	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Confidence != candidates[j].Confidence {
+			return candidates[i].Confidence > candidates[j].Confidence
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+	return candidates, nil
 }
 
 func SelectExecutionCandidate(ctx context.Context, candidates []ExecutionCandidate) (ExecutionCandidate, error) {
@@ -66,6 +86,12 @@ func SelectExecutionCandidate(ctx context.Context, candidates []ExecutionCandida
 }
 
 type GoExecutionCandidateProvider struct{}
+
+func (GoExecutionCandidateProvider) Name() string { return "go" }
+
+func (GoExecutionCandidateProvider) Supports(component Component) bool {
+	return component.Language == "Go"
+}
 
 func (GoExecutionCandidateProvider) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
 	if err := ctx.Err(); err != nil {
@@ -129,6 +155,12 @@ func (GoExecutionCandidateProvider) Candidates(ctx context.Context, root string,
 }
 
 type NodeExecutionCandidateProvider struct{}
+
+func (NodeExecutionCandidateProvider) Name() string { return "node" }
+
+func (NodeExecutionCandidateProvider) Supports(component Component) bool {
+	return component.Language == "Node"
+}
 
 func (NodeExecutionCandidateProvider) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
 	if err := ctx.Err(); err != nil {
