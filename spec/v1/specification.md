@@ -132,3 +132,15 @@ The execution engine validates the plan, obtains a stable topological order, res
 
 The new execution engine is intentionally separate from the legacy Blueprint/Orchestrator path while it matures.
 
+## Intelligence Run Engine
+
+The CLI may execute the new intelligence engine explicitly with:
+
+`octo run --engine intelligence`
+
+This path analyzes the current repository directly, builds the ProjectModel and TopologyGraph, creates a deterministic ExecutionPlan, and executes it through RuntimeAdapters.
+
+The legacy engine remains the default while parity is established. The intelligence engine currently does not claim support for legacy watch, detach, dashboard, interactive environment provisioning, or port-shifting behavior.
+
+This is an intentional migration boundary, not a second permanent execution architecture.
+
