@@ -23,8 +23,11 @@ func TestIntelligenceRunPlanningPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Steps) != 3 {
-		t.Fatalf("steps=%d, want 3", len(plan.Steps))
+	if len(plan.Steps) != 4 {
+		t.Fatalf("steps=%d, want 4", len(plan.Steps))
+	}
+	if plan.Steps[1].Phase != intelligence.PhaseProvision {
+		t.Fatalf("second phase=%q, want provision", plan.Steps[1].Phase)
 	}
 	if plan.Steps[0].Phase != intelligence.PhasePrepare {
 		t.Fatalf("first phase=%q, want prepare", plan.Steps[0].Phase)

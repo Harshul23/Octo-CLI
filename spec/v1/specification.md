@@ -231,3 +231,11 @@ The CLI may retain a legacy execution engine temporarily for compatibility and f
 
 The intelligence path is responsible for analysis, planning, environment resolution, execution, verification, and reporting.
 
+## Provisioning
+
+Provisioning is an explicit execution phase.
+
+The planner derives machine prerequisites from repository facts and emits deterministic provisioning checks before dependency installation. The initial provisioning implementation verifies required package managers with `command -v`.
+
+Planning MUST NOT mutate the user's machine. Automatic installation or bootstrap providers such as Corepack or Bun installation require an explicit provisioning policy and must remain visible in the execution report.
+
