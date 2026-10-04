@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/harshul/octo-cli/internal/analyzer"
+	"github.com/harshul/octo-cli/internal/intelligence"
 	"gopkg.in/yaml.v3"
 )
 
@@ -54,12 +54,12 @@ type EnvVar struct {
 }
 
 // FromAnalysis converts an analysis result into a basic blueprint.
-func FromAnalysis(a analyzer.Analysis) Blueprint {
+func FromAnalysis(a intelligence.Analysis) Blueprint {
 	return Blueprint{Name: a.Name}
 }
 
 // FromProjectInfo converts a ProjectInfo result into a full blueprint.
-func FromProjectInfo(p analyzer.ProjectInfo) Blueprint {
+func FromProjectInfo(p intelligence.ProjectInfo) Blueprint {
 	bp := Blueprint{
 		Name:           p.Name,
 		Language:       p.Language,
