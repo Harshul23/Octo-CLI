@@ -109,8 +109,26 @@ func resolveEnvironment(root string, model EnvironmentModel, components []Compon
 			continue
 		}
 
-		scopes := requiredEnvironmentScopes(variable, components)
+		scopes, ownershipKnown := requiredEnvironmentScopes(variable, components)
+		if !ownershipKnown {
+			// Legacy/source-less variables have no reliable component owner.
+			// Preserve the pre-scoping behavior: any component-local value can
+			// satisfy the requirement, while runtime isolation still applies.
+			found := false
+			for _, componentValues := range scoped {
+				if value, ok := componentValues[variable.Name]; ok && value != "" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				missing = append(missing, variable.Name)
+			}
+			continue
+		}
 		if len(scopes) == 0 {
+			// The variable has known ownership, but no known component owns
+			// the source. It therefore requires a shared/root value.
 			missing = append(missing, variable.Name)
 			continue
 		}
@@ -132,20 +150,15 @@ func resolveEnvironment(root string, model EnvironmentModel, components []Compon
 }
 
 
-func requiredEnvironmentScopes(variable EnvironmentVariable, components []Component) []string {
-	if len(components) == 0 {
-		return nil
-	}
+func requiredEnvironmentScopes(variable EnvironmentVariable, components []Component) ([]string, bool) {
 	if len(variable.Sources) == 0 {
-		scopes := make([]string, 0, len(components))
-		for _, component := range components {
-			path := filepath.ToSlash(filepath.Clean(component.Path))
-			if path != "" && path != "." {
-				scopes = append(scopes, path)
-			}
-		}
-		sort.Strings(scopes)
-		return scopes
+		// No source ownership was recorded. The caller must use the legacy
+		// any-component-scope fallback.
+		return nil, false
+	}
+	if len(components) == 0 {
+		// Sources exist, but there are no component scopes to own them.
+		return nil, true
 	}
 
 	// Prefer the most specific component path when components are nested.
@@ -169,7 +182,7 @@ func requiredEnvironmentScopes(variable EnvironmentVariable, components []Compon
 			matched[best] = struct{}{}
 		} else {
 			// A source outside every component requires a shared value.
-			return nil
+			return nil, true
 		}
 	}
 
@@ -178,7 +191,7 @@ func requiredEnvironmentScopes(variable EnvironmentVariable, components []Compon
 		scopes = append(scopes, scope)
 	}
 	sort.Strings(scopes)
-	return scopes
+	return scopes, true
 }
 
 func readEnvFile(path string) (map[string]string, error) {
