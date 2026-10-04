@@ -83,6 +83,7 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 			continue
 		}
 
+		executed := false
 		candidates := executionCandidatesForStep(step)
 		for _, candidate := range candidates {
 			attempt := step
@@ -111,11 +112,12 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 			}
 			result.Status = StepSucceeded
 			report.Steps = append(report.Steps, result)
-			goto stepSucceeded
+			executed = true
+			break
 		}
-		return report
-
-	stepSucceeded:
+		if !executed {
+			return report
+		}
 	}
 
 	checks := BuildVerificationChecks(model, plan)
