@@ -6,13 +6,12 @@ import (
   "os"
   "path/filepath"
   "strings"
-  "github.com/harshul/octo-cli/internal/analyzer"
-  "github.com/harshul/octo-cli/internal/secrets"
+    "github.com/harshul/octo-cli/internal/secrets"
   "sort"
 )
 
 func Analyze(path string) (ProjectModel, error) {
-  info, err := analyzer.AnalyzeProject(path)
+  info, err := detectProject(path)
   if err != nil { return ProjectModel{}, err }
   root, err := filepath.Abs(path)
   if err != nil { return ProjectModel{}, err }
