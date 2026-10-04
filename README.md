@@ -80,7 +80,13 @@ The decision layer chooses between those candidates. It does not invent a third 
 
 ### 3. Decisions are provider-neutral
 
-Octo defines a `DecisionProvider` boundary.
+Octo defines a `DecisionProvider` boundary:
+
+```go
+type DecisionProvider interface {
+    Decide(ctx context.Context, request DecisionRequest) (DecisionResult, error)
+}
+```
 
 Possible providers include:
 
@@ -88,6 +94,8 @@ Possible providers include:
 - Jev
 - an LLM
 - a human
+
+Jev is therefore an optional decision provider, not Octo's core analyzer. Deterministic Octo logic discovers repository facts, builds candidates, and supplies bounded choices. Jev or another provider resolves only the ambiguity that remains.
 
 External intelligence is optional. The deterministic provider is the offline baseline, so Octo remains useful without Jev, an LLM, a network connection, or a paid service.
 
@@ -472,6 +480,46 @@ A decision trace can explain:
 - whether a candidate failed or succeeded
 
 The trace must not expose resolved environment values or command output.
+
+## Dogfooding and execution feedback
+
+Octo is intended to test its own assumptions against real repositories.
+
+One important example is Charmbracelet Gum. Octo initially selected:
+
+```text
+go run main.go
+```
+
+Gum contains multiple Go files, and `main.go` depends on symbols defined in `gum.go`. Running only the entry file therefore fails, while:
+
+```text
+go run .
+```
+
+executes the complete package successfully.
+
+The architectural lesson is not simply "prefer `go run .`". The important loop is:
+
+```text
+Candidate
+    ↓
+Execute
+    ↓
+Failure becomes evidence
+    ↓
+Another existing candidate
+    ↓
+Execute
+    ↓
+Success
+    ↓
+Verify
+    ↓
+Persist verified strategy
+```
+
+This is the intended meaning of **verified execution**: runtime outcomes improve bounded decisions without allowing Octo to invent arbitrary commands.
 
 ## Current architecture boundary
 
