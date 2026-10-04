@@ -184,6 +184,21 @@ Only variables declared by the ProjectModel are exposed to runtime commands. Mis
 
 Resolved values remain in memory for the duration of execution and are not included in plan explanations or serialized artifacts.
 
+## Scoped Runtime Environments
+
+Runtime environment resolution is scoped to the execution step's component when the Project Model provides a component path.
+
+Precedence is:
+1. process environment;
+2. component `.env.local`;
+3. component `.env`;
+4. repository-root `.env.local`;
+5. repository-root `.env`.
+
+A component-local variable MUST NOT be exposed to another component merely because both belong to the same repository. Shared process-level variables remain globally available.
+
+Scoped values are runtime-only. They MUST NOT be serialized into the ProjectModel, ExecutionPlan, topology, decision trace, or execution report.
+
 ## Topology Environment Bindings
 
 Octo may derive secret-safe environment bindings from explicit static network references.
