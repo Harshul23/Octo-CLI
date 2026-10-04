@@ -36,14 +36,18 @@ var graphCmd = &cobra.Command{
 		}
 
 		for _, component := range components {
-			fmt.Printf("%s [%s]\n", component.Name, component.Language)
-			if len(component.DependsOn) == 0 {
-				fmt.Println("  └─ depends on: none")
-				continue
+			fmt.Printf("%s [component/%s]\n", component.Name, component.Language)
+			printDependencies(component.DependsOn)
+		}
+
+		services := append([]intelligence.Service(nil), model.Services...)
+		sort.Slice(services, func(i, j int) bool { return services[i].Name < services[j].Name })
+		if len(services) > 0 {
+			fmt.Println("\nInfrastructure services")
+			for _, service := range services {
+				fmt.Printf("%s [service]\n", service.Name)
+				printDependencies(service.DependsOn)
 			}
-			deps := append([]string(nil), component.DependsOn...)
-			sort.Strings(deps)
-			fmt.Printf("  └─ depends on: %s\n", strings.Join(deps, ", "))
 		}
 
 		return nil
@@ -52,4 +56,14 @@ var graphCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(graphCmd)
+}
+
+func printDependencies(deps []string) {
+	if len(deps) == 0 {
+		fmt.Println("  └─ depends on: none")
+		return
+	}
+	values := append([]string(nil), deps...)
+	sort.Strings(values)
+	fmt.Printf("  └─ depends on: %s\n", strings.Join(values, ", "))
 }
