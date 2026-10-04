@@ -1,6 +1,7 @@
 package intelligence
 
 import (
+  "context"
   "encoding/json"
   "os"
   "path/filepath"
@@ -26,10 +27,7 @@ func Analyze(path string) (ProjectModel, error) {
   if f := lockfile(root, info.PackageManager); f != "" {
     m.Evidence = append(m.Evidence, Evidence{Kind: EvidenceLockfile, Path:f, Detail:"Lockfile supports the detected package manager.", Strength:0.95})
   }
-  if info.RunCommand != "" {
-    m.Evidence = append(m.Evidence, Evidence{Kind: EvidenceScript, Path:"package.json", Detail:"Selected run command: "+info.RunCommand, Strength:0.80})
-  }
-  if f := monorepoMarker(root); f != "" {
+   if f := monorepoMarker(root); f != "" {
     m.Evidence = append(m.Evidence, Evidence{Kind: EvidenceConfig, Path:f, Detail:"Workspace configuration indicates a monorepo.", Strength:0.95})
   }
   m.Framework = detectFramework(root, info.Language)
@@ -37,7 +35,7 @@ func Analyze(path string) (ProjectModel, error) {
     m.Evidence = append(m.Evidence, Evidence{Kind:EvidenceManifest, Path:frameworkPath(root, info.Language),
       Detail:"Detected framework: "+m.Framework, Strength:0.90})
   }
-  m.Confidence = confidence(m.Evidence, m.RunCommand != "")
+  m.Confidence = confidence(m.Evidence, false)
   components, workspaceEvidence, discovered, err := discoverWorkspaceComponents(root, info)
   if err != nil { return ProjectModel{}, err }
   m.Evidence = append(m.Evidence, workspaceEvidence...)
@@ -62,6 +60,29 @@ func Analyze(path string) (ProjectModel, error) {
     return ProjectModel{}, err
   }
   m.Environment.Resolutions = ResolveEnvironmentBindings(m)
+
+  providers := ExecutionCandidateProviders{}
+  for i := range m.Components {
+    candidates, err := providers.Candidates(context.Background(), root, m.Components[i])
+    if err != nil {
+      return ProjectModel{}, err
+    }
+    m.Components[i].ExecutionCandidates = candidates
+    if len(candidates) == 0 {
+      m.Components[i].RunCommand = ""
+      continue
+    }
+    selected, err := SelectExecutionCandidate(context.Background(), candidates)
+    if err != nil {
+      return ProjectModel{}, err
+    }
+    m.Components[i].RunCommand = selected.Command
+    m.Components[i].Confidence = selected.Confidence
+    if m.Components[i].Path == "." && i == 0 {
+      m.RunCommand = selected.Command
+      m.Confidence = confidence(m.Evidence, true)
+    }
+  }
   return m,nil
 }
 
