@@ -18,7 +18,7 @@ func Analyze(path string) (ProjectModel, error) {
 
   m := ProjectModel{Name: info.Name, Root: root, Language: info.Language, RuntimeVersion: info.Version,
     PackageManager: info.PackageManager, RunCommand: info.RunCommand, SetupCommand: info.SetupCommand,
-    Monorepo: info.IsMonorepo, Port: info.PortConfig.Port, Confidence: 0.20}
+    Monorepo: info.IsMonorepo, Port: info.Port, Confidence: 0.20}
 
   if f := signalFile(root, info.Language); f != "" {
     m.Evidence = append(m.Evidence, Evidence{Kind: EvidenceSignalFile, Path:f, Detail:"Primary language signal.", Strength:0.85})
