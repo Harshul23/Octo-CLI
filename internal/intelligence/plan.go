@@ -13,6 +13,7 @@ type ExecutionPhase string
 
 const (
 	PhasePrepare ExecutionPhase = "prepare"
+	PhaseProvision ExecutionPhase = "provision"
 	PhaseInstall ExecutionPhase = "install"
 	PhaseSetup   ExecutionPhase = "setup"
 	PhaseStart   ExecutionPhase = "start"
@@ -34,10 +35,11 @@ type ExecutionStep struct {
 
 // ExecutionPlan is the provider-neutral result of planning how a ProjectModel runs.
 type ExecutionPlan struct {
-	ProjectName string          `json:"project_name" yaml:"project_name"`
-	Root        string          `json:"root" yaml:"root"`
-	Steps       []ExecutionStep `json:"steps" yaml:"steps"`
-	Ports       []PortAssignment `json:"ports,omitempty" yaml:"ports,omitempty"`
+	ProjectName  string                    `json:"project_name" yaml:"project_name"`
+	Root         string                    `json:"root" yaml:"root"`
+	Steps        []ExecutionStep           `json:"steps" yaml:"steps"`
+	Ports        []PortAssignment          `json:"ports,omitempty" yaml:"ports,omitempty"`
+	Provisioning []ProvisioningRequirement `json:"provisioning,omitempty" yaml:"provisioning,omitempty"`
 }
 
 // Planner converts repository understanding into an executable plan.
@@ -66,7 +68,8 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		return ExecutionPlan{}, fmt.Errorf("build topology: %w", err)
 	}
 
-	steps := make([]ExecutionStep, 0, len(model.Components)*4+len(model.Services))
+	steps := make([]ExecutionStep, 0, len(model.Components)*5+len(model.Services))
+	provisioning := BuildProvisioningRequirements(model)
 	components := append([]Component(nil), model.Components...)
 	sort.SliceStable(components, func(i, j int) bool { return components[i].Name < components[j].Name })
 
@@ -85,11 +88,21 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		})
 
 		setupDepends := []string{prepareID}
+		if requirement := provisioningRequirementFor(component, provisioning); requirement != nil {
+			provisionID := prefix + ".provision"
+			steps = append(steps, ExecutionStep{
+				ID: provisionID, Component: component.Name, NodeID: nodeID, Phase: PhaseProvision,
+				Command: "command -v " + requirement.Name, WorkDir: component.Path,
+				DependsOn: []string{prepareID},
+				Explanation: "Verify the required package manager is available before installation.",
+			})
+			setupDepends = []string{provisionID}
+		}
 		if install := installCommand(component.PackageManager); install != "" {
 			installID := prefix + ".install"
 			steps = append(steps, ExecutionStep{
 				ID: installID, Component: component.Name, NodeID: nodeID, Phase: PhaseInstall,
-				Command: install, WorkDir: component.Path, DependsOn: []string{prepareID},
+				Command: install, WorkDir: component.Path, DependsOn: setupDepends,
 				Explanation: "Install dependencies using the detected package manager.",
 			})
 			setupDepends = []string{installID}
@@ -175,7 +188,7 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		}
 	}
 
-	plan := ExecutionPlan{ProjectName: model.Name, Root: model.Root, Steps: steps, Ports: ports}
+	plan := ExecutionPlan{ProjectName: model.Name, Root: model.Root, Steps: steps, Ports: ports, Provisioning: provisioning}
 	if err := ValidateExecutionPlan(plan); err != nil {
 		return ExecutionPlan{}, err
 	}
@@ -323,4 +336,14 @@ func serviceHealthCommand(service Service, model ProjectModel) (string, string) 
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+
+func provisioningRequirementFor(component Component, requirements []ProvisioningRequirement) *ProvisioningRequirement {
+	for i := range requirements {
+		if requirements[i].Name == component.PackageManager {
+			return &requirements[i]
+		}
+	}
+	return nil
 }
