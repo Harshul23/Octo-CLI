@@ -80,3 +80,16 @@ The initial topology rules are intentionally conservative:
 
 This makes the execution graph evidence-backed. Future detectors can add Docker Compose services, explicit service manifests, or other ecosystem-specific boundaries without changing the graph contract.
 
+## Infrastructure Service Discovery
+
+Infrastructure services are modeled separately from source-code components.
+
+Docker Compose is an explicit topology source. When a supported Compose file is present:
+- each declared entry under `services` becomes a Service;
+- `image`, build context, published ports, and `depends_on` are preserved as topology facts;
+- dependency edges are created only for service names actually declared in the Compose file;
+- the service retains evidence pointing to the Compose file;
+- Compose discovery does not invent an application run command for the service.
+
+This separation allows application components and infrastructure services to participate in one future execution graph without conflating source-code execution with infrastructure provisioning.
+
