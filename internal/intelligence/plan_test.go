@@ -13,6 +13,7 @@ func TestDeterministicPlannerCreatesStableSingleComponentPlan(t *testing.T) {
 		Components: []Component{{
 			Name: "demo", Path: ".", Language: "Node",
 			PackageManager: "pnpm", RunCommand: "pnpm dev",
+			ExecutionCandidates: []ExecutionCandidate{{ID: "node.script.dev", Command: "pnpm dev", Confidence: 0.82}},
 		}},
 	}
 
@@ -27,6 +28,10 @@ func TestDeterministicPlannerCreatesStableSingleComponentPlan(t *testing.T) {
 	}
 	if len(plan.Topology.Nodes) != 1 || plan.Topology.Nodes[0].ID != "component:demo" {
 		t.Fatalf("unexpected topology nodes: %+v", plan.Topology.Nodes)
+	}
+	start := findExecutionStep(plan, "component.demo.start")
+	if start == nil || start.SelectedCandidate != "node.script.dev" || len(start.Candidates) != 1 {
+		t.Fatalf("start candidates=%+v", start)
 	}
 	if len(plan.Topology.Edges) != 0 {
 		t.Fatalf("unexpected topology edges: %+v", plan.Topology.Edges)
