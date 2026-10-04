@@ -139,6 +139,12 @@ func RecordVerifiedStrategies(root string, model ProjectModel, plan ExecutionPla
 			Fingerprint: fingerprint,
 			VerifiedAt: time.Now().UTC(),
 		}
+		for _, existing := range lock.Strategies {
+			if existing.Component == entry.Component && existing.Candidate == entry.Candidate && existing.Command == entry.Command && existing.Fingerprint == entry.Fingerprint {
+				entry.VerifiedAt = existing.VerifiedAt
+				break
+			}
+		}
 		replaced := false
 		for i := range lock.Strategies {
 			if lock.Strategies[i].Component == entry.Component {
