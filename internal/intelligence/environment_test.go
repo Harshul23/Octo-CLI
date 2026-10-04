@@ -18,7 +18,6 @@ func TestAnalyzeDiscoversEnvironmentRequirementsWithoutValues(t *testing.T) {
 
 	write("package.json", `{"name":"demo","scripts":{"dev":"node index.js"}}`)
 	write("index.js", `console.log(process.env.DATABASE_URL); console.log(process.env.PUBLIC_API_URL)`)
-	write(".env.example", "DATABASE_URL=postgres://example\nPUBLIC_API_URL=http://localhost:3000\n")
 
 	model, err := Analyze(root)
 	if err != nil {
