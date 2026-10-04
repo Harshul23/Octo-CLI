@@ -70,6 +70,7 @@ type Service struct {
 
 type Component struct {
 	Name          string      `json:"name" yaml:"name"`
+	ExecutionCandidates []ExecutionCandidate `json:"execution_candidates,omitempty" yaml:"execution_candidates,omitempty"`
 	Path          string      `json:"path" yaml:"path"`
 	Language      string      `json:"language,omitempty" yaml:"language,omitempty"`
 	Framework     string      `json:"framework,omitempty" yaml:"framework,omitempty"`
