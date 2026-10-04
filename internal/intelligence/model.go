@@ -19,9 +19,16 @@ type Evidence struct {
 	Strength float64 `json:"strength" yaml:"strength"`
 }
 
-// Component represents a runnable part of a repository.
-// Service represents an infrastructure/runtime service explicitly declared by a repository.
-// HealthCheck describes an explicit readiness probe for a runtime node.
+// Reference describes a runtime relationship discovered from repository evidence.
+// References are intentionally separate from DependsOn because communication does
+// not necessarily imply startup ordering.
+type Reference struct {
+	Target     string     `json:"target" yaml:"target"`
+	Kind       string     `json:"kind" yaml:"kind"`
+	Confidence float64    `json:"confidence" yaml:"confidence"`
+	Evidence   []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
+}
+
 type HealthCheck struct {
 	Command  string `json:"command,omitempty" yaml:"command,omitempty"`
 	Interval string `json:"interval,omitempty" yaml:"interval,omitempty"`
@@ -34,6 +41,7 @@ type Service struct {
 	Image string `json:"image,omitempty" yaml:"image,omitempty"`
 	Build string `json:"build,omitempty" yaml:"build,omitempty"`
 	DependsOn []string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	References []Reference `json:"references,omitempty" yaml:"references,omitempty"`
 	Ports []string `json:"ports,omitempty" yaml:"ports,omitempty"`
 	HealthCheck *HealthCheck `json:"health_check,omitempty" yaml:"health_check,omitempty"`
 	Confidence float64 `json:"confidence" yaml:"confidence"`
@@ -48,6 +56,7 @@ type Component struct {
 	PackageManager string `json:"package_manager,omitempty" yaml:"package_manager,omitempty"`
 	RunCommand string `json:"run_command,omitempty" yaml:"run_command,omitempty"`
 	DependsOn []string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	References []Reference `json:"references,omitempty" yaml:"references,omitempty"`
 	Port int `json:"port,omitempty" yaml:"port,omitempty"`
 	Confidence float64 `json:"confidence" yaml:"confidence"`
 	Evidence []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
@@ -55,9 +64,9 @@ type Component struct {
 
 // EnvironmentVariable describes an environment requirement without storing its value.
 type EnvironmentVariable struct {
-	Name     string   `json:"name" yaml:"name"`
-	Required bool     `json:"required" yaml:"required"`
-	Sources  []string `json:"sources,omitempty" yaml:"sources,omitempty"`
+	Name string `json:"name" yaml:"name"`
+	Required bool `json:"required" yaml:"required"`
+	Sources []string `json:"sources,omitempty" yaml:"sources,omitempty"`
 }
 
 type EnvironmentModel struct {
