@@ -3,6 +3,7 @@ package intelligence
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -21,7 +22,8 @@ const (
 // ExecutionStep is one deterministic unit in an execution plan.
 type ExecutionStep struct {
 	ID          string         `json:"id" yaml:"id"`
-	Component   string         `json:"component" yaml:"component"`
+	Component   string         `json:"component,omitempty" yaml:"component,omitempty"`
+	NodeID      string         `json:"node_id" yaml:"node_id"`
 	Phase       ExecutionPhase `json:"phase" yaml:"phase"`
 	Command     string         `json:"command,omitempty" yaml:"command,omitempty"`
 	WorkDir     string         `json:"work_dir,omitempty" yaml:"work_dir,omitempty"`
@@ -53,62 +55,93 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 	if strings.TrimSpace(model.Name) == "" {
 		return ExecutionPlan{}, fmt.Errorf("cannot plan unnamed project")
 	}
-	if len(model.Components) == 0 {
-		return ExecutionPlan{}, fmt.Errorf("cannot plan project with no components")
+	if len(model.Components) == 0 && len(model.Services) == 0 {
+		return ExecutionPlan{}, fmt.Errorf("cannot plan project with no components or services")
 	}
 
-	steps := make([]ExecutionStep, 0, len(model.Components)*4)
+	topology, err := BuildTopologyGraph(model)
+	if err != nil {
+		return ExecutionPlan{}, fmt.Errorf("build topology: %w", err)
+	}
+
+	steps := make([]ExecutionStep, 0, len(model.Components)*4+len(model.Services))
 	components := append([]Component(nil), model.Components...)
-	sort.SliceStable(components, func(i, j int) bool {
-		return components[i].Name < components[j].Name
-	})
+	sort.SliceStable(components, func(i, j int) bool { return components[i].Name < components[j].Name })
 
 	for _, component := range components {
 		if strings.TrimSpace(component.Name) == "" {
 			return ExecutionPlan{}, fmt.Errorf("component has no name")
 		}
 
+		nodeID := topologyID(NodeComponent, component.Name)
 		prefix := "component." + component.Name
 		prepareID := prefix + ".prepare"
 		steps = append(steps, ExecutionStep{
-			ID: prepareID, Component: component.Name, Phase: PhasePrepare,
+			ID: prepareID, Component: component.Name, NodeID: nodeID, Phase: PhasePrepare,
 			WorkDir: component.Path,
 			Explanation: "Prepare the component working directory.",
 		})
 
+		setupDepends := []string{prepareID}
 		if install := installCommand(component.PackageManager); install != "" {
+			installID := prefix + ".install"
 			steps = append(steps, ExecutionStep{
-				ID: prefix + ".install", Component: component.Name, Phase: PhaseInstall,
+				ID: installID, Component: component.Name, NodeID: nodeID, Phase: PhaseInstall,
 				Command: install, WorkDir: component.Path, DependsOn: []string{prepareID},
 				Explanation: "Install dependencies using the detected package manager.",
 			})
+			setupDepends = []string{installID}
 		}
 
-		setupDepends := []string{prepareID}
-		if len(steps) > 0 && steps[len(steps)-1].Component == component.Name && steps[len(steps)-1].Phase == PhaseInstall {
-			setupDepends = []string{prefix + ".install"}
-		}
 		if strings.TrimSpace(model.SetupCommand) != "" && component.Name == model.Name {
+			setupID := prefix + ".setup"
 			steps = append(steps, ExecutionStep{
-				ID: prefix + ".setup", Component: component.Name, Phase: PhaseSetup,
+				ID: setupID, Component: component.Name, NodeID: nodeID, Phase: PhaseSetup,
 				Command: model.SetupCommand, WorkDir: component.Path, DependsOn: setupDepends,
 				Explanation: "Run the repository setup command discovered by the analyzer.",
 			})
-			setupDepends = []string{prefix + ".setup"}
+			setupDepends = []string{setupID}
 		}
 
 		if strings.TrimSpace(component.RunCommand) == "" {
 			return ExecutionPlan{}, fmt.Errorf("component %q has no run command", component.Name)
 		}
-		start := ExecutionStep{
-			ID: prefix + ".start", Component: component.Name, Phase: PhaseStart,
-			Command: component.RunCommand, WorkDir: component.Path, DependsOn: setupDepends,
-			Explanation: "Start the component using the detected run command.",
+
+		deps := append([]string(nil), setupDepends...)
+		for _, edge := range topology.Edges {
+			if edge.From == nodeID {
+				deps = append(deps, startStepID(edge.To))
+			}
 		}
-		for _, dep := range component.DependsOn {
-			start.DependsOn = append(start.DependsOn, "component."+dep+".start")
+
+		steps = append(steps, ExecutionStep{
+			ID: prefix + ".start", Component: component.Name, NodeID: nodeID, Phase: PhaseStart,
+			Command: component.RunCommand, WorkDir: component.Path, DependsOn: uniqueStrings(deps),
+			Explanation: "Start the component after all topology dependencies are started.",
+		})
+	}
+
+	services := append([]Service(nil), model.Services...)
+	sort.SliceStable(services, func(i, j int) bool { return services[i].Name < services[j].Name })
+	for _, service := range services {
+		if strings.TrimSpace(service.Name) == "" {
+			return ExecutionPlan{}, fmt.Errorf("service has no name")
 		}
-		steps = append(steps, start)
+		nodeID := topologyID(NodeService, service.Name)
+		stepID := startStepID(nodeID)
+		deps := make([]string, 0)
+		for _, edge := range topology.Edges {
+			if edge.From == nodeID {
+				deps = append(deps, startStepID(edge.To))
+			}
+		}
+
+		command, explanation := serviceStartCommand(service)
+		steps = append(steps, ExecutionStep{
+			ID: stepID, Component: service.Name, NodeID: nodeID, Phase: PhaseStart,
+			Command: command, WorkDir: model.Root, DependsOn: uniqueStrings(deps),
+			Explanation: explanation,
+		})
 	}
 
 	plan := ExecutionPlan{ProjectName: model.Name, Root: model.Root, Steps: steps}
@@ -116,6 +149,34 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		return ExecutionPlan{}, err
 	}
 	return plan, nil
+}
+
+func startStepID(nodeID string) string {
+	return strings.ReplaceAll(nodeID, ":", ".") + ".start"
+}
+
+func serviceStartCommand(service Service) (string, string) {
+	for _, evidence := range service.Evidence {
+		base := filepath.Base(evidence.Path)
+		if evidence.Kind == EvidenceConfig && strings.Contains(base, "compose") {
+			return fmt.Sprintf("docker compose -f %s up -d %s", evidence.Path, service.Name),
+				"Start the Compose service using the repository's declared Compose configuration."
+		}
+	}
+	return "", "Service topology was discovered, but no runtime adapter is currently known for this service."
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func installCommand(packageManager string) string {

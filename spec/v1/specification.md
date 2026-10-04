@@ -105,3 +105,16 @@ Dependency edges point from a dependent node to the node it depends on. The grap
 
 This graph is the topology layer. Execution planning remains a separate concern and can map topology nodes to runtime-specific execution steps later.
 
+## Topology-Aware Execution Planning
+
+Execution planning consumes the unified topology graph.
+
+For each application component, the planner creates deterministic preparation, installation, setup, and start steps. For each known infrastructure service, it creates a service start step and maps topology dependencies to step dependencies.
+
+A planner must not invent a runtime command when no runtime adapter is known. Instead, the plan should retain the node and explain that execution support is unavailable.
+
+This separates:
+- **topology** — what exists and what depends on what;
+- **planning** — the ordered execution steps required;
+- **runtime adapters** — how a specific node is actually executed.
+
