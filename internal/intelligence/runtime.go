@@ -60,7 +60,7 @@ func (ShellAdapter) Execute(ctx context.Context, step ExecutionStep, env Resolve
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	cmd.Env = mergedEnvironment(env.Values)
+	cmd.Env = mergedEnvironmentWithStep(env.Values, step.Environment)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("shell step %q failed: %w", step.ID, err)
 	}
@@ -87,7 +87,7 @@ func (ComposeAdapter) Execute(ctx context.Context, step ExecutionStep, env Resol
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	cmd.Env = mergedEnvironment(env.Values)
+	cmd.Env = mergedEnvironmentWithStep(env.Values, step.Environment)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("Compose step %q failed: %w", step.ID, err)
 	}
@@ -150,4 +150,16 @@ func mergedEnvironment(values map[string]string) []string {
 		}
 	}
 	return env
+}
+
+
+func mergedEnvironmentWithStep(values, stepValues map[string]string) []string {
+	merged := make(map[string]string, len(values)+len(stepValues))
+	for name, value := range values {
+		merged[name] = value
+	}
+	for name, value := range stepValues {
+		merged[name] = value
+	}
+	return mergedEnvironment(merged)
 }
