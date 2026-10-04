@@ -21,7 +21,7 @@ func TestDeterministicPlannerCreatesStableSingleComponentPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantPhases := []ExecutionPhase{PhasePrepare, PhaseInstall, PhaseSetup, PhaseStart}
+	wantPhases := []ExecutionPhase{PhasePrepare, PhaseProvision, PhaseInstall, PhaseSetup, PhaseStart}
 	if len(plan.Steps) != len(wantPhases) {
 		t.Fatalf("steps=%d, want %d", len(plan.Steps), len(wantPhases))
 	}
