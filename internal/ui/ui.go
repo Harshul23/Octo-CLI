@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/harshul/octo-cli/internal/analyzer"
+	"github.com/harshul/octo-cli/internal/intelligence"
 	"github.com/harshul/octo-cli/internal/doctor"
 )
 
@@ -72,7 +72,7 @@ func Error(msg string) {
 
 // PromptForConfirmation is a minimal interactive stub.
 // For now, it simply echoes the provided analysis without changes.
-func PromptForConfirmation(a analyzer.Analysis) (analyzer.Analysis, error) {
+func PromptForConfirmation(a intelligence.Analysis) (intelligence.Analysis, error) {
 	// In a richer UI, we'd prompt the user to confirm or adjust fields.
 	// Keeping this non-interactive for now to avoid extra deps.
 	// Still, provide a tiny hint to the user.
