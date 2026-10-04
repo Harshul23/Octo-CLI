@@ -3,6 +3,7 @@ package intelligence
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -97,6 +98,36 @@ func TestResolveEnvironmentBindingsIsSecretSafeAndDeterministic(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+
+func TestResolveEnvironmentDoesNotSatisfyRequiredVariableFromUnrelatedComponent(t *testing.T) {
+	root := t.TempDir()
+	api := filepath.Join(root, "apps", "api")
+	web := filepath.Join(root, "apps", "web")
+	if err := os.MkdirAll(api, 0755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(web, 0755); err != nil { t.Fatal(err) }
+
+	if err := os.WriteFile(filepath.Join(api, ".env"), []byte("API_ONLY=\n"), 0600); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(web, ".env"), []byte("API_ONLY=web-value\n"), 0600); err != nil { t.Fatal(err) }
+
+	project := ProjectModel{
+		Environment: EnvironmentModel{Variables: []EnvironmentVariable{
+			{Name: "API_ONLY", Required: true, Sources: []string{"apps/api/src/server.js"}},
+		}},
+		Components: []Component{
+			{Name: "api", Path: "apps/api"},
+			{Name: "web", Path: "apps/web"},
+		},
+	}
+
+	_, err := ResolveProjectEnvironment(root, project)
+	if err == nil {
+		t.Fatal("expected API_ONLY to remain missing for api component")
+	}
+	if !strings.Contains(err.Error(), "API_ONLY") {
+		t.Fatalf("error=%v, want API_ONLY", err)
 	}
 }
 
