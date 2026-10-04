@@ -21,12 +21,21 @@ type Evidence struct {
 
 // Component represents a runnable part of a repository.
 // Service represents an infrastructure/runtime service explicitly declared by a repository.
+// HealthCheck describes an explicit readiness probe for a runtime node.
+type HealthCheck struct {
+	Command  string `json:"command,omitempty" yaml:"command,omitempty"`
+	Interval string `json:"interval,omitempty" yaml:"interval,omitempty"`
+	Timeout  string `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	Retries  int    `json:"retries,omitempty" yaml:"retries,omitempty"`
+}
+
 type Service struct {
 	Name string `json:"name" yaml:"name"`
 	Image string `json:"image,omitempty" yaml:"image,omitempty"`
 	Build string `json:"build,omitempty" yaml:"build,omitempty"`
 	DependsOn []string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
 	Ports []string `json:"ports,omitempty" yaml:"ports,omitempty"`
+	HealthCheck *HealthCheck `json:"health_check,omitempty" yaml:"health_check,omitempty"`
 	Confidence float64 `json:"confidence" yaml:"confidence"`
 	Evidence []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
 }

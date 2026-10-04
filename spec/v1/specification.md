@@ -170,3 +170,13 @@ Only variables declared by the ProjectModel are exposed to runtime commands. Mis
 
 Resolved values remain in memory for the duration of execution and are not included in plan explanations or serialized artifacts.
 
+## Health and Readiness
+
+A topology dependency is not necessarily a readiness dependency.
+
+When a service declares an explicit health check, the planner creates a `health` step after its start step. Dependents wait for the health step instead of merely waiting for process/container startup.
+
+For Docker Compose, the health probe is executed inside the declared service container using the Compose configuration that provided the evidence.
+
+Health checks are evidence-backed and are not invented from ports alone.
+

@@ -20,6 +20,7 @@ type composeService struct {
 	Build     interface{} `yaml:"build"`
 	DependsOn interface{} `yaml:"depends_on"`
 	Ports     interface{} `yaml:"ports"`
+	Healthcheck interface{} `yaml:"healthcheck"`
 }
 
 func discoverComposeServices(root string) ([]Service, []Evidence, bool, error) {
@@ -99,6 +100,7 @@ func discoverComposeServices(root string) ([]Service, []Evidence, bool, error) {
 			Build: composeBuild(spec.Build),
 			DependsOn: validDeps,
 			Ports: ports,
+			HealthCheck: composeHealthCheck(spec.Healthcheck),
 			Confidence: 0.99,
 			Evidence: evidence,
 		})
@@ -195,5 +197,84 @@ func composePorts(value interface{}) []string {
 		return out
 	default:
 		return nil
+	}
+}
+
+
+func composeHealthCheck(value interface{}) *HealthCheck {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		command := composeHealthTest(v["test"])
+		if command == "" {
+			return nil
+		}
+		return &HealthCheck{
+			Command: command,
+			Interval: composeString(v["interval"]),
+			Timeout: composeString(v["timeout"]),
+			Retries: composeInt(v["retries"]),
+		}
+	case map[interface{}]interface{}:
+		command := composeHealthTest(v["test"])
+		if command == "" {
+			return nil
+		}
+		return &HealthCheck{
+			Command: command,
+			Interval: composeString(v["interval"]),
+			Timeout: composeString(v["timeout"]),
+			Retries: composeInt(v["retries"]),
+		}
+	default:
+		return nil
+	}
+}
+
+func composeHealthTest(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []interface{}:
+		if len(v) == 0 {
+			return ""
+		}
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				parts = append(parts, s)
+			}
+		}
+		if len(parts) > 0 && (parts[0] == "CMD-SHELL" || parts[0] == "CMD") {
+			parts = parts[1:]
+		}
+		return strings.Join(parts, " ")
+	case []string:
+		parts := append([]string(nil), v...)
+		if len(parts) > 0 && (parts[0] == "CMD-SHELL" || parts[0] == "CMD") {
+			parts = parts[1:]
+		}
+		return strings.Join(parts, " ")
+	default:
+		return ""
+	}
+}
+
+func composeString(value interface{}) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return ""
+}
+
+func composeInt(value interface{}) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case uint64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
 	}
 }

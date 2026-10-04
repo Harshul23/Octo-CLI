@@ -110,7 +110,7 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		deps := append([]string(nil), setupDepends...)
 		for _, edge := range topology.Edges {
 			if edge.From == nodeID {
-				deps = append(deps, startStepID(edge.To))
+				deps = append(deps, readinessStepID(edge.To, model))
 			}
 		}
 
@@ -142,6 +142,16 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 			Command: command, WorkDir: model.Root, DependsOn: uniqueStrings(deps),
 			Explanation: explanation,
 		})
+
+		if service.HealthCheck != nil && strings.TrimSpace(service.HealthCheck.Command) != "" {
+			healthID := readinessStepID(nodeID, model)
+			healthCommand, healthExplanation := serviceHealthCommand(service, model)
+			steps = append(steps, ExecutionStep{
+				ID: healthID, Component: service.Name, NodeID: nodeID, Phase: PhaseHealth,
+				Command: healthCommand, WorkDir: model.Root, DependsOn: []string{stepID},
+				Explanation: healthExplanation,
+			})
+		}
 	}
 
 	plan := ExecutionPlan{ProjectName: model.Name, Root: model.Root, Steps: steps}
@@ -265,4 +275,31 @@ func TopologicalOrder(plan ExecutionPlan) ([]string, error) {
 		return nil, fmt.Errorf("execution plan contains a dependency cycle")
 	}
 	return order, nil
+}
+
+
+func readinessStepID(nodeID string, model ProjectModel) string {
+	for _, service := range model.Services {
+		if topologyID(NodeService, service.Name) == nodeID && service.HealthCheck != nil && strings.TrimSpace(service.HealthCheck.Command) != "" {
+			return startStepID(nodeID)[:len(startStepID(nodeID))-len(".start")] + ".health"
+		}
+	}
+	return startStepID(nodeID)
+}
+
+
+func serviceHealthCommand(service Service, model ProjectModel) (string, string) {
+	command := strings.TrimSpace(service.HealthCheck.Command)
+	for _, evidence := range service.Evidence {
+		base := filepath.Base(evidence.Path)
+		if evidence.Kind == EvidenceConfig && strings.Contains(base, "compose") {
+			return fmt.Sprintf("docker compose -f %s exec -T %s sh -c %s", evidence.Path, service.Name, shellQuote(command)),
+				"Run the declared Compose health check inside the service container."
+		}
+	}
+	return command, "Run the explicitly declared service health check."
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
