@@ -41,7 +41,6 @@ func (e ResolvedEnvironment) ForStep(step ExecutionStep) ResolvedEnvironment {
 // Only variables declared in the ProjectModel are returned.
 func ResolveEnvironment(root string, model EnvironmentModel) (ResolvedEnvironment, error) {
 	values := make(map[string]string)
-
 	for _, path := range []string{filepath.Join(root, ".env"), filepath.Join(root, ".env.local")} {
 		fileValues, err := readEnvFile(path)
 		if err != nil {
@@ -52,32 +51,7 @@ func ResolveEnvironment(root string, model EnvironmentModel) (ResolvedEnvironmen
 		}
 	}
 
-	// The caller's environment is authoritative over project files.
-	for _, entry := range os.Environ() {
-		name, value, ok := splitEnv(entry)
-		if ok {
-			values[name] = value
-		}
-	}
-
-	resolved := make(map[string]string)
-	var missing []string
-	for _, variable := range model.Variables {
-		value, ok := values[variable.Name]
-		if !ok || value == "" {
-			if variable.Required {
-				missing = append(missing, variable.Name)
-			}
-			continue
-		}
-		resolved[variable.Name] = value
-	}
-
-	if len(missing) > 0 {
-		sort.Strings(missing)
-		return ResolvedEnvironment{}, fmt.Errorf("missing required environment variables: %v", missing)
-	}
-
+	// Component-local values are isolated by component path.
 	scoped := make(map[string]map[string]string)
 	for _, component := range model.Components {
 		if component.Path == "" || component.Path == "." {
@@ -97,6 +71,46 @@ func ResolveEnvironment(root string, model EnvironmentModel) (ResolvedEnvironmen
 		if len(componentValues) > 0 {
 			scoped[component.Path] = componentValues
 		}
+	}
+
+	// The caller's environment is authoritative over all project files.
+	for _, entry := range os.Environ() {
+		name, value, ok := splitEnv(entry)
+		if ok {
+			values[name] = value
+			for path := range scoped {
+				if scoped[path] == nil {
+					scoped[path] = make(map[string]string)
+				}
+				scoped[path][name] = value
+			}
+		}
+	}
+
+	resolved := make(map[string]string)
+	var missing []string
+	for _, variable := range model.Variables {
+		value, ok := values[variable.Name]
+		if !ok || value == "" {
+			for _, componentValues := range scoped {
+				if candidate, exists := componentValues[variable.Name]; exists && candidate != "" {
+					value, ok = candidate, true
+					break
+				}
+			}
+		}
+		if !ok || value == "" {
+			if variable.Required {
+				missing = append(missing, variable.Name)
+			}
+			continue
+		}
+		resolved[variable.Name] = value
+	}
+
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return ResolvedEnvironment{}, fmt.Errorf("missing required environment variables: %v", missing)
 	}
 
 	return ResolvedEnvironment{Values: resolved, ScopedValues: scoped}, nil
