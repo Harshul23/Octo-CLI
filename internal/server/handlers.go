@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harshul/octo-cli/internal/analyzer"
+	"github.com/harshul/octo-cli/internal/intelligence"
 	"github.com/harshul/octo-cli/internal/blueprint"
 )
 
@@ -54,7 +54,7 @@ type PublishRequest struct {
 
 type AnalysisResponse struct {
 	Success   bool                 `json:"success"`
-	Project   *analyzer.ProjectInfo `json:"project,omitempty"`
+	Project   *intelligence.ProjectInfo `json:"project,omitempty"`
 	Blueprint *blueprint.Blueprint  `json:"blueprint,omitempty"`
 	Error     string               `json:"error,omitempty"`
 	Duration  string               `json:"duration,omitempty"`
@@ -77,7 +77,7 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	// Use the existing analyzer
-	info, err := analyzer.AnalyzeProject(req.Path)
+	info, err := intelligence.AnalyzeProject(req.Path)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, AnalysisResponse{
 			Success: false,
@@ -151,7 +151,7 @@ func (s *Server) handleAnalyzeGitHub(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Run analysis on the cloned repo
-	info, err := analyzer.AnalyzeProject(tmpDir)
+	info, err := intelligence.AnalyzeProject(tmpDir)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, AnalysisResponse{
 			Success: false,
