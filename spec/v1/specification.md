@@ -180,3 +180,11 @@ For Docker Compose, the health probe is executed inside the declared service con
 
 Health checks are evidence-backed and are not invented from ports alone.
 
+## Port Allocation
+
+Ports are execution resources, not just metadata.
+
+For application components, the planner checks the requested host port. If it is unavailable, Octo selects the next available TCP port and records both the requested and resolved values in the ExecutionPlan. The resolved port is injected as `PORT` for the component's runtime process.
+
+Infrastructure service ports declared by Docker Compose are currently treated as strict declarations. Octo reports conflicts rather than silently rewriting Compose configuration. Future runtime adapters may support parameterized or safely rewritten service port mappings.
+
