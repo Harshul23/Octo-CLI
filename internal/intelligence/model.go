@@ -44,6 +44,17 @@ type Component struct {
 	Evidence []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
 }
 
+// EnvironmentVariable describes an environment requirement without storing its value.
+type EnvironmentVariable struct {
+	Name     string   `json:"name" yaml:"name"`
+	Required bool     `json:"required" yaml:"required"`
+	Sources  []string `json:"sources,omitempty" yaml:"sources,omitempty"`
+}
+
+type EnvironmentModel struct {
+	Variables []EnvironmentVariable `json:"variables,omitempty" yaml:"variables,omitempty"`
+}
+
 // ProjectModel is Octo's provider-neutral representation of a repository.
 type ProjectModel struct {
 	Name string `json:"name" yaml:"name"`
@@ -59,5 +70,6 @@ type ProjectModel struct {
 	Confidence float64 `json:"confidence" yaml:"confidence"`
 	Components []Component `json:"components,omitempty" yaml:"components,omitempty"`
 	Services []Service `json:"services,omitempty" yaml:"services,omitempty"`
+	Environment EnvironmentModel `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Evidence []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
 }
