@@ -252,3 +252,15 @@ Provisioning is an explicit execution phase.
 The planner derives machine prerequisites from repository facts and emits deterministic provisioning checks before dependency installation. The initial provisioning implementation verifies required package managers with `command -v`.
 
 Planning MUST NOT mutate the user's machine. Automatic installation or bootstrap providers such as Corepack or Bun installation require an explicit provisioning policy and must remain visible in the execution report.
+
+## Application Network References
+
+Octo may discover informational application-to-application relationships from explicit static configuration. The initial detector reads component-local dotenv files (`.env` and `.env.*`) and recognizes URL values whose hostname exactly matches a known component or Compose service.
+
+These references MUST:
+- be represented as `network_reference` relationships, not startup dependencies;
+- include evidence identifying the source file and environment variable name without storing the value;
+- ignore interpolated or otherwise unresolved values;
+- reject ambiguous targets when a component and service share the same name rather than guessing.
+
+Raw environment values, credentials, tokens, and URL contents MUST NOT be serialized into the ProjectModel, topology, plan, explanation, or report.

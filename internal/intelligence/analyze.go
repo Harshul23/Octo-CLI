@@ -58,6 +58,9 @@ func Analyze(path string) (ProjectModel, error) {
     m.Services = services
     m.Evidence = append(m.Evidence, composeEvidence...)
   }
+  if err := discoverComponentNetworkReferences(root, m.Components, m.Services); err != nil {
+    return ProjectModel{}, err
+  }
   return m,nil
 }
 
