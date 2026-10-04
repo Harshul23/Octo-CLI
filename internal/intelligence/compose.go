@@ -95,7 +95,7 @@ func composeNetworkReferences(value interface{}, services map[string]struct{}, s
 		seen[dedupeKey] = struct{}{}
 
 		refs = append(refs, Reference{
-			Target: target, Kind: "network_reference", Confidence: 0.95,
+			Target: target, Kind: RelationshipNetworkReference, Variable: key, Confidence: 0.95,
 			Evidence: []Evidence{{Kind: EvidenceConfig, Path: path,
 				Detail: fmt.Sprintf("Compose environment variable %q contains a static URL referencing service %q.", key, target),
 				Strength: 0.95}},
