@@ -144,3 +144,16 @@ The legacy engine remains the default while parity is established. The intellige
 
 This is an intentional migration boundary, not a second permanent execution architecture.
 
+## Environment Requirements
+
+The ProjectModel may contain an environment requirement model.
+
+Environment requirements contain only:
+- variable name;
+- whether the current detector considers the variable required;
+- source files where the variable was referenced.
+
+Environment values are never stored in ProjectModel, ExecutionPlan, topology output, or explain output.
+
+Environment value resolution is a separate runtime concern. Future providers may read shell variables, local env files, templates, or explicit user input while keeping secret values out of the planning model.
+

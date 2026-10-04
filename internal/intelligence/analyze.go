@@ -6,6 +6,8 @@ import (
   "path/filepath"
   "strings"
   "github.com/harshul/octo-cli/internal/analyzer"
+  "github.com/harshul/octo-cli/internal/secrets"
+  "sort"
 )
 
 func Analyze(path string) (ProjectModel, error) {
@@ -46,6 +48,10 @@ func Analyze(path string) (ProjectModel, error) {
     m.Components = []Component{{Name:m.Name, Path:".", Language:m.Language, Framework:m.Framework,
       PackageManager:m.PackageManager, RunCommand:m.RunCommand, Port:m.Port, Confidence:m.Confidence, Evidence:m.Evidence}}
   }
+  envVars, err := discoverEnvironment(root, info.Language)
+  if err != nil { return ProjectModel{}, err }
+  m.Environment = envVars
+
   services, composeEvidence, composeFound, err := discoverComposeServices(root)
   if err != nil { return ProjectModel{}, err }
   if composeFound {
@@ -91,4 +97,35 @@ func frameworkPath(root,lang string) string {
 }
 func confidence(ev []Evidence, hasRun bool) float64 {
   if len(ev)==0{return 0.20};var sum float64;for _,e:=range ev{sum+=e.Strength};c:=sum/float64(len(ev));if hasRun{c+=0.10};if c>0.99{c=0.99};return c
+}
+
+
+func discoverEnvironment(root, language string) (EnvironmentModel, error) {
+	vars, err := secrets.ScanForEnvVars(root, language)
+	if err != nil {
+		return EnvironmentModel{}, err
+	}
+
+	byName := make(map[string]EnvironmentVariable)
+	for _, v := range vars {
+		item := byName[v.Name]
+		item.Name = v.Name
+		item.Required = item.Required || v.Required
+		if v.File != "" {
+			rel, err := filepath.Rel(root, v.File)
+			if err == nil {
+				rel = filepath.ToSlash(rel)
+				item.Sources = append(item.Sources, rel)
+			}
+		}
+		byName[v.Name] = item
+	}
+
+	out := EnvironmentModel{Variables: make([]EnvironmentVariable, 0, len(byName))}
+	for _, item := range byName {
+		sort.Strings(item.Sources)
+		out.Variables = append(out.Variables, item)
+	}
+	sort.Slice(out.Variables, func(i, j int) bool { return out.Variables[i].Name < out.Variables[j].Name })
+	return out, nil
 }
