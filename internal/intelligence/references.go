@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const networkReferenceKind = "network_reference"
+const networkReferenceKind RelationshipKind = RelationshipNetworkReference
 
 // discoverComponentNetworkReferences finds explicit static URL references in
 // component-local dotenv files. Values are used only for matching and are never
@@ -104,6 +104,7 @@ func discoverDotenvReferences(files []string, sourceComponent string, componentI
 			refs = append(refs, Reference{
 				Target: targetName,
 				Kind: networkReferenceKind,
+				Variable: key,
 				Confidence: 0.95,
 				Evidence: []Evidence{{
 					Kind: EvidenceConfig,
@@ -151,7 +152,7 @@ func parseDotenvAssignment(line string) (string, string, bool) {
 func mergeReferences(existing, discovered []Reference) []Reference {
 	byTarget := make(map[string]Reference, len(existing)+len(discovered))
 	for _, ref := range append(existing, discovered...) {
-		key := string(ref.Kind) + "\x00" + ref.Target
+		key := string(ref.Kind) + "\x00" + ref.Target + "\x00" + ref.Variable
 		if current, ok := byTarget[key]; ok {
 			current.Evidence = append(current.Evidence, ref.Evidence...)
 			if ref.Confidence > current.Confidence {

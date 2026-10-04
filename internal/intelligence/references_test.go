@@ -19,6 +19,7 @@ func TestDiscoverDotenvReferencesFindsStaticComponentURL(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if len(refs) != 1 { t.Fatalf("references=%d, want 1", len(refs)) }
 	if refs[0].Target != "api" { t.Fatalf("target=%q, want api", refs[0].Target) }
+	if refs[0].Variable != "API_URL" { t.Fatalf("variable=%q, want API_URL", refs[0].Variable) }
 	if refs[0].Kind != networkReferenceKind { t.Fatalf("kind=%q, want %q", refs[0].Kind, networkReferenceKind) }
 	if len(refs[0].Evidence) != 1 || !strings.HasSuffix(filepath.ToSlash(refs[0].Evidence[0].Path), "/web/.env") {
 		t.Fatalf("unexpected evidence: %#v", refs[0].Evidence)
