@@ -2,6 +2,7 @@ package intelligence
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -111,5 +112,47 @@ func (a *recordingAdapterForReport) Execute(_ context.Context, step ExecutionSte
 		values[key] = value
 	}
 	a.seen[step.ID] = values
+	return nil
+}
+
+
+func TestExecutePlanReportFallsBackToNextEvidenceBackedCandidate(t *testing.T) {
+	adapter := &fallbackAdapterForReport{}
+	plan := ExecutionPlan{
+		ProjectName: "demo",
+		Steps: []ExecutionStep{{
+			ID: "component.demo.start", Component: "demo", NodeID: "component:demo", Phase: PhaseStart,
+			Command: "bad-command", SelectedCandidate: "bad",
+			Candidates: []ExecutionCandidate{
+				{ID: "bad", Command: "bad-command", Confidence: 0.95},
+				{ID: "good", Command: "good-command", Confidence: 0.80},
+			},
+		}},
+	}
+	report := ExecutePlanReport(context.Background(), ProjectModel{Name: "demo"}, plan, RuntimeResolver{
+		adapters: []RuntimeAdapter{adapter},
+	}, ResolvedEnvironment{Values: map[string]string{}})
+	if !report.Success {
+		t.Fatalf("report=%+v", report)
+	}
+	if len(report.Failures) != 1 || report.Failures[0].CandidateID != "bad" {
+		t.Fatalf("failures=%+v", report.Failures)
+	}
+	if len(report.Steps) != 2 || report.Steps[0].Status != StepFailed || report.Steps[1].Status != StepSucceeded {
+		t.Fatalf("steps=%+v", report.Steps)
+	}
+	if report.Steps[1].CandidateID != "good" {
+		t.Fatalf("steps=%+v", report.Steps)
+	}
+}
+
+type fallbackAdapterForReport struct{}
+
+func (a *fallbackAdapterForReport) Name() string { return "fallback-test" }
+func (a *fallbackAdapterForReport) Supports(step ExecutionStep) bool { return step.Command != "" }
+func (a *fallbackAdapterForReport) Execute(_ context.Context, step ExecutionStep, _ ResolvedEnvironment) error {
+	if step.Command == "bad-command" {
+		return fmt.Errorf("candidate rejected")
+	}
 	return nil
 }
