@@ -3,6 +3,7 @@ package intelligence
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -19,7 +20,7 @@ func TestDiscoverDotenvReferencesFindsStaticComponentURL(t *testing.T) {
 	if len(refs) != 1 { t.Fatalf("references=%d, want 1", len(refs)) }
 	if refs[0].Target != "api" { t.Fatalf("target=%q, want api", refs[0].Target) }
 	if refs[0].Kind != networkReferenceKind { t.Fatalf("kind=%q, want %q", refs[0].Kind, networkReferenceKind) }
-	if len(refs[0].Evidence) != 1 || refs[0].Evidence[0].Path != "web/.env" {
+	if len(refs[0].Evidence) != 1 || !strings.HasSuffix(filepath.ToSlash(refs[0].Evidence[0].Path), "/web/.env") {
 		t.Fatalf("unexpected evidence: %#v", refs[0].Evidence)
 	}
 }
