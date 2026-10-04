@@ -114,3 +114,27 @@ func TestTopologyGraphKeepsNetworkReferencesInformational(t *testing.T) {
 	if len(graph.Edges) != 1 { t.Fatalf("edges=%d, want 1", len(graph.Edges)) }
 	if graph.Edges[0].Kind != "network_reference" { t.Fatalf("kind=%q, want network_reference", graph.Edges[0].Kind) }
 }
+
+func TestTopologyGraphRejectsAmbiguousDependency(t *testing.T) {
+	model := ProjectModel{
+		Components: []Component{{Name: "api"}},
+		Services: []Service{{Name: "api"}},
+	}
+	_, err := BuildTopologyGraph(ProjectModel{
+		Components: []Component{{Name: "web", DependsOn: []string{"api"}}, {Name: "api"}},
+		Services: []Service{{Name: "api"}},
+	})
+	if err == nil { t.Fatal("expected ambiguous dependency error") }
+	_ = model
+}
+
+func TestTopologyGraphAllowsNamespacedIdentity(t *testing.T) {
+	model := ProjectModel{
+		Components: []Component{{Name: "web", References: []Reference{{Target: "api", Kind: "network_reference", Confidence: 0.9}}, {Name: "api"}},
+		Services: []Service{{Name: "api"}},
+	}
+	graph, err := BuildTopologyGraph(model)
+	if err != nil { t.Fatal(err) }
+	if len(graph.Edges) != 1 { t.Fatalf("edges=%d, want 1", len(graph.Edges)) }
+	if graph.Edges[0].To != "component:api" { t.Fatalf("target=%q, want component:api", graph.Edges[0].To) }
+}
