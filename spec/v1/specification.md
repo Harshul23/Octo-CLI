@@ -92,6 +92,8 @@ For explicitly declared dependencies, the evidence should point to the manifest 
 
 This distinction is important for extensibility: the core graph represents facts and evidence, while detectors are responsible for discovering those facts. Adding support for another ecosystem should add a detector or adapter rather than embedding ecosystem-specific execution rules into the topology planner.
 
+Relationship edges such as `network_reference` represent communication discovered from explicit repository configuration. They MUST NOT automatically become execution-order dependencies. For example, a static URL whose hostname exactly matches a declared Compose service may produce a `network_reference` edge, while only an explicit `depends_on` declaration produces a `depends_on` edge used for startup ordering. Interpolated runtime values are not resolved during topology discovery.
+
 ## Infrastructure Service Discovery
 
 Infrastructure services are modeled separately from source-code components.
