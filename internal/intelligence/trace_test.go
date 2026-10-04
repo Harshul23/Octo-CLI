@@ -1,6 +1,9 @@
 package intelligence
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestBuildDecisionTraceIncludesEvidenceAndPlanReasons(t *testing.T) {
 	model := ProjectModel{
@@ -18,7 +21,7 @@ func TestBuildDecisionTraceIncludesEvidenceAndPlanReasons(t *testing.T) {
 			Name: "demo", Path: ".", PackageManager: "pnpm", RunCommand: "pnpm dev",
 		}},
 	}
-	plan, err := (DeterministicPlanner{}).Plan(nilContext{}, model)
+	plan, err := (DeterministicPlanner{}).Plan(context.Background(), model)
 	if err != nil {
 		t.Fatal(err)
 	}
