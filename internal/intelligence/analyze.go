@@ -6,20 +6,19 @@ import (
   "os"
   "path/filepath"
   "strings"
-  "github.com/harshul/octo-cli/internal/analyzer"
-  "github.com/harshul/octo-cli/internal/secrets"
+    "github.com/harshul/octo-cli/internal/secrets"
   "sort"
 )
 
 func Analyze(path string) (ProjectModel, error) {
-  info, err := analyzer.AnalyzeProject(path)
+  info, err := detectProject(path)
   if err != nil { return ProjectModel{}, err }
   root, err := filepath.Abs(path)
   if err != nil { return ProjectModel{}, err }
 
   m := ProjectModel{Name: info.Name, Root: root, Language: info.Language, RuntimeVersion: info.Version,
     PackageManager: info.PackageManager, RunCommand: info.RunCommand, SetupCommand: info.SetupCommand,
-    Monorepo: info.IsMonorepo, Port: info.PortConfig.Port, Confidence: 0.20}
+    Monorepo: info.IsMonorepo, Port: info.Port, Confidence: 0.20}
 
   if f := signalFile(root, info.Language); f != "" {
     m.Evidence = append(m.Evidence, Evidence{Kind: EvidenceSignalFile, Path:f, Detail:"Primary language signal.", Strength:0.85})
