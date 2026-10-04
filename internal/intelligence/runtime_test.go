@@ -13,7 +13,7 @@ type recordingAdapter struct {
 
 func (a *recordingAdapter) Name() string { return a.name }
 func (a *recordingAdapter) Supports(step ExecutionStep) bool { return a.match(step) }
-func (a *recordingAdapter) Execute(ctx context.Context, step ExecutionStep) error {
+func (a *recordingAdapter) Execute(ctx context.Context, step ExecutionStep, env ResolvedEnvironment) error {
 	a.seen = append(a.seen, step.ID)
 	return nil
 }
@@ -67,7 +67,7 @@ func TestExecutePlanFollowsDependencyOrder(t *testing.T) {
 		},
 	}
 
-	if err := ExecutePlan(context.Background(), plan, resolver); err != nil {
+	if err := ExecutePlan(context.Background(), plan, resolver, ResolvedEnvironment{Values: map[string]string{}}); err != nil {
 		t.Fatal(err)
 	}
 	if len(adapter.seen) != 2 {
