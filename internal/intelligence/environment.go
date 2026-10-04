@@ -95,25 +95,26 @@ func resolveEnvironment(root string, model EnvironmentModel, components []Compon
 		}
 	}
 
+	// Validate required variables against the shared environment or any
+	// component-local environment, but keep component-local-only values scoped.
 	resolved := make(map[string]string)
 	var missing []string
 	for _, variable := range model.Variables {
-		value, ok := values[variable.Name]
-		if !ok || value == "" {
-			for _, componentValues := range scoped {
-				if candidate, exists := componentValues[variable.Name]; exists && candidate != "" {
-					value, ok = candidate, true
-					break
-				}
-			}
-		}
-		if !ok || value == "" {
-			if variable.Required {
-				missing = append(missing, variable.Name)
-			}
+		if value, ok := values[variable.Name]; ok && value != "" {
+			resolved[variable.Name] = value
 			continue
 		}
-		resolved[variable.Name] = value
+
+		foundScoped := false
+		for _, componentValues := range scoped {
+			if candidate, exists := componentValues[variable.Name]; exists && candidate != "" {
+				foundScoped = true
+				break
+			}
+		}
+		if !foundScoped && variable.Required {
+			missing = append(missing, variable.Name)
+		}
 	}
 
 	if len(missing) > 0 {
