@@ -223,3 +223,11 @@ Execution-step explanations are included as decisions so users can understand de
 
 Decision traces contain no resolved environment values or command output.
 
+## Default Execution Engine
+
+The intelligence execution path is the canonical Octo execution path.
+
+The CLI may retain a legacy execution engine temporarily for compatibility and feature gaps, but new execution capabilities MUST target the intelligence architecture first.
+
+The intelligence path is responsible for analysis, planning, environment resolution, execution, verification, and reporting.
+
