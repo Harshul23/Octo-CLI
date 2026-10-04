@@ -78,3 +78,75 @@ func TestPlannerSupportsComponentDependencies(t *testing.T) {
 		t.Fatalf("api must start before web: %v", order)
 	}
 }
+
+
+func TestPlannerIncludesComposeServicesAndCrossNodeDependencies(t *testing.T) {
+	model := ProjectModel{
+		Name: "stack",
+		Root: "/tmp/stack",
+		Components: []Component{{
+			Name: "api", Path: "api", PackageManager: "npm",
+			RunCommand: "npm run dev", DependsOn: []string{"postgres"},
+		}},
+		Services: []Service{{
+			Name: "postgres", Image: "postgres:17",
+			Evidence: []Evidence{{Kind: EvidenceConfig, Path: "compose.yaml", Strength: 0.99}},
+		}},
+	}
+
+	plan, err := (DeterministicPlanner{}).Plan(context.Background(), model)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := findExecutionStep(plan, "service.postgres.start")
+	if service == nil {
+		t.Fatal("missing postgres service step")
+	}
+	if service.Command != "docker compose -f compose.yaml up -d postgres" {
+		t.Fatalf("service command=%q", service.Command)
+	}
+
+	api := findExecutionStep(plan, "component.api.start")
+	if api == nil {
+		t.Fatal("missing api start step")
+	}
+	if !contains(api.DependsOn, "service.postgres.start") {
+		t.Fatalf("api dependencies=%v", api.DependsOn)
+	}
+
+	order, err := TopologicalOrder(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if positionIn(order, "service.postgres.start") > positionIn(order, "component.api.start") {
+		t.Fatalf("postgres must start before api: %v", order)
+	}
+}
+
+func findExecutionStep(plan ExecutionPlan, id string) *ExecutionStep {
+	for i := range plan.Steps {
+		if plan.Steps[i].ID == id {
+			return &plan.Steps[i]
+		}
+	}
+	return nil
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func positionIn(values []string, target string) int {
+	for i, value := range values {
+		if value == target {
+			return i
+		}
+	}
+	return -1
+}
