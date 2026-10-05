@@ -80,6 +80,30 @@ func TestPlannerMarksPortBackedComponentAsLongRunning(t *testing.T) {
 	}
 }
 
+func TestPlannerUsesExecutionCandidateWhenRunCommandIsMissing(t *testing.T) {
+	model := ProjectModel{
+		Name: "demo",
+		Components: []Component{{
+			Name: "demo", Path: ".", Language: "Go",
+			ExecutionCandidates: []ExecutionCandidate{{
+				ID: "go.package", Command: "go run .", Confidence: 0.96,
+			}},
+		}},
+	}
+
+	plan, err := (DeterministicPlanner{}).Plan(context.Background(), model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := findExecutionStep(plan, "component.demo.start")
+	if start == nil {
+		t.Fatal("missing start step")
+	}
+	if start.Command != "go run ." || start.SelectedCandidate != "go.package" {
+		t.Fatalf("start=%+v, want candidate-backed go run .", start)
+	}
+}
+
 func TestTopologicalOrderRejectsCycle(t *testing.T) {
 	plan := ExecutionPlan{Steps: []ExecutionStep{
 		{ID: "a", DependsOn: []string{"b"}},
