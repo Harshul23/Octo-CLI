@@ -158,12 +158,12 @@ func (m decisionModel) View() string {
 		}
 
 		number := decisionNumberStyle.Render(fmt.Sprintf("%d", i+1))
-		confidence := decisionMutedStyle.Render(fmt.Sprintf("  %3.0f%%", item.option.Confidence*100))
-		b.WriteString(cursor + number + "  " + style.Render(item.option.Value) + confidence)
+		confidence := decisionMutedStyle.Render(fmt.Sprintf("  %3.0f%%", m.items[i].option.Confidence*100))
+		b.WriteString(cursor + number + "  " + style.Render(m.items[i].option.Value) + confidence)
 		b.WriteString("\n")
 
-		if i == m.cursor && len(item.option.Evidence) > 0 {
-			evidence := "       " + item.option.Evidence[0].Detail
+		if i == m.cursor && len(m.items[i].option.Evidence) > 0 {
+			evidence := "       " + m.items[i].option.Evidence[0].Detail
 			evidenceWidth := width - 7
 			if evidenceWidth < 12 {
 				evidenceWidth = 12
