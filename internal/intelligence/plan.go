@@ -234,6 +234,7 @@ func executionDecisionRequest(componentName string, candidates []ExecutionCandid
 	options := make([]DecisionOption, 0, len(candidates))
 	for _, candidate := range candidates {
 		options = append(options, DecisionOption{
+			Kind: candidate.Kind,
 			ID: candidate.ID, Value: candidate.Command, Confidence: candidate.Confidence, Evidence: candidate.Evidence,
 		})
 	}

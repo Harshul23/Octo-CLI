@@ -27,7 +27,7 @@ func TestGoExecutionCandidateProviderDiscoversCmdEntryPoint(t *testing.T) {
 	if len(candidates) != 1 {
 		t.Fatalf("candidates=%+v, want one nested candidate", candidates)
 	}
-	if candidates[0].ID != "go.package.cmd.server" || candidates[0].Command != "go run ./cmd/server" {
+	if candidates[0].Kind != "application" || candidates[0].ID != "go.package.cmd.server" || candidates[0].Command != "go run ./cmd/server" {
 		t.Fatalf("candidate=%+v", candidates[0])
 	}
 }
@@ -52,7 +52,7 @@ func TestGoExecutionCandidateProviderDiscoversExampleEntryPoint(t *testing.T) {
 	if len(candidates) != 1 {
 		t.Fatalf("candidates=%+v, want one nested candidate", candidates)
 	}
-	if candidates[0].ID != "go.example.hello" || candidates[0].Command != "go run ./examples/hello" {
+	if candidates[0].Kind != "example" || candidates[0].ID != "go.example.hello" || candidates[0].Command != "go run ./examples/hello" {
 		t.Fatalf("candidate=%+v", candidates[0])
 	}
 }

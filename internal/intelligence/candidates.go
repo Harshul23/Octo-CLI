@@ -11,6 +11,7 @@ import (
 )
 
 type ExecutionCandidate struct {
+	Kind string `json:"kind,omitempty" yaml:"kind,omitempty"`
 	ID string `json:"id" yaml:"id"`
 	Command string `json:"command" yaml:"command"`
 	Confidence float64 `json:"confidence" yaml:"confidence"`
@@ -56,7 +57,7 @@ func SelectExecutionCandidateWithProvider(ctx context.Context, candidates []Exec
 	options := make([]DecisionOption, 0, len(candidates))
 	for _, candidate := range candidates {
 		if strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.Command) == "" { continue }
-		options = append(options, DecisionOption{ID: candidate.ID, Value: candidate.Command, Confidence: candidate.Confidence, Evidence: candidate.Evidence})
+		options = append(options, DecisionOption{Kind: candidate.Kind, ID: candidate.ID, Value: candidate.Command, Confidence: candidate.Confidence, Evidence: candidate.Evidence})
 	}
 	if len(options) == 0 { return ExecutionCandidate{}, fmt.Errorf("no executable candidates") }
 	if provider == nil { provider = DeterministicDecisionProvider{} }
@@ -93,13 +94,13 @@ func (GoExecutionCandidateProvider) Candidates(ctx context.Context, root string,
 	candidates := make([]ExecutionCandidate, 0, 8)
 	if hasMain {
 		candidates = append(candidates, ExecutionCandidate{
-			ID: "go.main-file", Command: "go run main.go", Confidence: 0.78,
+			Kind: "application", ID: "go.main-file", Command: "go run main.go", Confidence: 0.78,
 			Evidence: []Evidence{{Kind: EvidenceConfig, Path: filepath.ToSlash(filepath.Join(component.Path, "main.go")), Detail: "A Go main package entry file exists.", Strength: 0.78}},
 		})
 	}
 	if hasMain && goFiles > 1 {
 		candidates = append(candidates, ExecutionCandidate{
-			ID: "go.package", Command: "go run .", Confidence: 0.96,
+			Kind: "application", ID: "go.package", Command: "go run .", Confidence: 0.96,
 			Evidence: []Evidence{
 				{Kind: EvidenceConfig, Path: filepath.ToSlash(component.Path), Detail: "The component contains multiple non-test Go files; run the complete package so sibling files are compiled together.", Strength: 0.96},
 				{Kind: EvidenceSignalFile, Path: filepath.ToSlash(filepath.Join(component.Path, "go.mod")), Detail: "The component is a Go module.", Strength: 0.95},
@@ -150,14 +151,16 @@ func discoverNestedGoEntryPoints(ctx context.Context, componentRoot, componentPa
 		if slashDir == "." { return nil }
 
 		confidence := 0.90
+		kind := "application"
 		id := "go.package." + strings.ReplaceAll(slashDir, "/", ".")
 		if strings.HasPrefix(slashDir, "examples/") {
+			kind = "example"
 			confidence = 0.84
 			id = "go.example." + strings.ReplaceAll(strings.TrimPrefix(slashDir, "examples/"), "/", ".")
 		}
 		candidatePath := filepath.ToSlash(filepath.Join(componentPath, dir, "main.go"))
 		candidates = append(candidates, ExecutionCandidate{
-			ID: id, Command: "go run ./" + slashDir, Confidence: confidence,
+			Kind: kind, ID: id, Command: "go run ./" + slashDir, Confidence: confidence,
 			Evidence: []Evidence{{Kind: EvidenceConfig, Path: candidatePath, Detail: "A nested Go package contains a package-main entry point.", Strength: confidence}},
 		})
 		return nil
