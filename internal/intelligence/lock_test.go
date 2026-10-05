@@ -79,8 +79,15 @@ func TestApplyVerifiedStrategiesRequiresMatchingFingerprint(t *testing.T) {
 	}
 	model := ProjectModel{Name: "app", Components: []Component{component}}
 	lock := OctoLock{Project: "app", Strategies: []VerifiedStrategy{{Component: "app", Candidate: "go.package", Command: "go run .", Fingerprint: fingerprint}}}
-	if err := ApplyVerifiedStrategies(root, &model, lock); err != nil {
+	status, err := ApplyVerifiedStrategies(root, &model, lock)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(status.Reused) != 1 || status.Reused[0].Candidate != "go.package" {
+		t.Fatalf("status=%+v", status)
+	}
+	if len(status.Invalidated) != 0 {
+		t.Fatalf("unexpected invalidated strategies=%+v", status.Invalidated)
 	}
 	if model.Components[0].RunCommand != "go run ." {
 		t.Fatalf("run command=%q", model.Components[0].RunCommand)
@@ -90,8 +97,12 @@ func TestApplyVerifiedStrategiesRequiresMatchingFingerprint(t *testing.T) {
 	}
 	model.Components[0].RunCommand = ""
 	model.Components[0].Confidence = 0
-	if err := ApplyVerifiedStrategies(root, &model, lock); err != nil {
+status, err = ApplyVerifiedStrategies(root, &model, lock)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(status.Reused) != 0 || len(status.Invalidated) != 1 {
+		t.Fatalf("status=%+v", status)
 	}
 	if model.Components[0].RunCommand != "" || model.Components[0].Confidence != 0 {
 		t.Fatal("stale lock must not be applied")
