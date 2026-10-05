@@ -88,7 +88,44 @@ func detectGoProject(root string) (DetectedProject, error) {
 	return project, nil
 }
 
-func detectPythonProject(root string) (DetectedProject, error) { return DetectedProject{Name: filepath.Base(root)}, nil }
+func detectPythonProject(root string) (DetectedProject, error) {
+	project := DetectedProject{Name: filepath.Base(root)}
+	if data, err := os.ReadFile(filepath.Join(root, "pyproject.toml")); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "name") {
+				if fields := strings.SplitN(trimmed, "=", 2); len(fields) == 2 {
+					project.Name = strings.Trim(strings.TrimSpace(fields[1]), "\"'")
+				}
+			}
+			if strings.HasPrefix(trimmed, "version") {
+				if fields := strings.SplitN(trimmed, "=", 2); len(fields) == 2 {
+					project.Version = strings.Trim(strings.TrimSpace(fields[1]), "\"'")
+				}
+			}
+		}
+	}
+	project.PackageManager = detectPythonPackageManager(root)
+	return project, nil
+}
+
+func detectPythonPackageManager(root string) string {
+	for _, candidate := range []struct{ file, manager string }{
+		{"uv.lock", "uv"},
+		{"poetry.lock", "poetry"},
+		{"Pipfile.lock", "pipenv"},
+		{"Pipfile", "pipenv"},
+		{"requirements.txt", "pip"},
+	} {
+		if _, err := os.Stat(filepath.Join(root, candidate.file)); err == nil {
+			return candidate.manager
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "pyproject.toml")); err == nil {
+		return "pip"
+	}
+	return ""
+}
 func detectJavaProject(root string) (DetectedProject, error) { return DetectedProject{Name: filepath.Base(root)}, nil }
 func detectRubyProject(root string) (DetectedProject, error) { return DetectedProject{Name: filepath.Base(root)}, nil }
 
