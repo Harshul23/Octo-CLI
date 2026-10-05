@@ -40,3 +40,17 @@ func TestNativeProjectDetectorMonorepo(t *testing.T) {
 	if !got.IsMonorepo { t.Fatal("expected monorepo detection") }
 	if got.MonorepoRoot != root { t.Fatalf("monorepo root = %q", got.MonorepoRoot) }
 }
+
+func TestNativeProjectDetectorPython(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[project]\nname = \"demo\"\nversion = \"1.2.3\"\n"), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "uv.lock"), []byte(""), 0644); err != nil { t.Fatal(err) }
+
+	got, err := (NativeProjectDetector{}).Detect(root)
+	if err != nil { t.Fatal(err) }
+	if got.Language != "Python" { t.Fatalf("language = %q", got.Language) }
+	if got.Name != "demo" { t.Fatalf("name = %q", got.Name) }
+	if got.Version != "1.2.3" { t.Fatalf("version = %q", got.Version) }
+	if got.PackageManager != "uv" { t.Fatalf("package manager = %q", got.PackageManager) }
+	if got.RunCommand != "" { t.Fatalf("detector guessed run command %q", got.RunCommand) }
+}
