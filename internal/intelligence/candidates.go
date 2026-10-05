@@ -33,6 +33,7 @@ func NewExecutionCandidateProviders() ExecutionCandidateProviders {
 			GoExecutionCandidateProvider{},
 			NodeExecutionCandidateProvider{},
 			PythonExecutionCandidateProvider{},
+			JavaExecutionCandidateProvider{},
 			RustExecutionCandidateProvider{},
 		},
 	}
@@ -287,6 +288,98 @@ func (NodeExecutionCandidateProvider) Candidates(ctx context.Context, root strin
 			}},
 		})
 	}
+	return candidates, nil
+}
+
+type JavaExecutionCandidateProvider struct{}
+
+func (JavaExecutionCandidateProvider) Name() string { return "java" }
+
+func (JavaExecutionCandidateProvider) Supports(component Component) bool {
+	return component.Language == "Java"
+}
+
+func (JavaExecutionCandidateProvider) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	componentRoot := root
+	if component.Path != "" && component.Path != "." {
+		componentRoot = filepath.Join(root, filepath.FromSlash(component.Path))
+	}
+
+	candidates := make([]ExecutionCandidate, 0, 2)
+	if _, err := os.Stat(filepath.Join(componentRoot, "pom.xml")); err == nil {
+		data, err := os.ReadFile(filepath.Join(componentRoot, "pom.xml"))
+		if err != nil {
+			return nil, err
+		}
+		if strings.Contains(string(data), "spring-boot-maven-plugin") {
+			command := "mvn spring-boot:run"
+			if _, err := os.Stat(filepath.Join(componentRoot, "mvnw")); err == nil {
+				command = "./mvnw spring-boot:run"
+			}
+			candidates = append(candidates, ExecutionCandidate{
+				ID: "java.maven.spring-boot",
+				Command: command,
+				Confidence: 0.96,
+				Evidence: []Evidence{{
+					Kind: EvidenceConfig,
+					Path: filepath.ToSlash(filepath.Join(component.Path, "pom.xml")),
+					Detail: "Maven configuration declares the Spring Boot Maven plugin.",
+					Strength: 0.96,
+				}},
+			})
+		}
+	}
+
+	for _, buildFile := range []string{"build.gradle", "build.gradle.kts"} {
+		path := filepath.Join(componentRoot, buildFile)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		text := string(data)
+		command := "./gradlew run"
+		if _, err := os.Stat(filepath.Join(componentRoot, "gradlew")); err != nil {
+			command = "gradle run"
+		}
+		if strings.Contains(text, "org.springframework.boot") {
+			command = "gradle bootRun"
+			if _, err := os.Stat(filepath.Join(componentRoot, "gradlew")); err == nil {
+				command = "./gradlew bootRun"
+			}
+			candidates = append(candidates, ExecutionCandidate{
+				ID: "java.gradle.spring-boot",
+				Command: command,
+				Confidence: 0.96,
+				Evidence: []Evidence{{
+					Kind: EvidenceConfig,
+					Path: filepath.ToSlash(filepath.Join(component.Path, buildFile)),
+					Detail: "Gradle configuration declares the Spring Boot plugin.",
+					Strength: 0.96,
+				}},
+			})
+			continue
+		}
+		if strings.Contains(text, "application") {
+			candidates = append(candidates, ExecutionCandidate{
+				ID: "java.gradle.application",
+				Command: command,
+				Confidence: 0.90,
+				Evidence: []Evidence{{
+					Kind: EvidenceConfig,
+					Path: filepath.ToSlash(filepath.Join(component.Path, buildFile)),
+					Detail: "Gradle configuration declares the application plugin, which provides the run task.",
+					Strength: 0.90,
+				}},
+			})
+		}
+	}
+
 	return candidates, nil
 }
 
