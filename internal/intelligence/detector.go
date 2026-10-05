@@ -173,16 +173,6 @@ func detectMonorepo(root string) (bool, string) {
 	return false, ""
 }
 
-func defaultProjectPort(language string) int {
-	switch language {
-	case "Node": return 3000
-	case "Python": return 5000
-	case "Java", "Go", "Rust": return 8080
-	case "Ruby": return 3000
-	default: return 0
-	}
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, value := range values { if value != "" { return value } }
 	return ""
