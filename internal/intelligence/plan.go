@@ -53,7 +53,9 @@ type Planner interface {
 
 // DeterministicPlanner creates plans using only repository facts and fixed rules.
 // It deliberately has no network, model, or paid-service dependency.
-type DeterministicPlanner struct{}
+type DeterministicPlanner struct {
+	DecisionProvider DecisionProvider
+}
 
 // Plan creates a stable execution graph from the currently known components.
 func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (ExecutionPlan, error) {
@@ -134,9 +136,19 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		}
 
 		startCandidates := append([]ExecutionCandidate(nil), component.ExecutionCandidates...)
+	startCommand := component.RunCommand
+	selectedCandidate := selectedCandidateID(component)
+	if len(startCandidates) > 0 && (selectedCandidate == "" || len(startCandidates) > 1) && d.DecisionProvider != nil {
+		result, err := d.DecisionProvider.Decide(ctx, executionDecisionRequest(component.Name, startCandidates))
+		if err != nil {
+			return ExecutionPlan{}, err
+		}
+		startCommand = result.Value
+		selectedCandidate = result.OptionID
+	}
 	steps = append(steps, ExecutionStep{
 			ID: prefix + ".start", Component: component.Name, NodeID: nodeID, Phase: PhaseStart,
-			Command: component.RunCommand, Candidates: startCandidates, SelectedCandidate: selectedCandidateID(component),
+			Command: startCommand, Candidates: startCandidates, SelectedCandidate: selectedCandidate,
 			WorkDir: component.Path, DependsOn: uniqueStrings(deps),
 			Explanation: "Start the component after all topology dependencies are started.",
 		})
@@ -207,6 +219,16 @@ func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Execu
 		return ExecutionPlan{}, err
 	}
 	return plan, nil
+}
+
+func executionDecisionRequest(componentName string, candidates []ExecutionCandidate) DecisionRequest {
+	options := make([]DecisionOption, 0, len(candidates))
+	for _, candidate := range candidates {
+		options = append(options, DecisionOption{
+			ID: candidate.ID, Value: candidate.Command, Confidence: candidate.Confidence, Evidence: candidate.Evidence,
+		})
+	}
+	return DecisionRequest{Name: "Choose how to run " + componentName, Options: options}
 }
 
 func selectedCandidateID(component Component) string {
