@@ -56,7 +56,6 @@ func (NativeProjectDetector) Detect(path string) (DetectedProject, error) {
 		if project.Name == "" { project.Name = filepath.Base(root) }
 		project.Language = signal.Language
 		project.IsMonorepo, project.MonorepoRoot = detectMonorepo(root)
-		project.Port = defaultProjectPort(project.Language)
 		return project, nil
 	}
 	return detectSimpleProject(root)
@@ -171,16 +170,6 @@ func detectMonorepo(root string) (bool, string) {
 		if json.Unmarshal(data, &pkg) == nil && pkg.Workspaces != nil { return true, root }
 	}
 	return false, ""
-}
-
-func defaultProjectPort(language string) int {
-	switch language {
-	case "Node": return 3000
-	case "Python": return 5000
-	case "Java", "Go", "Rust": return 8080
-	case "Ruby": return 3000
-	default: return 0
-	}
 }
 
 func firstNonEmpty(values ...string) string {
