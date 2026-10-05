@@ -1,6 +1,7 @@
 package intelligence
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -63,11 +64,37 @@ func (ShellAdapter) Supports(step ExecutionStep) bool {
 }
 
 func (ShellAdapter) Execute(ctx context.Context, step ExecutionStep, env ResolvedEnvironment) error {
-	process, err := (ShellAdapter{}).Start(ctx, step, env)
-	if err != nil {
-		return err
+	if step.Command == "" {
+		return fmt.Errorf("step %q has no command", step.ID)
 	}
-	if err := process.Wait(); err != nil {
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", step.Command)
+	if step.WorkDir != "" {
+		cmd.Dir = step.WorkDir
+	}
+	cmd.Stdin = os.Stdin
+	cmd.Env = mergedEnvironmentWithStep(env.ForStep(step).Values, step.Environment)
+
+	// Candidate start commands are exploratory. Keep their output out of the
+	// main UI unless every candidate fails; otherwise a failed fallback floods
+	// the terminal with compiler output even though Octo recovered.
+	if step.Phase == PhaseStart {
+		var output bytes.Buffer
+		cmd.Stdout = &output
+		cmd.Stderr = &output
+		if err := cmd.Run(); err != nil {
+			detail := strings.TrimSpace(output.String())
+			if detail != "" {
+				return fmt.Errorf("shell step %q failed: %w\n%s", step.ID, err, detail)
+			}
+			return fmt.Errorf("shell step %q failed: %w", step.ID, err)
+		}
+		return nil
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("shell step %q failed: %w", step.ID, err)
 	}
 	return nil

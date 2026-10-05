@@ -253,9 +253,7 @@ func runWithIntelligence(cmd *cobra.Command) error {
 		return fmt.Errorf("execution planning failed: %w", err)
 	}
 
-	fmt.Println(ui.SuccessLine(fmt.Sprintf("Detected %d component(s) and %d service(s)", len(model.Components), len(model.Services))))
-	fmt.Println(ui.SuccessLine(fmt.Sprintf("Execution plan contains %d step(s)", len(plan.Steps))))
-	fmt.Println()
+	printExecutionOverview(model, plan)
 
 	env, err := intelligence.ResolveProjectEnvironment(cwd, model)
 	if err != nil {
@@ -263,24 +261,7 @@ func runWithIntelligence(cmd *cobra.Command) error {
 	}
 
 	report := intelligence.ExecutePlanReport(cmd.Context(), model, plan, intelligence.NewRuntimeResolver(), env)
-	for _, step := range report.Steps {
-		switch step.Status {
-		case intelligence.StepSucceeded:
-			fmt.Println(ui.SuccessLine(fmt.Sprintf("%s %s", step.ID, ui.Muted.Render("("+step.Adapter+")"))))
-		case intelligence.StepSkipped:
-			fmt.Println(ui.Muted.Render("○ " + step.ID + " — " + step.Reason))
-		case intelligence.StepFailed:
-			fmt.Println(ui.ErrorLine(fmt.Sprintf("%s — %s", step.ID, step.Reason)))
-		}
-	}
-
-	for _, check := range report.Verification {
-		if check.Passed {
-			fmt.Println(ui.SuccessLine("verification " + check.CheckID))
-		} else {
-			fmt.Println(ui.ErrorLine(fmt.Sprintf("verification %s — %s", check.CheckID, check.Reason)))
-		}
-	}
+	printExecutionReport(report)
 
 	if !report.Success {
 		return fmt.Errorf("intelligence execution failed: %s", report.FailureReason)
@@ -294,3 +275,85 @@ func runWithIntelligence(cmd *cobra.Command) error {
 	return nil
 }
 
+
+
+func printExecutionOverview(model intelligence.ProjectModel, plan intelligence.ExecutionPlan) {
+	fmt.Println()
+	fmt.Println(ui.HeadingStyle.Render("Repository"))
+	fmt.Printf("  %s  %s\n", ui.Command(model.Name), ui.Muted.Render(fmt.Sprintf("%d component(s) · %d service(s)", len(model.Components), len(model.Services))))
+	fmt.Println()
+	fmt.Println(ui.HeadingStyle.Render("Execution plan"))
+	fmt.Printf("  %s\n", ui.Muted.Render(fmt.Sprintf("%d step(s)", len(plan.Steps))))
+	for _, step := range plan.Steps {
+		label := string(step.Phase)
+		if step.Command == "" {
+			fmt.Printf("  %s %s\n", ui.Muted.Render("○"), ui.Muted.Render(label+" · "+step.ID))
+		} else {
+			fmt.Printf("  %s %s\n", ui.InfoLine("•"), label+" · "+ui.Command(step.Command))
+		}
+	}
+	fmt.Println()
+}
+
+func printExecutionReport(report intelligence.ExecutionReport) {
+	fmt.Println(ui.HeadingStyle.Render("Execution"))
+
+	// A step can have several candidate attempts. Render one final line for the
+	// step and explicitly call out fallback instead of printing contradictory
+	// success/failure lines for the same step.
+	latest := make(map[string]int)
+	failures := make(map[string]int)
+	for i, step := range report.Steps {
+		latest[step.ID] = i
+		if step.Status == intelligence.StepFailed {
+			failures[step.ID]++
+		}
+	}
+
+	for i, step := range report.Steps {
+		if latest[step.ID] != i {
+			continue
+		}
+		switch step.Status {
+		case intelligence.StepSucceeded:
+			label := step.ID
+			if step.CandidateID != "" {
+				label += " · " + step.CandidateID
+			}
+			if failures[step.ID] > 0 {
+				fmt.Println(ui.SuccessLine(label + ui.Muted.Render(fmt.Sprintf(" · fallback succeeded after %d failed candidate(s)", failures[step.ID]))))
+			} else {
+				fmt.Println(ui.SuccessLine(label))
+			}
+		case intelligence.StepSkipped:
+			fmt.Println(ui.Muted.Render("○ " + step.ID + " — " + step.Reason))
+		case intelligence.StepFailed:
+			fmt.Println(ui.ErrorLine(fmt.Sprintf("%s — %s", step.ID, step.Reason)))
+		}
+	}
+
+	if len(report.Verification) > 0 {
+		fmt.Println()
+		fmt.Println(ui.HeadingStyle.Render("Verification"))
+		for _, check := range report.Verification {
+			if check.Passed {
+				fmt.Println(ui.SuccessLine(check.CheckID))
+			} else {
+				fmt.Println(ui.ErrorLine(fmt.Sprintf("%s — %s", check.CheckID, check.Reason)))
+			}
+		}
+	}
+
+	if len(report.Decisions) > 0 {
+		fmt.Println()
+		fmt.Println(ui.HeadingStyle.Render("Decision trace"))
+		for _, decision := range report.Decisions {
+			switch decision.Outcome {
+			case "succeeded":
+				fmt.Println(ui.SuccessLine(fmt.Sprintf("%s → %s", decision.OptionID, ui.Command(decision.Value))))
+			case "failed":
+				fmt.Println(ui.ErrorLine(fmt.Sprintf("%s → candidate failed", decision.OptionID)))
+			}
+		}
+	}
+}
