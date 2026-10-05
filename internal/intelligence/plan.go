@@ -131,8 +131,12 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 		if strings.TrimSpace(startCommand) == "" && len(startCandidates) == 0 {
 			return ExecutionPlan{}, fmt.Errorf("component %q has no executable candidates", component.Name)
 		}
-		if len(startCandidates) > 0 && (selectedCandidate == "" || len(startCandidates) > 1) && d.DecisionProvider != nil {
-			result, err := d.DecisionProvider.Decide(ctx, executionDecisionRequest(component.Name, startCandidates))
+		if len(startCandidates) > 0 && (selectedCandidate == "" || len(startCandidates) > 1) {
+			provider := d.DecisionProvider
+			if provider == nil {
+				provider = DeterministicDecisionProvider{}
+			}
+			result, err := provider.Decide(ctx, executionDecisionRequest(component.Name, startCandidates))
 			if err != nil {
 				return ExecutionPlan{}, err
 			}
