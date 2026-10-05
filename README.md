@@ -100,6 +100,48 @@ Jev is therefore an optional decision provider, not Octo's core analyzer. Determ
 External intelligence is optional. The deterministic provider is the offline baseline, so Octo remains useful without Jev, an LLM, a network connection, or a paid service.
 
 A decision provider may select from supplied candidates, but it must not invent commands, runtimes, paths, dependencies, or other execution facts outside that candidate set.
+### Optional Jev provider
+
+Jev can be enabled as a bounded decision provider without becoming a runtime dependency.
+
+```bash
+export OCTO_DECISION_PROVIDER=jev
+export OCTO_JEV_URL=http://localhost:8787/decide
+# optional:
+export OCTO_JEV_TOKEN=...
+```
+
+Octo sends Jev the decision name and the existing evidence-backed candidate set. Jev must return one of those candidates. If Jev is not configured, unavailable, returns an invalid option, or fails, Octo automatically falls back to the deterministic provider.
+
+This means the following remain true:
+
+- Octo works with no Jev installation.
+- Octo works with no network connection.
+- Jev cannot invent an execution command.
+- A Jev outage does not block repository analysis or execution.
+
+The Jev endpoint uses a small JSON contract:
+
+```json
+{
+  "name": "run_command",
+  "options": [
+    {"id": "go.main-file", "value": "go run main.go", "confidence": 0.78},
+    {"id": "go.package", "value": "go run .", "confidence": 0.96}
+  ]
+}
+```
+
+and returns:
+
+```json
+{
+  "option_id": "go.package",
+  "value": "go run .",
+  "confidence": 0.99,
+  "reason": "The complete Go package is the safer candidate."
+}
+```
 
 ### 4. Topology is a first-class concept
 

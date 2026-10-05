@@ -58,6 +58,10 @@ func (p ExecutionCandidateProviders) Candidates(ctx context.Context, root string
 }
 
 func SelectExecutionCandidate(ctx context.Context, candidates []ExecutionCandidate) (ExecutionCandidate, error) {
+	return SelectExecutionCandidateWithProvider(ctx, candidates, OptionalDecisionProvider())
+}
+
+func SelectExecutionCandidateWithProvider(ctx context.Context, candidates []ExecutionCandidate, provider DecisionProvider) (ExecutionCandidate, error) {
 	options := make([]DecisionOption, 0, len(candidates))
 	for _, candidate := range candidates {
 		if strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.Command) == "" {
@@ -71,7 +75,10 @@ func SelectExecutionCandidate(ctx context.Context, candidates []ExecutionCandida
 	if len(options) == 0 {
 		return ExecutionCandidate{}, fmt.Errorf("no executable candidates")
 	}
-	result, err := (DeterministicDecisionProvider{}).Decide(ctx, DecisionRequest{
+	if provider == nil {
+		provider = DeterministicDecisionProvider{}
+	}
+	result, err := provider.Decide(ctx, DecisionRequest{
 		Name: "run_command", Options: options,
 	})
 	if err != nil {
