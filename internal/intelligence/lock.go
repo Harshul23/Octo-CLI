@@ -29,6 +29,11 @@ type OctoLock struct {
 	Strategies []VerifiedStrategy `yaml:"strategies,omitempty" json:"strategies,omitempty"`
 }
 
+type VerifiedStrategyApplication struct {
+	Reused       []VerifiedStrategy
+	Invalidated  []VerifiedStrategy
+}
+
 func LoadOctoLock(root string) (OctoLock, error) {
 	path := filepath.Join(root, ".octo.lock")
 	data, err := os.ReadFile(path)
@@ -59,35 +64,60 @@ func SaveOctoLock(root string, lock OctoLock) error {
 
 // ApplyVerifiedStrategies reuses only strategies whose candidate still exists
 // and whose execution-relevant repository fingerprint is unchanged.
-func ApplyVerifiedStrategies(root string, model *ProjectModel, lock OctoLock) error {
+func ApplyVerifiedStrategies(root string, model *ProjectModel, lock OctoLock) (VerifiedStrategyApplication, error) {
+	var result VerifiedStrategyApplication
+
 	for i := range model.Components {
 		component := &model.Components[i]
+		matchedLock := false
+		reused := false
+
 		for _, strategy := range lock.Strategies {
 			if strategy.Component != component.Name {
 				continue
 			}
+			matchedLock = true
+
 			for _, candidate := range component.ExecutionCandidates {
 				if candidate.ID != strategy.Candidate || candidate.Command != strategy.Command {
 					continue
 				}
+
 				fingerprint, err := ExecutionFingerprint(root, *component, candidate)
 				if err != nil {
-					return err
+					return result, err
 				}
 				if fingerprint != strategy.Fingerprint {
 					continue
 				}
+
 				component.RunCommand = candidate.Command
 				component.Confidence = candidate.Confidence
 				if component.Path == "." && i == 0 {
 					model.RunCommand = candidate.Command
 					model.Confidence = candidate.Confidence
 				}
+				result.Reused = append(result.Reused, strategy)
+				reused = true
+				break
+			}
+
+			if reused {
 				break
 			}
 		}
+
+		if matchedLock && !reused {
+			for _, strategy := range lock.Strategies {
+				if strategy.Component == component.Name {
+					result.Invalidated = append(result.Invalidated, strategy)
+					break
+				}
+			}
+		}
 	}
-	return nil
+
+	return result, nil
 }
 
 // RecordVerifiedStrategies persists successful execution candidates after the

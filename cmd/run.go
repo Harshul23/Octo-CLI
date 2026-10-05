@@ -230,8 +230,15 @@ func runWithIntelligence(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to read .octo.lock: %w", err)
 	}
-	if err := intelligence.ApplyVerifiedStrategies(cwd, &model, lock); err != nil {
+	strategyStatus, err := intelligence.ApplyVerifiedStrategies(cwd, &model, lock)
+	if err != nil {
 		return fmt.Errorf("failed to validate verified strategies: %w", err)
+	}
+	for _, strategy := range strategyStatus.Reused {
+		fmt.Println(ui.SuccessLine(fmt.Sprintf("Reusing verified strategy for %s: %s → %s", strategy.Component, strategy.Candidate, strategy.Command)))
+	}
+	for _, strategy := range strategyStatus.Invalidated {
+		fmt.Println(ui.WarningLine(fmt.Sprintf("Verified strategy invalidated for %s: repository changed or candidate no longer matches", strategy.Component)))
 	}
 
 	noTUI, _ := cmd.Flags().GetBool("no-tui")
