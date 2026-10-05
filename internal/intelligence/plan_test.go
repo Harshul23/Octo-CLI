@@ -202,3 +202,48 @@ func TestPlannerUsesPythonPackageManagerInstallCommands(t *testing.T) {
 		})
 	}
 }
+
+
+type testDecisionProvider struct {
+	result DecisionResult
+	calls  int
+}
+
+func (p *testDecisionProvider) Decide(ctx context.Context, request DecisionRequest) (DecisionResult, error) {
+	p.calls++
+	return p.result, nil
+}
+
+func TestPlannerUsesDecisionProviderForMultipleExecutionCandidates(t *testing.T) {
+	provider := &testDecisionProvider{result: DecisionResult{
+		OptionID: "node.script.start",
+		Value: "npm start",
+		Confidence: 0.94,
+	}}
+	model := ProjectModel{
+		Name: "demo",
+		Components: []Component{{
+			Name: "demo", Path: ".", Language: "Node",
+			RunCommand: "npm dev",
+			ExecutionCandidates: []ExecutionCandidate{
+				{ID: "node.script.start", Command: "npm start", Confidence: 0.94},
+				{ID: "node.script.dev", Command: "npm dev", Confidence: 0.82},
+			},
+		}},
+	}
+
+	plan, err := (DeterministicPlanner{DecisionProvider: provider}).Plan(context.Background(), model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("decision provider calls=%d, want 1", provider.calls)
+	}
+	start := findExecutionStep(plan, "component.demo.start")
+	if start == nil {
+		t.Fatal("missing start step")
+	}
+	if start.Command != "npm start" || start.SelectedCandidate != "node.script.start" {
+		t.Fatalf("start=%+v, want selected npm start candidate", start)
+	}
+}

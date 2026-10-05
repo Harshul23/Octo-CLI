@@ -218,8 +218,8 @@ func runWithIntelligence(cmd *cobra.Command) error {
 		return fmt.Errorf("the intelligence engine currently does not support --watch or --detach; use --engine legacy for these modes")
 	}
 
-	fmt.Println("Octo intelligence engine")
-	fmt.Println("Analyzing repository...")
+	fmt.Println(ui.HeadingStyle.Render("Octo"))
+	fmt.Println(ui.Muted.Render("Analyzing repository..."))
 
 	model, err := intelligence.Analyze(cwd)
 	if err != nil {
@@ -234,14 +234,15 @@ func runWithIntelligence(cmd *cobra.Command) error {
 		return fmt.Errorf("failed to validate verified strategies: %w", err)
 	}
 
-	planner := intelligence.DeterministicPlanner{}
+	planner := intelligence.DeterministicPlanner{DecisionProvider: ui.InteractiveDecisionProvider{}}
 	plan, err := planner.Plan(cmd.Context(), model)
 	if err != nil {
 		return fmt.Errorf("execution planning failed: %w", err)
 	}
 
-	fmt.Printf("Detected %d component(s) and %d service(s).\n", len(model.Components), len(model.Services))
-	fmt.Printf("Execution plan contains %d step(s).\n", len(plan.Steps))
+	fmt.Println(ui.SuccessLine(fmt.Sprintf("Detected %d component(s) and %d service(s)", len(model.Components), len(model.Services))))
+	fmt.Println(ui.SuccessLine(fmt.Sprintf("Execution plan contains %d step(s)", len(plan.Steps))))
+	fmt.Println()
 
 	env, err := intelligence.ResolveProjectEnvironment(cwd, model)
 	if err != nil {
@@ -252,19 +253,19 @@ func runWithIntelligence(cmd *cobra.Command) error {
 	for _, step := range report.Steps {
 		switch step.Status {
 		case intelligence.StepSucceeded:
-			fmt.Printf("✓ %s (%s)\n", step.ID, step.Adapter)
+			fmt.Println(ui.SuccessLine(fmt.Sprintf("%s %s", step.ID, ui.Muted.Render("("+step.Adapter+")"))))
 		case intelligence.StepSkipped:
-			fmt.Printf("○ %s — %s\n", step.ID, step.Reason)
+			fmt.Println(ui.Muted.Render("○ " + step.ID + " — " + step.Reason))
 		case intelligence.StepFailed:
-			fmt.Printf("✗ %s — %s\n", step.ID, step.Reason)
+			fmt.Println(ui.ErrorLine(fmt.Sprintf("%s — %s", step.ID, step.Reason)))
 		}
 	}
 
 	for _, check := range report.Verification {
 		if check.Passed {
-			fmt.Printf("✓ verification %s\n", check.CheckID)
+			fmt.Println(ui.SuccessLine("verification " + check.CheckID))
 		} else {
-			fmt.Printf("✗ verification %s — %s\n", check.CheckID, check.Reason)
+			fmt.Println(ui.ErrorLine(fmt.Sprintf("verification %s — %s", check.CheckID, check.Reason)))
 		}
 	}
 
@@ -275,7 +276,8 @@ func runWithIntelligence(cmd *cobra.Command) error {
 	if err := intelligence.RecordVerifiedStrategies(cwd, model, plan, report, lock); err != nil {
 		return fmt.Errorf("failed to update .octo.lock: %w", err)
 	}
-	fmt.Println("Execution verified successfully.")
+	fmt.Println()
+	fmt.Println(ui.SuccessStyle.Render("✓ Execution verified successfully."))
 	return nil
 }
 
