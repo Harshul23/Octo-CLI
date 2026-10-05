@@ -10,6 +10,7 @@ import (
 // Providers may select an option, but they must not invent a value outside
 // the candidate set.
 type DecisionOption struct {
+	Kind       string     `json:"kind,omitempty" yaml:"kind,omitempty"`
 	ID         string     `json:"id" yaml:"id"`
 	Value      string     `json:"value" yaml:"value"`
 	Confidence float64    `json:"confidence" yaml:"confidence"`
