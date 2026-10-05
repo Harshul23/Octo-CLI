@@ -75,10 +75,11 @@ type decisionModel struct {
 	selected  int
 	cancelled bool
 	width     int
+	height    int
 }
 
 func newDecisionModel(title string, items []decisionItem) decisionModel {
-	return decisionModel{title: title, items: items, selected: -1, width: 80}
+	return decisionModel{title: title, items: items, selected: -1, width: 80, height: 24}
 }
 
 func (m decisionModel) Init() tea.Cmd {
@@ -89,6 +90,7 @@ func (m decisionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":
@@ -127,7 +129,31 @@ func (m decisionModel) View() string {
 	b.WriteString(decisionMutedStyle.Render("  Choose a verified execution candidate."))
 	b.WriteString("\n\n")
 
-	for i, item := range m.items {
+	visibleItems := m.height - 6
+	if visibleItems < 5 {
+		visibleItems = 5
+	}
+	start := m.cursor - visibleItems/2
+	if start < 0 {
+		start = 0
+	}
+	if start+visibleItems > len(m.items) {
+		start = len(m.items) - visibleItems
+		if start < 0 {
+			start = 0
+		}
+	}
+	end := start + visibleItems
+	if end > len(m.items) {
+		end = len(m.items)
+	}
+
+	if start > 0 {
+		b.WriteString(decisionMutedStyle.Render("  ↑ more candidates"))
+		b.WriteString("\\n")
+	}
+
+	for i := start; i < end; i++ {
 		cursor := "  "
 		style := decisionNormalStyle
 		if i == m.cursor {
@@ -150,6 +176,11 @@ func (m decisionModel) View() string {
 			b.WriteString(decisionMutedStyle.Render(wrapped))
 			b.WriteString("\n")
 		}
+	}
+
+	if end < len(m.items) {
+		b.WriteString(decisionMutedStyle.Render("  ↓ more candidates"))
+		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
