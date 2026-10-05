@@ -277,7 +277,6 @@ func TestPlannerUsesDecisionProviderForMultipleExecutionCandidates(t *testing.T)
 		Name: "demo",
 		Components: []Component{{
 			Name: "demo", Path: ".", Language: "Node",
-			RunCommand: "npm dev",
 			ExecutionCandidates: []ExecutionCandidate{
 				{ID: "node.script.start", Command: "npm start", Confidence: 0.94},
 				{ID: "node.script.dev", Command: "npm dev", Confidence: 0.82},

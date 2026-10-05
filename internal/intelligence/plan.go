@@ -126,17 +126,18 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 		}
 
 		startCandidates := append([]ExecutionCandidate(nil), component.ExecutionCandidates...)
+		primaryCandidates := primaryExecutionCandidates(startCandidates)
 		startCommand := component.RunCommand
 		selectedCandidate := selectedCandidateID(component)
-		if strings.TrimSpace(startCommand) == "" && len(startCandidates) == 0 {
+		if strings.TrimSpace(startCommand) == "" && len(primaryCandidates) == 0 {
 			return ExecutionPlan{}, newFailure(FailureNoExecutableCandidates, component.Name, fmt.Sprintf("Component %q cannot be executed.", component.Name), "Octo detected the component, but found no supported executable entry point.", "This usually means the component is a library, example-only project, or uses an unsupported application layout.")
 		}
-		if len(startCandidates) > 0 && (selectedCandidate == "" || len(startCandidates) > 1) {
+		if len(primaryCandidates) > 0 && selectedCandidate == "" {
 			provider := d.DecisionProvider
 			if provider == nil {
 				provider = DeterministicDecisionProvider{}
 			}
-			result, err := provider.Decide(ctx, executionDecisionRequest(component.Name, startCandidates))
+			result, err := provider.Decide(ctx, executionDecisionRequest(component.Name, primaryCandidates))
 			if err != nil {
 				return ExecutionPlan{}, newFailure(FailureDecision, component.Name, fmt.Sprintf("Octo could not choose how to run component %q.", component.Name), err.Error())
 			}
