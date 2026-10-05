@@ -64,15 +64,15 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 		return ExecutionPlan{}, err
 	}
 	if strings.TrimSpace(model.Name) == "" {
-		return ExecutionPlan{}, fmt.Errorf("cannot plan unnamed project")
+		return ExecutionPlan{}, newFailure(FailureInvalidProject, "", "Octo cannot build an execution plan for this repository.", "The project has no detected name.")
 	}
 	if len(model.Components) == 0 && len(model.Services) == 0 {
-		return ExecutionPlan{}, fmt.Errorf("cannot plan project with no components or services")
+		return ExecutionPlan{}, newFailure(FailureInvalidProject, "", "Octo cannot build an execution plan for this repository.", "No runnable components or services were discovered.")
 	}
 
 	topology, err := BuildTopologyGraph(model)
 	if err != nil {
-		return ExecutionPlan{}, fmt.Errorf("build topology: %w", err)
+		return ExecutionPlan{}, newFailure(FailureTopologyBuild, "", "Octo could not build the repository topology.", err.Error())
 	}
 
 	steps := make([]ExecutionStep, 0, len(model.Components)*5+len(model.Services))
@@ -82,7 +82,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 
 	for _, component := range components {
 		if strings.TrimSpace(component.Name) == "" {
-			return ExecutionPlan{}, fmt.Errorf("component has no name")
+			return ExecutionPlan{}, newFailure(FailureInvalidComponent, "", "Octo found a component without a name.", "The component metadata is incomplete.")
 		}
 
 		nodeID := topologyID(NodeComponent, component.Name)
@@ -129,7 +129,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 		startCommand := component.RunCommand
 		selectedCandidate := selectedCandidateID(component)
 		if strings.TrimSpace(startCommand) == "" && len(startCandidates) == 0 {
-			return ExecutionPlan{}, fmt.Errorf("component %q has no executable candidates", component.Name)
+			return ExecutionPlan{}, newFailure(FailureNoExecutableCandidates, component.Name, fmt.Sprintf("Component %q cannot be executed.", component.Name), "Octo detected the component, but found no supported executable entry point.", "This usually means the component is a library, example-only project, or uses an unsupported application layout.")
 		}
 		if len(startCandidates) > 0 && (selectedCandidate == "" || len(startCandidates) > 1) {
 			provider := d.DecisionProvider
@@ -138,13 +138,13 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 			}
 			result, err := provider.Decide(ctx, executionDecisionRequest(component.Name, startCandidates))
 			if err != nil {
-				return ExecutionPlan{}, err
+				return ExecutionPlan{}, newFailure(FailureDecision, component.Name, fmt.Sprintf("Octo could not choose how to run component %q.", component.Name), err.Error())
 			}
 			startCommand = result.Value
 			selectedCandidate = result.OptionID
 		}
 		if strings.TrimSpace(startCommand) == "" {
-			return ExecutionPlan{}, fmt.Errorf("component %q has no run command or selected execution candidate", component.Name)
+			return ExecutionPlan{}, newFailure(FailureNoRunCommand, component.Name, fmt.Sprintf("Component %q has no executable command.", component.Name), "Octo found execution candidates, but none produced a usable command.")
 		}
 
 		deps := append([]string(nil), setupDepends...)
@@ -166,7 +166,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 	sort.SliceStable(services, func(i, j int) bool { return services[i].Name < services[j].Name })
 	for _, service := range services {
 		if strings.TrimSpace(service.Name) == "" {
-			return ExecutionPlan{}, fmt.Errorf("service has no name")
+			return ExecutionPlan{}, newFailure(FailureInvalidService, "", "Octo found a service without a name.", "The service metadata is incomplete.")
 		}
 		nodeID := topologyID(NodeService, service.Name)
 		stepID := startStepID(nodeID)
@@ -225,7 +225,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 		Environment: ResolveEnvironmentBindings(model),
 	}
 	if err := ValidateExecutionPlan(plan); err != nil {
-		return ExecutionPlan{}, err
+		return ExecutionPlan{}, newFailure(FailurePlanValidation, "", "Octo generated an invalid execution plan.", err.Error())
 	}
 	return plan, nil
 }
