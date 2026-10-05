@@ -62,12 +62,20 @@ func TestNativeProjectDetectorDoesNotInferNetworkPortFromLanguage(t *testing.T) 
 		file    string
 		content string
 	}{
-		{name: "node", file: "package.json", content: "{"name":"demo"}"},
-		{name: "go", file: "go.mod", content: "module example.com/demo\ngo 1.24\n"},
-		{name: "python", file: "pyproject.toml", content: "[project]\nname = "demo"\n"},
-		{name: "rust", file: "Cargo.toml", content: "[package]\nname = "demo"\nversion = "0.1.0"\n"},
-		{name: "java", file: "pom.xml", content: "<project/>"},
-		{name: "ruby", file: "Gemfile", content: "source "https://rubygems.org"\n"},
+		{name: "node", file: "package.json", content: `{"name":"demo"}`},
+		{name: "go", file: "go.mod", content: `module example.com/demo
+go 1.24
+`},
+		{name: "python", file: "pyproject.toml", content: `[project]
+name = "demo"
+`},
+		{name: "rust", file: "Cargo.toml", content: `[package]
+name = "demo"
+version = "0.1.0"
+`},
+		{name: "java", file: "pom.xml", content: `<project/>`},
+		{name: "ruby", file: "Gemfile", content: `source "https://rubygems.org"
+`},
 	}
 
 	for _, tt := range tests {
