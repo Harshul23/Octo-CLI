@@ -60,3 +60,15 @@ func TestPythonExecutionCandidateProviderSupportsPackageMain(t *testing.T) {
 	if len(candidates) != 1 { t.Fatalf("candidates=%d, want 1", len(candidates)) }
 	if candidates[0].Command != "python -m demo" { t.Fatalf("command=%q, want python -m demo", candidates[0].Command) }
 }
+
+func TestPythonExecutionCandidateProviderUsesPackageManagerRunner(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[project]\nname = \"demo\"\n"), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "uv.lock"), []byte(""), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "main.py"), []byte("print('hello')\n"), 0644); err != nil { t.Fatal(err) }
+
+	candidates, err := (PythonExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{Name:"demo", Language:"Python", Path:".", PackageManager:"uv"})
+	if err != nil { t.Fatal(err) }
+	if len(candidates) != 1 { t.Fatalf("candidates=%d, want 1", len(candidates)) }
+	if candidates[0].Command != "uv run python main.py" { t.Fatalf("command=%q, want uv run python main.py", candidates[0].Command) }
+}
