@@ -75,6 +75,7 @@ type Component struct {
 	DependsOn []string `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
 	References []Reference `json:"references,omitempty" yaml:"references,omitempty"`
 	Port int `json:"port,omitempty" yaml:"port,omitempty"`
+	PortStrict bool `json:"port_strict,omitempty" yaml:"port_strict,omitempty"`
 	Confidence float64 `json:"confidence" yaml:"confidence"`
 	Evidence []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
 }
