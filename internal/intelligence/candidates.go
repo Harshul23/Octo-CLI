@@ -57,7 +57,7 @@ func SelectExecutionCandidateWithProvider(ctx context.Context, candidates []Exec
 	options := make([]DecisionOption, 0, len(candidates))
 	for _, candidate := range candidates {
 		if strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.Command) == "" { continue }
-		options = append(options, DecisionOption{ID: candidate.ID, Value: candidate.Command, Confidence: candidate.Confidence, Evidence: candidate.Evidence})
+		options = append(options, DecisionOption{Kind: candidate.Kind, ID: candidate.ID, Value: candidate.Command, Confidence: candidate.Confidence, Evidence: candidate.Evidence})
 	}
 	if len(options) == 0 { return ExecutionCandidate{}, fmt.Errorf("no executable candidates") }
 	if provider == nil { provider = DeterministicDecisionProvider{} }
