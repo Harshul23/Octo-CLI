@@ -68,7 +68,8 @@ func Analyze(path string) (ProjectModel, error) {
       return ProjectModel{}, err
     }
     m.Components[i].ExecutionCandidates = candidates
-    if len(candidates) == 0 {
+    primary := primaryExecutionCandidates(candidates)
+    if len(primary) == 0 {
       m.Components[i].RunCommand = ""
       continue
     }
