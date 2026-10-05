@@ -300,3 +300,26 @@ func TestPlannerUsesDecisionProviderForMultipleExecutionCandidates(t *testing.T)
 		t.Fatalf("start=%+v, want selected npm start candidate", start)
 	}
 }
+
+
+func TestPlannerReturnsStructuredFailureForMissingExecutable(t *testing.T) {
+    model := ProjectModel{
+        Name: "library",
+        Components: []Component{{Name: "library", Path: ".", Language: "Go"}},
+    }
+
+    _, err := (DeterministicPlanner{}).Plan(context.Background(), model)
+    failure, ok := AsFailure(err)
+    if !ok {
+        t.Fatalf("error=%v, want FailureReason", err)
+    }
+    if failure.Code != FailureNoExecutableCandidates {
+        t.Fatalf("code=%q, want %q", failure.Code, FailureNoExecutableCandidates)
+    }
+    if failure.Component != "library" {
+        t.Fatalf("component=%q, want library", failure.Component)
+    }
+    if failure.Summary != "Component \"library\" cannot be executed." {
+        t.Fatalf("summary=%q", failure.Summary)
+    }
+}
