@@ -37,3 +37,26 @@ func TestSelectExecutionCandidateUsesDecisionProvider(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if selected.ID != "high" { t.Fatalf("selected=%q, want high", selected.ID) }
 }
+
+func TestPythonExecutionCandidateProviderUsesExplicitEntryEvidence(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[project]\nname = "demo"\n"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "main.py"), []byte("print('hello')\n"), 0o644); err != nil { t.Fatal(err) }
+
+	candidates, err := (PythonExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{Name:"demo", Language:"Python", Path:"."})
+	if err != nil { t.Fatal(err) }
+	if len(candidates) != 1 { t.Fatalf("candidates=%d, want 1", len(candidates)) }
+	if candidates[0].Command != "python main.py" { t.Fatalf("command=%q, want python main.py", candidates[0].Command) }
+}
+
+func TestPythonExecutionCandidateProviderSupportsPackageMain(t *testing.T) {
+	root := t.TempDir()
+	pkg := filepath.Join(root, "demo")
+	if err := os.Mkdir(pkg, 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(pkg, "__main__.py"), []byte("print('hello')\n"), 0o644); err != nil { t.Fatal(err) }
+
+	candidates, err := (PythonExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{Name:"demo", Language:"Python", Path:"."})
+	if err != nil { t.Fatal(err) }
+	if len(candidates) != 1 { t.Fatalf("candidates=%d, want 1", len(candidates)) }
+	if candidates[0].Command != "python -m demo" { t.Fatalf("command=%q, want python -m demo", candidates[0].Command) }
+}
