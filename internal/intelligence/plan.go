@@ -58,7 +58,7 @@ type DeterministicPlanner struct {
 }
 
 // Plan creates a stable execution graph from the currently known components.
-func (DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (ExecutionPlan, error) {
+func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (ExecutionPlan, error) {
 	if err := ctx.Err(); err != nil {
 		return ExecutionPlan{}, err
 	}
