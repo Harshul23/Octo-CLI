@@ -54,3 +54,44 @@ func TestNativeProjectDetectorPython(t *testing.T) {
 	if got.PackageManager != "uv" { t.Fatalf("package manager = %q", got.PackageManager) }
 	if got.RunCommand != "" { t.Fatalf("detector guessed run command %q", got.RunCommand) }
 }
+
+
+func TestNativeProjectDetectorDoesNotInferNetworkPortFromLanguage(t *testing.T) {
+	tests := []struct {
+		name    string
+		file    string
+		content string
+	}{
+		{name: "node", file: "package.json", content: `{"name":"demo"}`},
+		{name: "go", file: "go.mod", content: `module example.com/demo
+go 1.24
+`},
+		{name: "python", file: "pyproject.toml", content: `[project]
+name = "demo"
+`},
+		{name: "rust", file: "Cargo.toml", content: `[package]
+name = "demo"
+version = "0.1.0"
+`},
+		{name: "java", file: "pom.xml", content: `<project/>`},
+		{name: "ruby", file: "Gemfile", content: `source "https://rubygems.org"
+`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, tt.file), []byte(tt.content), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := (NativeProjectDetector{}).Detect(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Port != 0 {
+				t.Fatalf("detector inferred port %d from language %q", got.Port, got.Language)
+			}
+		})
+	}
+}
