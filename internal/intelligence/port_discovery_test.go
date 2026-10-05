@@ -8,12 +8,15 @@ import (
 
 func TestDiscoverComponentPortFromCommand(t *testing.T) {
 	component := Component{Name: "web", Path: ".", Language: "Node"}
-	port, evidence, err := discoverComponentPort("/tmp/project", component, "npm run dev -- --port 4173")
+	port, evidence, strict, err := discoverComponentPort("/tmp/project", component, "npm run dev -- --port 4173")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if port != 4173 {
 		t.Fatalf("port=%d, want 4173", port)
+	}
+	if !strict {
+		t.Fatal("expected explicit command port to be strict")
 	}
 	if len(evidence) != 1 || evidence[0].Kind != EvidenceScript {
 		t.Fatalf("unexpected evidence: %#v", evidence)
@@ -40,7 +43,7 @@ func TestAnalyzeNodeScriptPort(t *testing.T) {
 	if model.Port != 4173 {
 		t.Fatalf("port=%d, want 4173", model.Port)
 	}
-	if len(model.Components) != 1 || model.Components[0].Port != 4173 {
+	if len(model.Components) != 1 || model.Components[0].Port != 4173 || !model.Components[0].PortStrict {
 		t.Fatalf("component port=%d, want 4173", model.Components[0].Port)
 	}
 }
@@ -81,5 +84,20 @@ func TestAnalyzeDoesNotInferPortFromLanguage(t *testing.T) {
 	}
 	if model.Port != 0 {
 		t.Fatalf("port=%d, want 0", model.Port)
+	}
+}
+
+
+func TestAnalyzeStrictPortFromNodeScript(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{\"name\":\"web\",\"scripts\":{\"start\":\"vite --port 4173\"}}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !model.Components[0].PortStrict {
+		t.Fatal("expected Node script port to be strict")
 	}
 }
