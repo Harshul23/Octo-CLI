@@ -9,7 +9,7 @@ import (
 
 // Version information (can be set at build time)
 var (
-	version = "0.1.0"
+	version = "0.2.0"
 )
 
 // rootCmd represents the base command when called without any subcommands
