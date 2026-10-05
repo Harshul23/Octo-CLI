@@ -123,3 +123,40 @@ func TestJavaExecutionCandidateProviderUsesGradleApplication(t *testing.T) {
 		t.Fatalf("candidates=%+v", candidates)
 	}
 }
+
+
+func TestRubyExecutionCandidateProviderUsesRailsExecutable(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Gemfile"), []byte("source 'https://rubygems.org'\n"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "bin", "rails"), []byte("#!/usr/bin/env ruby\n"), 0o755); err != nil { t.Fatal(err) }
+
+	candidates, err := (RubyExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{Name: "demo", Language: "Ruby", Path: "."})
+	if err != nil { t.Fatal(err) }
+	if len(candidates) != 1 || candidates[0].Command != "bin/rails server" {
+		t.Fatalf("candidates=%+v", candidates)
+	}
+}
+
+func TestRubyExecutionCandidateProviderUsesMainRuby(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Gemfile"), []byte("source 'https://rubygems.org'\n"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "main.rb"), []byte("puts 'hello'\n"), 0o644); err != nil { t.Fatal(err) }
+
+	candidates, err := (RubyExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{Name: "demo", Language: "Ruby", Path: "."})
+	if err != nil { t.Fatal(err) }
+	if len(candidates) != 1 || candidates[0].Command != "bundle exec ruby main.rb" {
+		t.Fatalf("candidates=%+v", candidates)
+	}
+}
+
+func TestRubyExecutionCandidateProviderRequiresGemfile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.rb"), []byte("puts 'hello'\n"), 0o644); err != nil { t.Fatal(err) }
+
+	candidates, err := (RubyExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{Name: "demo", Language: "Ruby", Path: "."})
+	if err != nil { t.Fatal(err) }
+	if len(candidates) != 0 {
+		t.Fatalf("candidates=%+v, want none", candidates)
+	}
+}
