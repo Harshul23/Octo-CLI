@@ -33,6 +33,7 @@ func NewExecutionCandidateProviders() ExecutionCandidateProviders {
 			GoExecutionCandidateProvider{},
 			NodeExecutionCandidateProvider{},
 			PythonExecutionCandidateProvider{},
+			RustExecutionCandidateProvider{},
 		},
 	}
 }
@@ -286,5 +287,66 @@ func (NodeExecutionCandidateProvider) Candidates(ctx context.Context, root strin
 			}},
 		})
 	}
+	return candidates, nil
+}
+
+
+type RustExecutionCandidateProvider struct{}
+
+func (RustExecutionCandidateProvider) Name() string { return "rust" }
+
+func (RustExecutionCandidateProvider) Supports(component Component) bool {
+	return component.Language == "Rust"
+}
+
+func (RustExecutionCandidateProvider) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	componentRoot := root
+	if component.Path != "" && component.Path != "." {
+		componentRoot = filepath.Join(root, filepath.FromSlash(component.Path))
+	}
+
+	candidates := make([]ExecutionCandidate, 0, 4)
+	mainPath := filepath.Join(componentRoot, "src", "main.rs")
+	if _, err := os.Stat(mainPath); err == nil {
+		candidates = append(candidates, ExecutionCandidate{
+			ID: "rust.cargo-run", Command: "cargo run", Confidence: 0.96,
+			Evidence: []Evidence{{
+				Kind: EvidenceConfig,
+				Path: filepath.ToSlash(filepath.Join(component.Path, "src", "main.rs")),
+				Detail: "Cargo project contains the conventional binary entry point at src/main.rs.",
+				Strength: 0.96,
+			}},
+		})
+	}
+
+	binDir := filepath.Join(componentRoot, "src", "bin")
+	entries, err := os.ReadDir(binDir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".rs" {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), ".rs")
+		if name == "" {
+			continue
+		}
+		candidates = append(candidates, ExecutionCandidate{
+			ID: "rust.bin." + name,
+			Command: "cargo run --bin " + name,
+			Confidence: 0.94,
+			Evidence: []Evidence{{
+				Kind: EvidenceConfig,
+				Path: filepath.ToSlash(filepath.Join(component.Path, "src", "bin", entry.Name())),
+				Detail: "Cargo project declares an executable binary under src/bin.",
+				Strength: 0.94,
+			}},
+		})
+	}
+
 	return candidates, nil
 }
