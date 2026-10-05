@@ -75,10 +75,11 @@ type decisionModel struct {
 	selected  int
 	cancelled bool
 	width     int
+	height    int
 }
 
 func newDecisionModel(title string, items []decisionItem) decisionModel {
-	return decisionModel{title: title, items: items, selected: -1, width: 80}
+	return decisionModel{title: title, items: items, selected: -1, width: 80, height: 24}
 }
 
 func (m decisionModel) Init() tea.Cmd {
@@ -89,6 +90,7 @@ func (m decisionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":
@@ -127,7 +129,27 @@ func (m decisionModel) View() string {
 	b.WriteString(decisionMutedStyle.Render("  Choose a verified execution candidate."))
 	b.WriteString("\n\n")
 
-	for i, item := range m.items {
+	visibleItems := m.height - 7
+	if visibleItems < 5 {
+		visibleItems = 5
+	}
+	start := m.cursor - visibleItems/2
+	if start < 0 {
+		start = 0
+	}
+	if start+visibleItems > len(m.items) {
+		start = len(m.items) - visibleItems
+		if start < 0 {
+			start = 0
+		}
+	}
+	end := start + visibleItems
+	if end > len(m.items) {
+		end = len(m.items)
+	}
+
+
+	for i := start; i < end; i++ {
 		cursor := "  "
 		style := decisionNormalStyle
 		if i == m.cursor {
@@ -136,12 +158,12 @@ func (m decisionModel) View() string {
 		}
 
 		number := decisionNumberStyle.Render(fmt.Sprintf("%d", i+1))
-		confidence := decisionMutedStyle.Render(fmt.Sprintf("  %3.0f%%", item.option.Confidence*100))
-		b.WriteString(cursor + number + "  " + style.Render(item.option.Value) + confidence)
+		confidence := decisionMutedStyle.Render(fmt.Sprintf("  %3.0f%%", m.items[i].option.Confidence*100))
+		b.WriteString(cursor + number + "  " + style.Render(m.items[i].option.Value) + confidence)
 		b.WriteString("\n")
 
-		if i == m.cursor && len(item.option.Evidence) > 0 {
-			evidence := "       " + item.option.Evidence[0].Detail
+		if i == m.cursor && len(m.items[i].option.Evidence) > 0 {
+			evidence := "       " + m.items[i].option.Evidence[0].Detail
 			evidenceWidth := width - 7
 			if evidenceWidth < 12 {
 				evidenceWidth = 12
@@ -151,6 +173,7 @@ func (m decisionModel) View() string {
 			b.WriteString("\n")
 		}
 	}
+
 
 	b.WriteString("\n")
 	b.WriteString(decisionMutedStyle.Render("  ↑ ↓ navigate • 1-"+strconv.Itoa(len(m.items))+" select • enter confirm • esc cancel"))
