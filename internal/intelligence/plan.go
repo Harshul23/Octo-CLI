@@ -27,6 +27,7 @@ type ExecutionStep struct {
 	NodeID      string         `json:"node_id" yaml:"node_id"`
 	Phase       ExecutionPhase `json:"phase" yaml:"phase"`
 	Command     string         `json:"command,omitempty" yaml:"command,omitempty"`
+	LongRunning bool           `json:"long_running,omitempty" yaml:"long_running,omitempty"`
 	Candidates  []ExecutionCandidate `json:"candidates,omitempty" yaml:"candidates,omitempty"`
 	SelectedCandidate string       `json:"selected_candidate,omitempty" yaml:"selected_candidate,omitempty"`
 	WorkDir     string         `json:"work_dir,omitempty" yaml:"work_dir,omitempty"`
@@ -198,6 +199,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 	for i := range steps {
 		if steps[i].Phase == PhaseStart {
 			if port, ok := portByComponent[steps[i].Component]; ok {
+				steps[i].LongRunning = true
 				if steps[i].Environment == nil {
 					steps[i].Environment = make(map[string]string)
 				}

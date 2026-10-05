@@ -15,6 +15,19 @@ type RuntimeAdapter interface {
 	Execute(ctx context.Context, step ExecutionStep, env ResolvedEnvironment) error
 }
 
+// RunningProcess represents a started long-running execution step.
+type RunningProcess interface {
+	Wait() error
+	Stop() error
+}
+
+// StartableRuntimeAdapter supports starting long-running commands without
+// blocking the planner while readiness verification runs.
+type StartableRuntimeAdapter interface {
+	RuntimeAdapter
+	Start(ctx context.Context, step ExecutionStep, env ResolvedEnvironment) (RunningProcess, error)
+}
+
 // RuntimeResolver selects an adapter for an execution step.
 type RuntimeResolver struct {
 	adapters []RuntimeAdapter
@@ -50,8 +63,19 @@ func (ShellAdapter) Supports(step ExecutionStep) bool {
 }
 
 func (ShellAdapter) Execute(ctx context.Context, step ExecutionStep, env ResolvedEnvironment) error {
+	process, err := (ShellAdapter{}).Start(ctx, step, env)
+	if err != nil {
+		return err
+	}
+	if err := process.Wait(); err != nil {
+		return fmt.Errorf("shell step %q failed: %w", step.ID, err)
+	}
+	return nil
+}
+
+func (ShellAdapter) Start(ctx context.Context, step ExecutionStep, env ResolvedEnvironment) (RunningProcess, error) {
 	if step.Command == "" {
-		return fmt.Errorf("step %q has no command", step.ID)
+		return nil, fmt.Errorf("step %q has no command", step.ID)
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", step.Command)
 	if step.WorkDir != "" {
@@ -62,10 +86,25 @@ func (ShellAdapter) Execute(ctx context.Context, step ExecutionStep, env Resolve
 	cmd.Stdin = os.Stdin
 	stepEnv := env.ForStep(step)
 	cmd.Env = mergedEnvironmentWithStep(stepEnv.Values, step.Environment)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("shell step %q failed: %w", step.ID, err)
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("shell step %q failed to start: %w", step.ID, err)
 	}
-	return nil
+	return &shellProcess{cmd: cmd}, nil
+}
+
+type shellProcess struct {
+	cmd *exec.Cmd
+}
+
+func (p *shellProcess) Wait() error {
+	return p.cmd.Wait()
+}
+
+func (p *shellProcess) Stop() error {
+	if p.cmd.Process == nil {
+		return nil
+	}
+	return p.cmd.Process.Kill()
 }
 
 // ComposeAdapter executes Docker Compose service steps.

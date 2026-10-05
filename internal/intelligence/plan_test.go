@@ -33,6 +33,9 @@ func TestDeterministicPlannerCreatesStableSingleComponentPlan(t *testing.T) {
 	if start == nil || start.SelectedCandidate != "node.script.dev" || len(start.Candidates) != 1 {
 		t.Fatalf("start candidates=%+v", start)
 	}
+	if start.LongRunning {
+		t.Fatal("component without an application port must remain synchronous")
+	}
 	if len(plan.Topology.Edges) != 0 {
 		t.Fatalf("unexpected topology edges: %+v", plan.Topology.Edges)
 	}
@@ -48,6 +51,32 @@ func TestDeterministicPlannerCreatesStableSingleComponentPlan(t *testing.T) {
 	}
 	if len(order) != len(plan.Steps) {
 		t.Fatalf("order=%d, steps=%d", len(order), len(plan.Steps))
+	}
+}
+
+
+func TestPlannerMarksPortBackedComponentAsLongRunning(t *testing.T) {
+	model := ProjectModel{
+		Name: "web",
+		Components: []Component{{
+			Name: "web", Path: ".", Language: "Node",
+			RunCommand: "npm start", Port: 3000,
+		}},
+	}
+
+	plan, err := (DeterministicPlanner{}).Plan(context.Background(), model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := findExecutionStep(plan, "component.web.start")
+	if start == nil {
+		t.Fatal("missing start step")
+	}
+	if !start.LongRunning {
+		t.Fatal("port-backed component must be marked long-running")
+	}
+	if len(plan.Ports) != 1 || plan.Ports[0].Resolved != 3000 {
+		t.Fatalf("ports=%+v", plan.Ports)
 	}
 }
 
