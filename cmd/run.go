@@ -234,7 +234,13 @@ func runWithIntelligence(cmd *cobra.Command) error {
 		return fmt.Errorf("failed to validate verified strategies: %w", err)
 	}
 
-	planner := intelligence.DeterministicPlanner{DecisionProvider: ui.InteractiveDecisionProvider{}}
+	noTUI, _ := cmd.Flags().GetBool("no-tui")
+	var decisionProvider intelligence.DecisionProvider = intelligence.DeterministicDecisionProvider{}
+	if !noTUI {
+		decisionProvider = ui.InteractiveDecisionProvider{}
+	}
+
+	planner := intelligence.DeterministicPlanner{DecisionProvider: decisionProvider}
 	plan, err := planner.Plan(cmd.Context(), model)
 	if err != nil {
 		return fmt.Errorf("execution planning failed: %w", err)
