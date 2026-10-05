@@ -15,6 +15,10 @@ import (
 
 type InteractiveDecisionProvider struct{}
 
+func (InteractiveDecisionProvider) IncludeNonPrimaryCandidates() bool {
+	return true
+}
+
 func (InteractiveDecisionProvider) Decide(ctx context.Context, request intelligence.DecisionRequest) (intelligence.DecisionResult, error) {
 	if err := ctx.Err(); err != nil {
 		return intelligence.DecisionResult{}, err
