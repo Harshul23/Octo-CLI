@@ -116,11 +116,11 @@ func (m decisionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
+		case msg.String() == "enter":
+			m.selected = m.list.Index()
+			return m, tea.Quit
 		case key.Matches(msg, list.DefaultKeyMap().Quit):
 			m.cancelled = true
-			return m, tea.Quit
-		case key.Matches(msg, list.DefaultKeyMap().Choose):
-			m.selected = m.list.Index()
 			return m, tea.Quit
 		}
 	}
