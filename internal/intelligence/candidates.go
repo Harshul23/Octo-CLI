@@ -54,8 +54,14 @@ func SelectExecutionCandidate(ctx context.Context, candidates []ExecutionCandida
 }
 
 func SelectExecutionCandidateWithProvider(ctx context.Context, candidates []ExecutionCandidate, provider DecisionProvider) (ExecutionCandidate, error) {
-	options := make([]DecisionOption, 0, len(candidates))
-	for _, candidate := range primaryExecutionCandidates(candidates) {
+	decisionCandidates := primaryExecutionCandidates(candidates)
+	if provider != nil {
+		if p, ok := provider.(interface{ IncludeNonPrimaryCandidates() bool }); ok && p.IncludeNonPrimaryCandidates() {
+			decisionCandidates = candidates
+		}
+	}
+	options := make([]DecisionOption, 0, len(decisionCandidates))
+	for _, candidate := range decisionCandidates {
 		if strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.Command) == "" { continue }
 		options = append(options, DecisionOption{Kind: candidate.Kind, ID: candidate.ID, Value: candidate.Command, Confidence: candidate.Confidence, Evidence: candidate.Evidence})
 	}
