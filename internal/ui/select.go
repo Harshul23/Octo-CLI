@@ -129,7 +129,7 @@ func (m decisionModel) View() string {
 	b.WriteString(decisionMutedStyle.Render("  Choose a verified execution candidate."))
 	b.WriteString("\n\n")
 
-	visibleItems := m.height - 6
+	visibleItems := m.height - 7
 	if visibleItems < 5 {
 		visibleItems = 5
 	}
@@ -148,10 +148,6 @@ func (m decisionModel) View() string {
 		end = len(m.items)
 	}
 
-	if start > 0 {
-		b.WriteString(decisionMutedStyle.Render("  ↑ more candidates"))
-		b.WriteString("\\n")
-	}
 
 	for i := start; i < end; i++ {
 		cursor := "  "
@@ -178,10 +174,6 @@ func (m decisionModel) View() string {
 		}
 	}
 
-	if end < len(m.items) {
-		b.WriteString(decisionMutedStyle.Render("  ↓ more candidates"))
-		b.WriteString("\n")
-	}
 
 	b.WriteString("\n")
 	b.WriteString(decisionMutedStyle.Render("  ↑ ↓ navigate • 1-"+strconv.Itoa(len(m.items))+" select • enter confirm • esc cancel"))
