@@ -32,6 +32,7 @@ func NewExecutionCandidateProviders() ExecutionCandidateProviders {
 		providers: []CandidateProvider{
 			GoExecutionCandidateProvider{},
 			NodeExecutionCandidateProvider{},
+			PythonExecutionCandidateProvider{},
 		},
 	}
 }
@@ -158,6 +159,73 @@ func (GoExecutionCandidateProvider) Candidates(ctx context.Context, root string,
 		}
 		return candidates[i].ID < candidates[j].ID
 	})
+	return candidates, nil
+}
+
+type PythonExecutionCandidateProvider struct{}
+
+func (PythonExecutionCandidateProvider) Name() string { return "python" }
+
+func (PythonExecutionCandidateProvider) Supports(component Component) bool {
+	return component.Language == "Python"
+}
+
+func (PythonExecutionCandidateProvider) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	componentRoot := root
+	if component.Path != "" && component.Path != "." {
+		componentRoot = filepath.Join(root, filepath.FromSlash(component.Path))
+	}
+
+	candidates := make([]ExecutionCandidate, 0, 3)
+	for _, entry := range []struct {
+		file string
+		confidence float64
+	}{
+		{file: "main.py", confidence: 0.90},
+		{file: "app.py", confidence: 0.82},
+	} {
+		if _, err := os.Stat(filepath.Join(componentRoot, entry.file)); err != nil {
+			continue
+		}
+		candidates = append(candidates, ExecutionCandidate{
+			ID: "python." + strings.TrimSuffix(entry.file, ".py"),
+			Command: "python " + entry.file,
+			Confidence: entry.confidence,
+			Evidence: []Evidence{{
+				Kind: EvidenceConfig,
+				Path: filepath.ToSlash(filepath.Join(component.Path, entry.file)),
+				Detail: "A conventional Python application entry file exists.",
+				Strength: entry.confidence,
+			}},
+		})
+	}
+
+	entries, err := os.ReadDir(componentRoot)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(componentRoot, entry.Name(), "__main__.py")); err != nil {
+			continue
+		}
+		candidates = append(candidates, ExecutionCandidate{
+			ID: "python.module." + entry.Name(),
+			Command: "python -m " + entry.Name(),
+			Confidence: 0.94,
+			Evidence: []Evidence{{
+				Kind: EvidenceConfig,
+				Path: filepath.ToSlash(filepath.Join(component.Path, entry.Name(), "__main__.py")),
+				Detail: "A Python package exposes an executable __main__.py module.",
+				Strength: 0.94,
+			}},
+		})
+	}
 	return candidates, nil
 }
 
