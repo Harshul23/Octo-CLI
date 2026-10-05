@@ -258,6 +258,10 @@ func installCommand(packageManager string) string {
 		return "bun install"
 	case "pip":
 		return "pip install -r requirements.txt"
+	case "uv":
+		return "uv sync"
+	case "poetry":
+		return "poetry install"
 	case "cargo":
 		return "cargo fetch"
 	default:

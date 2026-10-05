@@ -164,3 +164,41 @@ func positionIn(values []string, target string) int {
 	}
 	return -1
 }
+
+
+func TestPlannerUsesPythonPackageManagerInstallCommands(t *testing.T) {
+	tests := []struct {
+		name    string
+		manager string
+		want    string
+	}{
+		{name: "uv", manager: "uv", want: "uv sync"},
+		{name: "poetry", manager: "poetry", want: "poetry install"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := ProjectModel{
+				Name: "demo",
+				Components: []Component{{
+					Name: "demo", Path: ".", Language: "Python",
+					PackageManager: tt.manager, RunCommand: tt.manager + " run python main.py",
+				}},
+			}
+			plan, err := (DeterministicPlanner{}).Plan(context.Background(), model)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var install *ExecutionStep
+			for i := range plan.Steps {
+				if plan.Steps[i].Phase == PhaseInstall {
+					install = &plan.Steps[i]
+					break
+				}
+			}
+			if install == nil || install.Command != tt.want {
+				t.Fatalf("install step=%+v, want command %q", install, tt.want)
+			}
+		})
+	}
+}
