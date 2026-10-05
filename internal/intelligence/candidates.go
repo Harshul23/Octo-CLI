@@ -180,6 +180,12 @@ func (PythonExecutionCandidateProvider) Candidates(ctx context.Context, root str
 	}
 
 	candidates := make([]ExecutionCandidate, 0, 3)
+	pythonCommand := "python"
+	if component.PackageManager == "uv" {
+		pythonCommand = "uv run python"
+	} else if component.PackageManager == "poetry" {
+		pythonCommand = "poetry run python"
+	}
 	for _, entry := range []struct {
 		file string
 		confidence float64
@@ -192,7 +198,7 @@ func (PythonExecutionCandidateProvider) Candidates(ctx context.Context, root str
 		}
 		candidates = append(candidates, ExecutionCandidate{
 			ID: "python." + strings.TrimSuffix(entry.file, ".py"),
-			Command: "python " + entry.file,
+			Command: pythonCommand + " " + entry.file,
 			Confidence: entry.confidence,
 			Evidence: []Evidence{{
 				Kind: EvidenceConfig,
@@ -216,7 +222,7 @@ func (PythonExecutionCandidateProvider) Candidates(ctx context.Context, root str
 		}
 		candidates = append(candidates, ExecutionCandidate{
 			ID: "python.module." + entry.Name(),
-			Command: "python -m " + entry.Name(),
+			Command: pythonCommand + " -m " + entry.Name(),
 			Confidence: 0.94,
 			Evidence: []Evidence{{
 				Kind: EvidenceConfig,
