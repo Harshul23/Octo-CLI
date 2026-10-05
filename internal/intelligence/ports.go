@@ -12,6 +12,7 @@ type PortAssignment struct {
 	Requested int    `json:"requested" yaml:"requested"`
 	Resolved  int    `json:"resolved" yaml:"resolved"`
 	Automatic bool   `json:"automatic" yaml:"automatic"`
+	Strict    bool   `json:"strict,omitempty" yaml:"strict,omitempty"`
 }
 
 // PortAllocator finds deterministic free TCP ports.
@@ -19,9 +20,15 @@ type PortAllocator struct {
 	StartOffset int
 }
 
-func (a PortAllocator) Allocate(requested int, reserved map[int]struct{}) (int, bool, error) {
+func (a PortAllocator) Allocate(requested int, reserved map[int]struct{}, strict bool) (int, bool, error) {
 	if requested <= 0 {
 		return 0, false, nil
+	}
+	if strict {
+		if _, exists := reserved[requested]; exists || !portAvailable(requested) {
+			return 0, false, fmt.Errorf("requested TCP port %d is unavailable and the application declares it strictly", requested)
+		}
+		return requested, false, nil
 	}
 	start := requested
 	if a.StartOffset > 0 {
@@ -59,7 +66,7 @@ func AllocateComponentPorts(components []Component) ([]PortAssignment, error) {
 		if component.Port <= 0 {
 			continue
 		}
-		port, automatic, err := allocator.Allocate(component.Port, reserved)
+		port, automatic, err := allocator.Allocate(component.Port, reserved, component.PortStrict)
 		if err != nil {
 			return nil, fmt.Errorf("allocate port for component %q: %w", component.Name, err)
 		}
@@ -69,6 +76,7 @@ func AllocateComponentPorts(components []Component) ([]PortAssignment, error) {
 			Requested: component.Port,
 			Resolved: port,
 			Automatic: automatic,
+			Strict: component.PortStrict,
 		})
 	}
 	return assignments, nil
