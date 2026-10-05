@@ -34,6 +34,7 @@ func NewExecutionCandidateProviders() ExecutionCandidateProviders {
 			NodeExecutionCandidateProvider{},
 			PythonExecutionCandidateProvider{},
 			JavaExecutionCandidateProvider{},
+			RubyExecutionCandidateProvider{},
 			RustExecutionCandidateProvider{},
 		},
 	}
@@ -380,6 +381,56 @@ func (JavaExecutionCandidateProvider) Candidates(ctx context.Context, root strin
 		}
 	}
 
+	return candidates, nil
+}
+
+type RubyExecutionCandidateProvider struct{}
+
+func (RubyExecutionCandidateProvider) Name() string { return "ruby" }
+
+func (RubyExecutionCandidateProvider) Supports(component Component) bool {
+	return component.Language == "Ruby"
+}
+
+func (RubyExecutionCandidateProvider) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	componentRoot := root
+	if component.Path != "" && component.Path != "." {
+		componentRoot = filepath.Join(root, filepath.FromSlash(component.Path))
+	}
+
+	if _, err := os.Stat(filepath.Join(componentRoot, "Gemfile")); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	candidates := make([]ExecutionCandidate, 0, 2)
+	if _, err := os.Stat(filepath.Join(componentRoot, "bin", "rails")); err == nil {
+		candidates = append(candidates, ExecutionCandidate{
+			ID: "ruby.rails", Command: "bin/rails server", Confidence: 0.96,
+			Evidence: []Evidence{{Kind: EvidenceConfig,
+				Path: filepath.ToSlash(filepath.Join(component.Path, "bin", "rails")),
+				Detail: "The repository exposes the Rails executable under bin/rails.",
+				Strength: 0.96}},
+		})
+	}
+	for _, file := range []string{"main.rb", "app.rb"} {
+		if _, err := os.Stat(filepath.Join(componentRoot, file)); err != nil {
+			continue
+		}
+		candidates = append(candidates, ExecutionCandidate{
+			ID: "ruby." + strings.TrimSuffix(file, ".rb"),
+			Command: "bundle exec ruby " + file, Confidence: 0.88,
+			Evidence: []Evidence{{Kind: EvidenceConfig,
+				Path: filepath.ToSlash(filepath.Join(component.Path, file)),
+				Detail: "A conventional Ruby application entry file exists.",
+				Strength: 0.88}},
+		})
+	}
 	return candidates, nil
 }
 
