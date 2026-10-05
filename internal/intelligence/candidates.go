@@ -55,11 +55,11 @@ func SelectExecutionCandidate(ctx context.Context, candidates []ExecutionCandida
 
 func SelectExecutionCandidateWithProvider(ctx context.Context, candidates []ExecutionCandidate, provider DecisionProvider) (ExecutionCandidate, error) {
 	options := make([]DecisionOption, 0, len(candidates))
-	for _, candidate := range candidates {
+	for _, candidate := range primaryExecutionCandidates(candidates) {
 		if strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.Command) == "" { continue }
 		options = append(options, DecisionOption{Kind: candidate.Kind, ID: candidate.ID, Value: candidate.Command, Confidence: candidate.Confidence, Evidence: candidate.Evidence})
 	}
-	if len(options) == 0 { return ExecutionCandidate{}, fmt.Errorf("no executable candidates") }
+	if len(options) == 0 { return ExecutionCandidate{}, fmt.Errorf("no primary application candidates") }
 	if provider == nil { provider = DeterministicDecisionProvider{} }
 	result, err := provider.Decide(ctx, DecisionRequest{Name: "run_command", Options: options})
 	if err != nil { return ExecutionCandidate{}, err }
@@ -157,6 +157,10 @@ func discoverNestedGoEntryPoints(ctx context.Context, componentRoot, componentPa
 			kind = "example"
 			confidence = 0.84
 			id = "go.example." + strings.ReplaceAll(strings.TrimPrefix(slashDir, "examples/"), "/", ".")
+		} else if isGoAuxiliaryEntryPoint(slashDir) {
+			kind = "tool"
+			confidence = 0.80
+			id = "go.tool." + strings.ReplaceAll(slashDir, "/", ".")
 		}
 		candidatePath := filepath.ToSlash(filepath.Join(componentPath, dir, "main.go"))
 		candidates = append(candidates, ExecutionCandidate{
@@ -291,4 +295,28 @@ func (RustExecutionCandidateProvider) Candidates(ctx context.Context, root strin
 		candidates = append(candidates, ExecutionCandidate{ID: "rust.bin."+name, Command: "cargo run --bin "+name, Confidence: 0.94, Evidence: []Evidence{{Kind: EvidenceConfig, Path: filepath.ToSlash(filepath.Join(component.Path, "src", "bin", entry.Name())), Detail: "Cargo project declares an executable binary under src/bin.", Strength: 0.94}}})
 	}
 	return candidates, nil
+}
+
+
+func primaryExecutionCandidates(candidates []ExecutionCandidate) []ExecutionCandidate {
+	primary := make([]ExecutionCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Kind == "" || candidate.Kind == "application" {
+			primary = append(primary, candidate)
+		}
+	}
+	return primary
+}
+
+func isGoAuxiliaryEntryPoint(path string) bool {
+	parts := strings.Split(path, "/")
+	if len(parts) == 0 {
+		return false
+	}
+	switch parts[0] {
+	case "docs", "scripts", "tools", "hack":
+		return true
+	default:
+		return false
+	}
 }
