@@ -72,3 +72,29 @@ func TestPythonExecutionCandidateProviderUsesPackageManagerRunner(t *testing.T) 
 	if len(candidates) != 1 { t.Fatalf("candidates=%d, want 1", len(candidates)) }
 	if candidates[0].Command != "uv run python main.py" { t.Fatalf("command=%q, want uv run python main.py", candidates[0].Command) }
 }
+
+
+func TestRustExecutionCandidateProviderUsesCargoRun(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "Cargo.toml"), []byte("[package]\nname = \"demo\"\n"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "src", "main.rs"), []byte("fn main() {}\n"), 0o644); err != nil { t.Fatal(err) }
+
+	candidates, err := (RustExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{Name: "demo", Language: "Rust", Path: "."})
+	if err != nil { t.Fatal(err) }
+	if len(candidates) != 1 || candidates[0].Command != "cargo run" {
+		t.Fatalf("candidates=%+v", candidates)
+	}
+}
+
+func TestRustExecutionCandidateProviderUsesCargoBin(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "bin"), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "src", "bin", "worker.rs"), []byte("fn main() {}\n"), 0o644); err != nil { t.Fatal(err) }
+
+	candidates, err := (RustExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{Name: "demo", Language: "Rust", Path: "."})
+	if err != nil { t.Fatal(err) }
+	if len(candidates) != 1 || candidates[0].Command != "cargo run --bin worker" {
+		t.Fatalf("candidates=%+v", candidates)
+	}
+}
