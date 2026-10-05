@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/harshul/octo-cli/internal/intelligence"
@@ -26,9 +26,9 @@ func (InteractiveDecisionProvider) Decide(ctx context.Context, request intellige
 		return (intelligence.DeterministicDecisionProvider{}).Decide(ctx, request)
 	}
 
-	items := make([]decisionItem, 0, len(request.Options))
-	for _, option := range request.Options {
-		items = append(items, decisionItem{option: option})
+	items := make([]decisionItem, len(request.Options))
+	for i, option := range request.Options {
+		items[i] = decisionItem{option: option}
 	}
 
 	model := newDecisionModel(request.Name, items)
@@ -48,10 +48,10 @@ func (InteractiveDecisionProvider) Decide(ctx context.Context, request intellige
 
 	selected := request.Options[result.selected]
 	return intelligence.DecisionResult{
-		OptionID:   selected.ID,
-		Value:      selected.Value,
+		OptionID: selected.ID,
+		Value: selected.Value,
 		Confidence: selected.Confidence,
-		Reason:     "Selected interactively from the evidence-backed candidate set.",
+		Reason: "Selected interactively from the evidence-backed candidate set.",
 	}, nil
 }
 
@@ -63,49 +63,16 @@ type decisionItem struct {
 	option intelligence.DecisionOption
 }
 
-func (i decisionItem) FilterValue() string { return i.option.Value }
-func (i decisionItem) Title() string       { return i.option.Value }
-func (i decisionItem) Description() string {
-	if len(i.option.Evidence) == 0 {
-		return fmt.Sprintf("confidence %.0f%%", i.option.Confidence*100)
-	}
-	return i.option.Evidence[0].Detail
-}
-
 type decisionModel struct {
-	list      list.Model
+	title     string
+	items     []decisionItem
+	cursor    int
 	selected  int
 	cancelled bool
 }
 
 func newDecisionModel(title string, items []decisionItem) decisionModel {
-	delegate := list.NewDefaultDelegate()
-	delegate.SetHeight(2)
-	delegate.Styles.SelectedTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
-	delegate.Styles.SelectedDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	delegate.Styles.NormalTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	delegate.Styles.NormalDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-
-	l := list.New(itemsToListItems(items), delegate, 0, 0)
-	l.Title = title
-	l.SetShowStatusBar(false)
-	l.SetShowHelp(true)
-	l.AdditionalFullHelpKeys = func() []key.Binding {
-		return []key.Binding{}
-	}
-	l.AdditionalShortHelpKeys = func() []key.Binding {
-		return []key.Binding{}
-	}
-
-	return decisionModel{list: l, selected: -1}
-}
-
-func itemsToListItems(items []decisionItem) []list.Item {
-	out := make([]list.Item, len(items))
-	for index := range items {
-		out[index] = items[index]
-	}
-	return out
+	return decisionModel{title: title, items: items, selected: -1}
 }
 
 func (m decisionModel) Init() tea.Cmd {
@@ -115,20 +82,67 @@ func (m decisionModel) Init() tea.Cmd {
 func (m decisionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch {
-		case msg.String() == "enter":
-			m.selected = m.list.Index()
+		switch msg.String() {
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < len(m.items)-1 {
+				m.cursor++
+			}
+		case "enter":
+			m.selected = m.cursor
 			return m, tea.Quit
-		case key.Matches(msg, list.DefaultKeyMap().Quit):
+		case "esc", "q", "ctrl+c":
 			m.cancelled = true
 			return m, tea.Quit
+		default:
+			if n, err := strconv.Atoi(msg.String()); err == nil && n >= 1 && n <= len(m.items) {
+				m.selected = n - 1
+				return m, tea.Quit
+			}
 		}
 	}
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
 func (m decisionModel) View() string {
-	return m.list.View()
+	var b strings.Builder
+
+	b.WriteString(decisionTitleStyle.Render("? " + m.title))
+	b.WriteString("\n")
+	b.WriteString(decisionMutedStyle.Render("  Choose a verified execution candidate."))
+	b.WriteString("\n\n")
+
+	for i, item := range m.items {
+		cursor := "  "
+		style := decisionNormalStyle
+		if i == m.cursor {
+			cursor = decisionSelectedStyle.Render("❯ ")
+			style = decisionSelectedStyle
+		}
+
+		number := decisionNumberStyle.Render(fmt.Sprintf("%d", i+1))
+		confidence := decisionMutedStyle.Render(fmt.Sprintf("  %3.0f%%", item.option.Confidence*100))
+		b.WriteString(cursor + number + "  " + style.Render(item.option.Value) + confidence)
+		b.WriteString("\n")
+
+		if i == m.cursor && len(item.option.Evidence) > 0 {
+			b.WriteString(decisionMutedStyle.Render("       "+item.option.Evidence[0].Detail))
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("\n")
+	b.WriteString(decisionMutedStyle.Render("  ↑ ↓ navigate • 1-"+strconv.Itoa(len(m.items))+" select • enter confirm • esc cancel"))
+	return b.String()
 }
+
+var (
+	decisionTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#5B21B6", Dark: "#C4B5FD"})
+	decisionSelectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#2563EB", Dark: "#60A5FA"})
+	decisionNormalStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#222222", Dark: "#E5E7EB"})
+	decisionNumberStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#9CA3AF"})
+	decisionMutedStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#9CA3AF"})
+)
