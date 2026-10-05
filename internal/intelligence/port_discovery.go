@@ -18,6 +18,8 @@ var explicitPortPatterns = []*regexp.Regexp{
 
 // discoverComponentPort returns a port only when repository evidence explicitly
 // declares one. It deliberately does not infer ports from languages or frameworks.
+// The third return value indicates that the declaration is strict: Octo must not
+// silently rewrite it to another port.
 func discoverComponentPort(root string, component Component, command string) (int, []Evidence, bool, error) {
 	componentRoot := root
 	if component.Path != "" && component.Path != "." {
@@ -45,7 +47,7 @@ func discoverComponentPort(root string, component Component, command string) (in
 		if port, evidence, err := discoverJavaApplicationPort(componentRoot, component.Path); err != nil {
 			return 0, nil, false, err
 		} else if port > 0 {
-			return port, evidence, nil
+			return port, evidence, true, nil
 		}
 	}
 
@@ -70,9 +72,9 @@ func discoverNodeScriptPort(root, componentPath, command string) (int, []Evidenc
 	data, err := os.ReadFile(filepath.Join(root, "package.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 0, nil, false, nil
+			return 0, nil, nil
 		}
-		return 0, nil, false, err
+		return 0, nil, err
 	}
 
 	var pkg struct {
@@ -93,7 +95,7 @@ func discoverNodeScriptPort(root, componentPath, command string) (int, []Evidenc
 	}
 	port, ok := extractExplicitPort(run)
 	if !ok {
-		return 0, nil, false, nil
+		return 0, nil, nil
 	}
 	return port, []Evidence{{
 		Kind: EvidenceScript,
