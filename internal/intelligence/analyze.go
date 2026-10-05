@@ -78,6 +78,20 @@ func Analyze(path string) (ProjectModel, error) {
     }
     m.Components[i].RunCommand = selected.Command
     m.Components[i].Confidence = selected.Confidence
+
+    port, portEvidence, err := discoverComponentPort(root, m.Components[i], selected.Command)
+    if err != nil {
+      return ProjectModel{}, err
+    }
+    if port > 0 {
+      m.Components[i].Port = port
+      m.Components[i].Evidence = append(m.Components[i].Evidence, portEvidence...)
+      if m.Components[i].Path == "." && i == 0 {
+        m.Port = port
+        m.Evidence = append(m.Evidence, portEvidence...)
+      }
+    }
+
     if m.Components[i].Path == "." && i == 0 {
       m.RunCommand = selected.Command
       m.Confidence = confidence(m.Evidence, true)
