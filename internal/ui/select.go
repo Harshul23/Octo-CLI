@@ -32,7 +32,12 @@ func (InteractiveDecisionProvider) Decide(ctx context.Context, request intellige
 	}
 
 	model := newDecisionModel(request.Name, items)
-	program := tea.NewProgram(model, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout))
+	program := tea.NewProgram(
+		model,
+		tea.WithInput(os.Stdin),
+		tea.WithOutput(os.Stdout),
+		tea.WithAltScreen(),
+	)
 	finalModel, err := program.Run()
 	if err != nil {
 		return intelligence.DecisionResult{}, fmt.Errorf("interactive decision failed: %w", err)
@@ -69,10 +74,11 @@ type decisionModel struct {
 	cursor    int
 	selected  int
 	cancelled bool
+	width     int
 }
 
 func newDecisionModel(title string, items []decisionItem) decisionModel {
-	return decisionModel{title: title, items: items, selected: -1}
+	return decisionModel{title: title, items: items, selected: -1, width: 80}
 }
 
 func (m decisionModel) Init() tea.Cmd {
@@ -81,6 +87,8 @@ func (m decisionModel) Init() tea.Cmd {
 
 func (m decisionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":
@@ -109,6 +117,10 @@ func (m decisionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m decisionModel) View() string {
 	var b strings.Builder
+	width := m.width
+	if width < 20 {
+		width = 20
+	}
 
 	b.WriteString(decisionTitleStyle.Render("? " + m.title))
 	b.WriteString("\n")
@@ -129,7 +141,13 @@ func (m decisionModel) View() string {
 		b.WriteString("\n")
 
 		if i == m.cursor && len(item.option.Evidence) > 0 {
-			b.WriteString(decisionMutedStyle.Render("       "+item.option.Evidence[0].Detail))
+			evidence := "       " + item.option.Evidence[0].Detail
+			evidenceWidth := width - 7
+			if evidenceWidth < 12 {
+				evidenceWidth = 12
+			}
+			wrapped := lipgloss.NewStyle().Width(evidenceWidth).Render(evidence)
+			b.WriteString(decisionMutedStyle.Render(wrapped))
 			b.WriteString("\n")
 		}
 	}
