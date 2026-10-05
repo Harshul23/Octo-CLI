@@ -10,10 +10,10 @@ import (
 )
 
 var explicitPortPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?:--port(?:=|\\s+)|-p(?:=|\\s+))(\\d{1,5})\\b`),
-	regexp.MustCompile(`(?:^|\\s)PORT=(\\d{1,5})(?:\\s|$)`),
-	regexp.MustCompile(`-Dserver\\.port=(\\d{1,5})\\b`),
-	regexp.MustCompile(`(?:https?://|localhost:|127\\.0\\.0\\.1:|0\\.0\\.0\\.0:)(\\d{4,5})\\b`),
+	regexp.MustCompile(`(?:--port(?:=|\s+)|-p(?:=|\s+))(\d{1,5})\b`),
+	regexp.MustCompile(`(?:^|\s)PORT=(\d{1,5})(?:\s|$)`),
+	regexp.MustCompile(`-Dserver\.port=(\d{1,5})\b`),
+	regexp.MustCompile(`(?:https?://|localhost:|127\.0\.0\.1:|0\.0\.0\.0:)(\d{4,5})\b`),
 }
 
 // discoverComponentPort returns a port only when repository evidence explicitly
@@ -108,7 +108,7 @@ func discoverJavaApplicationPort(root, componentPath string) (int, []Evidence, e
 		filepath.Join(root, "src", "main", "resources", "application.properties"),
 		filepath.Join(root, "application.properties"),
 	}
-	pattern := regexp.MustCompile(`(?m)^\\s*server\\.port\\s*=\\s*(\\d+)\\s*$`)
+	pattern := regexp.MustCompile(`(?m)^\s*server\.port\s*=\s*(\d+)\s*$`)
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
