@@ -98,3 +98,28 @@ func TestRustExecutionCandidateProviderUsesCargoBin(t *testing.T) {
 		t.Fatalf("candidates=%+v", candidates)
 	}
 }
+
+
+func TestJavaExecutionCandidateProviderUsesMavenSpringBoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "pom.xml"), []byte("<plugin>spring-boot-maven-plugin</plugin>"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "mvnw"), []byte("#!/bin/sh\n"), 0o755); err != nil { t.Fatal(err) }
+
+	candidates, err := (JavaExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{Name: "demo", Language: "Java", Path: "."})
+	if err != nil { t.Fatal(err) }
+	if len(candidates) != 1 || candidates[0].Command != "./mvnw spring-boot:run" {
+		t.Fatalf("candidates=%+v", candidates)
+	}
+}
+
+func TestJavaExecutionCandidateProviderUsesGradleApplication(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "build.gradle"), []byte("plugins { id 'application' }"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "gradlew"), []byte("#!/bin/sh\n"), 0o755); err != nil { t.Fatal(err) }
+
+	candidates, err := (JavaExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{Name: "demo", Language: "Java", Path: "."})
+	if err != nil { t.Fatal(err) }
+	if len(candidates) != 1 || candidates[0].Command != "./gradlew run" {
+		t.Fatalf("candidates=%+v", candidates)
+	}
+}
