@@ -61,6 +61,7 @@ func Analyze(path string) (ProjectModel, error) {
   m.Environment.Resolutions = ResolveEnvironmentBindings(m)
 
   providers := NewExecutionCandidateProviders()
+	decisionProvider := OptionalDecisionProvider()
   for i := range m.Components {
     candidates, err := providers.Candidates(context.Background(), root, m.Components[i])
     if err != nil {
@@ -71,7 +72,7 @@ func Analyze(path string) (ProjectModel, error) {
       m.Components[i].RunCommand = ""
       continue
     }
-    selected, err := SelectExecutionCandidate(context.Background(), candidates)
+    selected, err := SelectExecutionCandidateWithProvider(context.Background(), candidates, decisionProvider)
     if err != nil {
       return ProjectModel{}, err
     }
