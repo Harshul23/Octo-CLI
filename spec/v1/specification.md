@@ -163,19 +163,23 @@ Adapters are selected explicitly by capability rather than by a global language 
 
 The execution engine validates the plan, obtains a stable topological order, resolves an adapter for each executable step, and executes steps in dependency order.
 
-The new execution engine is intentionally separate from the legacy Blueprint/Orchestrator path while it matures.
+The intelligence execution engine is the canonical execution path. The legacy Blueprint/Orchestrator path remains available temporarily for compatibility and feature gaps.
 
 ## Intelligence Run Engine
 
-The CLI may execute the new intelligence engine explicitly with:
+The CLI uses the intelligence engine by default:
 
-`octo run --engine intelligence`
+`octo run`
 
 This path analyzes the current repository directly, builds the ProjectModel and TopologyGraph, creates a deterministic ExecutionPlan, and executes it through RuntimeAdapters.
 
-The legacy engine remains the default while parity is established. The intelligence engine currently does not claim support for legacy watch, detach, dashboard, interactive environment provisioning, or port-shifting behavior.
+The legacy engine remains available explicitly:
 
-This is an intentional migration boundary, not a second permanent execution architecture.
+`octo run --engine legacy`
+
+The intelligence engine currently does not claim support for legacy `--watch` or `--detach` behavior. These are compatibility gaps, not reasons to make the legacy engine the default.
+
+This is an intentional migration boundary toward one canonical execution architecture.
 
 ## Environment Requirements
 
