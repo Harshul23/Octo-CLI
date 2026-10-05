@@ -47,7 +47,7 @@ func (InteractiveDecisionProvider) Decide(ctx context.Context, request intellige
 	if !ok || result.cancelled {
 		return intelligence.DecisionResult{}, fmt.Errorf("decision %q cancelled", request.Name)
 	}
-	if result.selected < 0 || result.selected >= len(request.Options) {
+	if result.selected < 0 || result.selected >= len(result.items) {
 		return intelligence.DecisionResult{}, fmt.Errorf("decision %q returned an invalid selection", request.Name)
 	}
 
@@ -163,8 +163,7 @@ func (m decisionModel) View() string {
 	b.WriteString("\n")
 	b.WriteString(decisionMutedStyle.Render("  Choose a verified execution candidate."))
 	if !m.showExamples && len(m.items) < len(m.allItems) {
-		b.WriteString("
-")
+		b.WriteString("\n")
 		b.WriteString(decisionMutedStyle.Render("  Example candidates hidden • press e to show all"))
 	}
 	b.WriteString("\n\n")
