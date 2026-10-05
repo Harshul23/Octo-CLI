@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 // RuntimeAdapter executes one execution step for a specific runtime kind.
@@ -75,9 +77,21 @@ func (ShellAdapter) Execute(ctx context.Context, step ExecutionStep, env Resolve
 	cmd.Stdin = os.Stdin
 	cmd.Env = mergedEnvironmentWithStep(env.ForStep(step).Values, step.Environment)
 
-	// Candidate start commands are exploratory. Keep their output out of the
-	// main UI unless every candidate fails; otherwise a failed fallback floods
-	// the terminal with compiler output even though Octo recovered.
+	// Interactive start commands (for example terminal UIs) must keep their
+	// stdout/stderr attached to the user's terminal. Capturing them would make
+	// the process appear stuck because the child is waiting for terminal input
+	// while its UI is hidden in a buffer.
+	if step.Phase == PhaseStart && interactiveShellTerminal() {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("shell step %q failed: %w", step.ID, err)
+		}
+		return nil
+	}
+
+	// Non-interactive candidate starts are exploratory. Capture their output so
+	// failed candidates do not flood the terminal when Octo can fall back.
 	if step.Phase == PhaseStart {
 		var output bytes.Buffer
 		cmd.Stdout = &output
@@ -190,4 +204,10 @@ func mergedEnvironmentWithStep(values, stepValues map[string]string) []string {
 		merged[name] = value
 	}
 	return mergedEnvironment(merged)
+}
+
+func interactiveShellTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) &&
+		term.IsTerminal(int(os.Stdout.Fd())) &&
+		term.IsTerminal(int(os.Stderr.Fd()))
 }
