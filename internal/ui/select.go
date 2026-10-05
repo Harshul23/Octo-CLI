@@ -102,13 +102,10 @@ func filterDecisionItems(items []decisionItem, showExamples bool) []decisionItem
 	}
 	filtered := make([]decisionItem, 0, len(items))
 	for _, item := range items {
-		if item.option.Kind == "example" {
+		if item.option.Kind != "" && item.option.Kind != "application" {
 			continue
 		}
 		filtered = append(filtered, item)
-	}
-	if len(filtered) == 0 {
-		return append([]decisionItem(nil), items...)
 	}
 	return filtered
 }
@@ -164,7 +161,7 @@ func (m decisionModel) View() string {
 	b.WriteString(decisionMutedStyle.Render("  Choose a verified execution candidate."))
 	if !m.showExamples && len(m.items) < len(m.allItems) {
 		b.WriteString("\n")
-		b.WriteString(decisionMutedStyle.Render("  Example candidates hidden • press e to show all"))
+		b.WriteString(decisionMutedStyle.Render("  Non-primary candidates hidden • press e to show all"))
 	}
 	b.WriteString("\n\n")
 
@@ -217,7 +214,7 @@ func (m decisionModel) View() string {
 	b.WriteString("\n")
 	footer := "  ↑ ↓ navigate • 1-"+strconv.Itoa(len(m.items))+" select • enter confirm • esc cancel"
 	if len(m.items) < len(m.allItems) {
-		footer = "  ↑ ↓ navigate • 1-"+strconv.Itoa(len(m.items))+" select • e show examples • enter confirm • esc cancel"
+		footer = "  ↑ ↓ navigate • 1-"+strconv.Itoa(len(m.items))+" select • e show all • enter confirm • esc cancel"
 	}
 	b.WriteString(decisionMutedStyle.Render(footer))
 	return b.String()
