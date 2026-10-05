@@ -6,6 +6,14 @@ Octo is an execution-intelligence CLI for software repositories. It analyzes a r
 
 The goal is not to build another collection of language-specific startup heuristics. The goal is to make repository execution **discoverable, explainable, deterministic, provider-neutral, and progressively self-correcting**.
 
+## Project direction
+
+The long-term direction is documented separately so contributors can understand where Octo is going and why the architecture is shaped this way.
+
+- [Vision](docs/VISION.md) — the problem Octo exists to solve and the principles that should not be compromised.
+- [Roadmap](docs/ROADMAP.md) — capability-focused priorities from reliability to a larger open-source ecosystem.
+- [Architecture](docs/ARCHITECTURE.md) — the canonical intelligence pipeline and boundaries for future work.
+
 ## Core vision
 
 The problem Octo is solving is simple:
