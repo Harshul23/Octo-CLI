@@ -53,11 +53,6 @@ type EnvVar struct {
 	Required bool   `yaml:"required"`
 }
 
-// FromAnalysis converts an analysis result into a basic blueprint.
-func FromAnalysis(a intelligence.Analysis) Blueprint {
-	return Blueprint{Name: a.Name}
-}
-
 // FromProjectModel converts the native intelligence model into a blueprint.
 func FromProjectModel(p intelligence.ProjectModel) Blueprint {
 	bp := Blueprint{
