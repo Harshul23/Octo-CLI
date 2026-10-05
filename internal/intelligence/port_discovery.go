@@ -18,7 +18,7 @@ var explicitPortPatterns = []*regexp.Regexp{
 
 // discoverComponentPort returns a port only when repository evidence explicitly
 // declares one. It deliberately does not infer ports from languages or frameworks.
-func discoverComponentPort(root string, component Component, command string) (int, []Evidence, error) {
+func discoverComponentPort(root string, component Component, command string) (int, []Evidence, bool, error) {
 	componentRoot := root
 	if component.Path != "" && component.Path != "." {
 		componentRoot = filepath.Join(root, filepath.FromSlash(component.Path))
@@ -30,26 +30,26 @@ func discoverComponentPort(root string, component Component, command string) (in
 			Path: filepath.ToSlash(filepath.Join(component.Path, "run command")),
 			Detail: "Selected execution command explicitly declares TCP port " + strconv.Itoa(port) + ".",
 			Strength: 0.98,
-		}}, nil
+		}}, true, nil
 	}
 
 	if component.Language == "Node" {
 		if port, evidence, err := discoverNodeScriptPort(componentRoot, component.Path, command); err != nil {
-			return 0, nil, err
+			return 0, nil, false, err
 		} else if port > 0 {
-			return port, evidence, nil
+			return port, evidence, true, nil
 		}
 	}
 
 	if component.Language == "Java" {
 		if port, evidence, err := discoverJavaApplicationPort(componentRoot, component.Path); err != nil {
-			return 0, nil, err
+			return 0, nil, false, err
 		} else if port > 0 {
 			return port, evidence, nil
 		}
 	}
 
-	return 0, nil, nil
+	return 0, nil, false, nil
 }
 
 func extractExplicitPort(value string) (int, bool) {
@@ -70,9 +70,9 @@ func discoverNodeScriptPort(root, componentPath, command string) (int, []Evidenc
 	data, err := os.ReadFile(filepath.Join(root, "package.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 0, nil, nil
+			return 0, nil, false, nil
 		}
-		return 0, nil, err
+		return 0, nil, false, err
 	}
 
 	var pkg struct {
@@ -93,7 +93,7 @@ func discoverNodeScriptPort(root, componentPath, command string) (int, []Evidenc
 	}
 	port, ok := extractExplicitPort(run)
 	if !ok {
-		return 0, nil, nil
+		return 0, nil, false, nil
 	}
 	return port, []Evidence{{
 		Kind: EvidenceScript,
