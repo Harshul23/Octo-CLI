@@ -40,7 +40,7 @@ func TestSelectExecutionCandidateUsesDecisionProvider(t *testing.T) {
 
 func TestPythonExecutionCandidateProviderUsesExplicitEntryEvidence(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[project]\nname = \\"demo\"\n"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[project]\nname = \"demo\"\n"), 0o644); err != nil { t.Fatal(err) }
 	if err := os.WriteFile(filepath.Join(root, "main.py"), []byte("print('hello')\n"), 0o644); err != nil { t.Fatal(err) }
 
 	candidates, err := (PythonExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{Name:"demo", Language:"Python", Path:"."})
