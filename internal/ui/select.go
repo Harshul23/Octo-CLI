@@ -51,7 +51,19 @@ func (InteractiveDecisionProvider) Decide(ctx context.Context, request intellige
 		return intelligence.DecisionResult{}, fmt.Errorf("decision %q returned an invalid selection", request.Name)
 	}
 
-	selected := request.Options[result.selected]
+	selectedID := result.items[result.selected].option.ID
+	var selected intelligence.DecisionOption
+	found := false
+	for _, option := range request.Options {
+		if option.ID == selectedID {
+			selected = option
+			found = true
+			break
+		}
+	}
+	if !found {
+		return intelligence.DecisionResult{}, fmt.Errorf("decision %q returned an unknown selection", request.Name)
+	}
 	return intelligence.DecisionResult{
 		OptionID: selected.ID,
 		Value: selected.Value,
@@ -70,16 +82,35 @@ type decisionItem struct {
 
 type decisionModel struct {
 	title     string
+	allItems  []decisionItem
 	items     []decisionItem
 	cursor    int
 	selected  int
 	cancelled bool
+	showExamples bool
 	width     int
 	height    int
 }
 
 func newDecisionModel(title string, items []decisionItem) decisionModel {
-	return decisionModel{title: title, items: items, selected: -1, width: 80, height: 24}
+	return decisionModel{title: title, allItems: items, items: filterDecisionItems(items, false), selected: -1, width: 80, height: 24}
+}
+
+func filterDecisionItems(items []decisionItem, showExamples bool) []decisionItem {
+	if showExamples {
+		return append([]decisionItem(nil), items...)
+	}
+	filtered := make([]decisionItem, 0, len(items))
+	for _, item := range items {
+		if item.option.Kind == "example" {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	if len(filtered) == 0 {
+		return append([]decisionItem(nil), items...)
+	}
+	return filtered
 }
 
 func (m decisionModel) Init() tea.Cmd {
@@ -104,6 +135,10 @@ func (m decisionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.selected = m.cursor
 			return m, tea.Quit
+		case "e":
+			m.showExamples = !m.showExamples
+			m.items = filterDecisionItems(m.allItems, m.showExamples)
+			m.cursor = 0
 		case "esc", "q", "ctrl+c":
 			m.cancelled = true
 			return m, tea.Quit
@@ -127,6 +162,11 @@ func (m decisionModel) View() string {
 	b.WriteString(decisionTitleStyle.Render("? " + m.title))
 	b.WriteString("\n")
 	b.WriteString(decisionMutedStyle.Render("  Choose a verified execution candidate."))
+	if !m.showExamples && len(m.items) < len(m.allItems) {
+		b.WriteString("
+")
+		b.WriteString(decisionMutedStyle.Render("  Example candidates hidden • press e to show all"))
+	}
 	b.WriteString("\n\n")
 
 	visibleItems := m.height - 7
@@ -176,7 +216,11 @@ func (m decisionModel) View() string {
 
 
 	b.WriteString("\n")
-	b.WriteString(decisionMutedStyle.Render("  ↑ ↓ navigate • 1-"+strconv.Itoa(len(m.items))+" select • enter confirm • esc cancel"))
+	footer := "  ↑ ↓ navigate • 1-"+strconv.Itoa(len(m.items))+" select • enter confirm • esc cancel"
+	if len(m.items) < len(m.allItems) {
+		footer = "  ↑ ↓ navigate • 1-"+strconv.Itoa(len(m.items))+" select • e show examples • enter confirm • esc cancel"
+	}
+	b.WriteString(decisionMutedStyle.Render(footer))
 	return b.String()
 }
 
