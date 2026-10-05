@@ -297,16 +297,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// If interactive mode, prompt user for confirmation/modifications
 	if interactive {
-		// Convert to Analysis for backward compatibility with UI
-		analysis := intelligence.Analysis{
-			Root: cwd,
-			Name: model.Name,
-		}
-		analysis, err = ui.PromptForConfirmation(analysis)
+		model, err = ui.PromptForConfirmation(model)
 		if err != nil {
 			return fmt.Errorf("interactive prompt failed: %w", err)
 		}
-		model.Name = analysis.Name
 	}
 
 	// ========================================
