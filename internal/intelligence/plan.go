@@ -125,8 +125,26 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 			setupDepends = []string{setupID}
 		}
 
-		if strings.TrimSpace(component.RunCommand) == "" {
-			return ExecutionPlan{}, fmt.Errorf("component %q has no run command", component.Name)
+		startCandidates := append([]ExecutionCandidate(nil), component.ExecutionCandidates...)
+		startCommand := component.RunCommand
+		selectedCandidate := selectedCandidateID(component)
+		if strings.TrimSpace(startCommand) == "" && len(startCandidates) == 0 {
+			return ExecutionPlan{}, fmt.Errorf("component %q has no executable candidates", component.Name)
+		}
+		if len(startCandidates) > 0 && (selectedCandidate == "" || len(startCandidates) > 1) {
+			provider := d.DecisionProvider
+			if provider == nil {
+				provider = DeterministicDecisionProvider{}
+			}
+			result, err := provider.Decide(ctx, executionDecisionRequest(component.Name, startCandidates))
+			if err != nil {
+				return ExecutionPlan{}, err
+			}
+			startCommand = result.Value
+			selectedCandidate = result.OptionID
+		}
+		if strings.TrimSpace(startCommand) == "" {
+			return ExecutionPlan{}, fmt.Errorf("component %q has no run command or selected execution candidate", component.Name)
 		}
 
 		deps := append([]string(nil), setupDepends...)
@@ -136,17 +154,6 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 			}
 		}
 
-		startCandidates := append([]ExecutionCandidate(nil), component.ExecutionCandidates...)
-	startCommand := component.RunCommand
-	selectedCandidate := selectedCandidateID(component)
-	if len(startCandidates) > 0 && (selectedCandidate == "" || len(startCandidates) > 1) && d.DecisionProvider != nil {
-		result, err := d.DecisionProvider.Decide(ctx, executionDecisionRequest(component.Name, startCandidates))
-		if err != nil {
-			return ExecutionPlan{}, err
-		}
-		startCommand = result.Value
-		selectedCandidate = result.OptionID
-	}
 	steps = append(steps, ExecutionStep{
 			ID: prefix + ".start", Component: component.Name, NodeID: nodeID, Phase: PhaseStart,
 			Command: startCommand, Candidates: startCandidates, SelectedCandidate: selectedCandidate,
