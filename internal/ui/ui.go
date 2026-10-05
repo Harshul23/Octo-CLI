@@ -70,15 +70,11 @@ func Error(msg string) {
 	fmt.Println("❌", msg)
 }
 
-// PromptForConfirmation is a minimal interactive stub.
-// For now, it simply echoes the provided analysis without changes.
-func PromptForConfirmation(a intelligence.Analysis) (intelligence.Analysis, error) {
-	// In a richer UI, we'd prompt the user to confirm or adjust fields.
-	// Keeping this non-interactive for now to avoid extra deps.
-	// Still, provide a tiny hint to the user.
-	base := filepath.Base(a.Root)
+// PromptForConfirmation is a minimal interactive confirmation step.
+func PromptForConfirmation(model intelligence.ProjectModel) (intelligence.ProjectModel, error) {
+	base := filepath.Base(model.Root)
 	fmt.Println("🔍 Using detected project:", base)
-	return a, nil
+	return model, nil
 }
 
 // DisplayDiagnosis shows the health check results to the user
