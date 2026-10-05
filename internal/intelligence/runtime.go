@@ -1,6 +1,7 @@
 package intelligence
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
