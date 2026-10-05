@@ -198,6 +198,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 	for i := range steps {
 		if steps[i].Phase == PhaseStart {
 			if port, ok := portByComponent[steps[i].Component]; ok {
+				steps[i].LongRunning = true
 				if steps[i].Environment == nil {
 					steps[i].Environment = make(map[string]string)
 				}
