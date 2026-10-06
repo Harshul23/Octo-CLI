@@ -243,6 +243,24 @@ Octo models multi-service architectures and monorepos as unified dependency grap
   - The deterministic planner constructs a strict directed acyclic graph based on `depends_on` relationships with cycle detection.
   - In partial failure scenarios (a component crashes or fails health verification), the teardown loop automatically halts all previously launched background processes and Compose services, preventing orphaned processes and lingering containers.
 
+## Adaptive Execution & Closed-Loop Healing
+
+Octo introduces controlled adaptability without sacrificing determinism or introducing speculative guessing:
+
+- **Bounded Fallback Execution**:
+  - Each step carries bounded candidates ordered by confidence and decision provider choices.
+  - If a primary candidate fails startup or runtime health checks, Octo halts it safely and evaluates the next evidence-backed fallback candidate.
+- **Failure Classification as Evidence**:
+  - Runtime errors are categorized into structured classes: `port_conflict`, `missing_dependency`, `compilation_syntax`, `process_crash`, and `timeout`.
+  - Failures are recorded directly as evidence (`EvidenceExecutionFailure`), enabling upstream planning and AI agents to understand the exact nature of failures.
+- **Verified Strategy Caching (`.octo.lock`)**:
+  - After end-to-end plan execution and verification pass, the winning candidate is recorded into `.octo.lock`.
+  - Reused on subsequent runs when repository fingerprints match.
+  - Invalidation is strictly hermetic: modifying source files, workspace manifests (`go.work`), lockfiles, or Compose configurations invalidates stale entries and forces recalculation.
+- **External & Interactive Decision Providers**:
+  - Pluggable decision providers resolve ties among bounded candidates (Jev, external typed LLM endpoints, or interactive terminal prompts).
+  - External endpoints are strictly restricted: they cannot invent new candidates or mutate commands.
+
 ## Contribution-friendly architecture
 
 To enable developers worldwide to contribute easily without breaking core contracts, Octo enforces strict modular boundaries:

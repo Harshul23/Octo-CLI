@@ -138,6 +138,9 @@ func TestExecutePlanReportFallsBackToNextEvidenceBackedCandidate(t *testing.T) {
 	if len(report.Failures) != 1 || report.Failures[0].CandidateID != "bad" {
 		t.Fatalf("failures=%+v", report.Failures)
 	}
+	if report.Failures[0].Classification != FailureClassMissingDependency {
+		t.Fatalf("expected failure classification %q, got %q", FailureClassMissingDependency, report.Failures[0].Classification)
+	}
 	if len(report.Steps) != 2 || report.Steps[0].Status != StepFailed || report.Steps[1].Status != StepSucceeded {
 		t.Fatalf("steps=%+v", report.Steps)
 	}
@@ -158,7 +161,7 @@ func (a *fallbackAdapterForReport) Name() string { return "fallback-test" }
 func (a *fallbackAdapterForReport) Supports(step ExecutionStep) bool { return step.Command != "" }
 func (a *fallbackAdapterForReport) Execute(_ context.Context, step ExecutionStep, _ ResolvedEnvironment) error {
 	if step.Command == "bad-command" {
-		return fmt.Errorf("candidate rejected")
+		return fmt.Errorf("candidate rejected: cannot find module 'express'")
 	}
 	return nil
 }

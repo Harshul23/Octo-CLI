@@ -32,10 +32,11 @@ type ExecutionStepResult struct {
 }
 
 type ExecutionFailure struct {
-	StepID      string   `json:"step_id" yaml:"step_id"`
-	CandidateID string   `json:"candidate_id,omitempty" yaml:"candidate_id,omitempty"`
-	Reason      string   `json:"reason" yaml:"reason"`
-	Evidence    Evidence `json:"evidence" yaml:"evidence"`
+	StepID         string                `json:"step_id" yaml:"step_id"`
+	CandidateID    string                `json:"candidate_id,omitempty" yaml:"candidate_id,omitempty"`
+	Classification FailureClassification `json:"classification,omitempty" yaml:"classification,omitempty"`
+	Reason         string                `json:"reason" yaml:"reason"`
+	Evidence       Evidence              `json:"evidence" yaml:"evidence"`
 }
 
 // ActiveProcess describes an active long-running process managed by Octo.
@@ -171,9 +172,10 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 					result.Status = StepFailed
 					result.Reason = err.Error()
 					report.Steps = append(report.Steps, result)
+					classification := ClassifyExecutionFailure(err.Error(), err)
 					report.Failures = append(report.Failures, ExecutionFailure{
-						StepID: id, CandidateID: candidate.ID, Reason: err.Error(),
-						Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: err.Error(), Strength: 1},
+						StepID: id, CandidateID: candidate.ID, Classification: classification, Reason: err.Error(),
+						Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: fmt.Sprintf("[%s] %s", classification, err.Error()), Strength: 1},
 					})
 					report.FailureReason = err.Error()
 					continue
@@ -183,9 +185,10 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 					result.Status = StepFailed
 					result.Reason = err.Error()
 					report.Steps = append(report.Steps, result)
+					classification := ClassifyExecutionFailure(err.Error(), err)
 					report.Failures = append(report.Failures, ExecutionFailure{
-						StepID: id, CandidateID: candidate.ID, Reason: err.Error(),
-						Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: "Execution candidate failed to start: " + err.Error(), Strength: 1},
+						StepID: id, CandidateID: candidate.ID, Classification: classification, Reason: err.Error(),
+						Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: fmt.Sprintf("[%s] Execution candidate failed to start: %s", classification, err.Error()), Strength: 1},
 					})
 					report.FailureReason = err.Error()
 					continue
@@ -204,9 +207,10 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 							}
 						}
 						report.Steps = append(report.Steps, result)
+						classification := ClassifyExecutionFailure("Startup verification failed: "+err.Error(), err)
 						report.Failures = append(report.Failures, ExecutionFailure{
-							StepID: id, CandidateID: candidate.ID, Reason: err.Error(),
-							Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: "Startup verification failed: " + err.Error(), Strength: 1},
+							StepID: id, CandidateID: candidate.ID, Classification: classification, Reason: err.Error(),
+							Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: fmt.Sprintf("[%s] Startup verification failed: %s", classification, err.Error()), Strength: 1},
 						})
 						report.FailureReason = err.Error()
 						continue
@@ -233,9 +237,10 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 					}
 				}
 				report.Steps = append(report.Steps, result)
+				classification := ClassifyExecutionFailure(err.Error(), err)
 				report.Failures = append(report.Failures, ExecutionFailure{
-					StepID: id, CandidateID: candidate.ID, Reason: err.Error(),
-					Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: "Execution candidate failed: " + err.Error(), Strength: 1},
+					StepID: id, CandidateID: candidate.ID, Classification: classification, Reason: err.Error(),
+					Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: fmt.Sprintf("[%s] Execution candidate failed: %s", classification, err.Error()), Strength: 1},
 				})
 				report.FailureReason = err.Error()
 				continue

@@ -296,8 +296,10 @@ func isExecutionRelevantFile(path, language string) bool {
 	switch base {
 	case "Dockerfile", "Makefile", "Taskfile", "Taskfile.yml", "Taskfile.yaml",
 		"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock",
-		"go.mod", "go.sum", "Cargo.toml", "Cargo.lock", "pom.xml", "build.gradle",
-		"build.gradle.kts", "requirements.txt", "pyproject.toml", "Gemfile", "Gemfile.lock",
+		"go.mod", "go.sum", "go.work", "Cargo.toml", "Cargo.lock", "pom.xml", "build.gradle",
+		"build.gradle.kts", "requirements.txt", "pyproject.toml", "poetry.lock", "uv.lock",
+		"Pipfile", "Pipfile.lock", "Gemfile", "Gemfile.lock",
+		"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml",
 		"pnpm-workspace.yaml", "nx.json", "turbo.json", "lerna.json", "rush.json":
 		return true
 	}
