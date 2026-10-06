@@ -34,7 +34,7 @@ The purpose of this phase was to prove that Octo can reason about execution with
 
 ## Phase 1 — Reliability across Real Repositories & Legacy Convergence
 
-**Immediate priority**
+**Status: completed**
 
 Dogfood Octo against unfamiliar open-source repositories and eliminate architectural fragmentation.
 
@@ -46,17 +46,19 @@ Dogfood Octo against unfamiliar open-source repositories and eliminate architect
 - Infrastructure dependencies (Docker Compose services).
 
 ### 2. Legacy Convergence & Architecture Decoupling
-- Formally retire the legacy `.octo.yaml`-based blueprint orchestrator, web server (`cmd/serve.go`, `internal/server`), and external database dependencies.
-- Consolidate 100% of execution into the native headless intelligence engine.
-- Eliminate configuration friction: Octo must work zero-config out of the box.
+- Formally retired legacy dependencies and made the headless intelligence engine the default execution path.
+- Consolidated 100% of execution into the native intelligence engine.
+- Eliminated configuration friction: Octo works zero-config out of the box.
 
 ### 3. Execution Completeness
-- Bring log multiplexing, process lifecycle management, signal handling, `--watch` (file change reload), and `--detach` (background runs) natively into the intelligence runtime adapter.
-- Turn every real-world failure into a deterministic regression test.
+- Brought log multiplexing, process lifecycle management, signal handling, `--watch` (file change reload), and `--detach` (background runs) natively into the intelligence runtime adapter.
+- Turned real-world test failures into deterministic regression tests.
 
 ---
 
 ## Phase 2 — Machine-Readable Core & MCP (Model Context Protocol) Server
+
+**Status: completed**
 
 **The Execution Substrate for AI Coding Agents**
 
@@ -65,25 +67,32 @@ Modern software development is increasingly executed by autonomous AI coding age
 Octo's core philosophy—**Evidence before inference**, **Bounded candidates**, **Deterministic planning**, and **Verified state**—makes it the ideal execution and verification engine for AI agents.
 
 ### 1. Machine-Readable Interfaces
-- First-class `--json` flag across all core commands (`octo inspect --json`, `octo graph --json`, `octo plan --json`, `octo run --json`, `octo verify --json`).
+- First-class `--json` flag across all core commands (`octo inspect --json`, `octo explain --json`, `octo graph --json`, `octo plan --json`, `octo run --json`, `octo verify --json`).
 - Strongly typed, versioned JSON schemas for `ProjectModel`, `TopologyGraph`, `ExecutionPlan`, and `ExecutionReport`.
 
 ### 2. Native Model Context Protocol (MCP) Server
-- Provide a native MCP server (`octo mcp`) supporting standard stdio and SSE transports.
-- Expose bounded, deterministic execution tools to AI assistants:
+- Provided native MCP server (`octo mcp`) over standard stdio using pure Go (zero external dependencies).
+- Full JSON-RPC 2.0 (protocol version `2024-11-05`) implementation with concurrent request safety.
+- Bounded, deterministic execution tools for AI assistants:
   - `octo_inspect`: Discovers repository evidence and returns the canonical `ProjectModel`.
   - `octo_topology`: Returns the validated dependency DAG for components and infrastructure services.
   - `octo_plan`: Generates the execution plan with bounded candidate options.
   - `octo_run_and_verify`: Executes the plan via runtime adapters and verifies runtime health (ports, TCP, healthchecks).
   - `octo_verify`: Verifies expected runtime state and manages `.octo.lock`.
   - `octo_diagnose`: Explains execution failures without inventing commands.
+- Core resources via URI scheme:
+  - `octo://topology`: Repository component and service topology DAG.
+  - `octo://execution-plan`: Deterministic step-by-step execution plan.
+  - `octo://lock`: Verified execution strategy cache from `.octo.lock`.
 
 ### 3. Agent Closed-Loop Verification
-- Enable AI agents to test, run, and verify repositories deterministically without trial-and-error shell hallucination.
+- AI agents can test, run, and verify repositories deterministically without trial-and-error shell hallucination.
 
 ---
 
 ## Phase 3 — Dependency and Environment Reproduction
+
+**Immediate priority**
 
 Move from command execution toward reproducible local environments.
 
