@@ -213,6 +213,18 @@ When adding a feature, ask:
 
 New execution capabilities should normally land in the intelligence pipeline.
 
+## Machine-Readable Core & MCP Server
+
+Octo acts as the deterministic execution substrate for AI coding agents (Claude Code, Cursor, Windsurf, Cline) via two primary machine interfaces:
+
+1. **CLI JSON Stream**: Every core command provides `--json` output formatted against strongly-typed schemas (`octo inspect --json`, `octo explain --json`, `octo graph --json`, `octo plan --json`, `octo run --json`, `octo verify --json`).
+2. **Model Context Protocol (MCP)**: Native stdio server launched via `octo mcp`. Built in pure Go with zero external dependencies, providing JSON-RPC 2.0 (version `2024-11-05`).
+
+AI agents consume bounded, deterministic tools and resources:
+- Tools: `octo_inspect`, `octo_topology`, `octo_plan`, `octo_run_and_verify`, `octo_verify`, `octo_diagnose`.
+- Resources: `octo://topology`, `octo://execution-plan`, `octo://lock`.
+
+
 ## Contribution-friendly architecture
 
 To enable developers worldwide to contribute easily without breaking core contracts, Octo enforces strict modular boundaries:
