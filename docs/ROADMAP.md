@@ -130,18 +130,26 @@ Treat repositories as systems rather than single processes.
 
 ## Phase 5 — Adaptive Execution & Closed-Loop Healing
 
-**Immediate priority**
+**Status: completed**
 
-Introduce controlled adaptation without sacrificing determinism.
+Introduced controlled adaptation without sacrificing determinism.
 
-- Bounded fallback strategies: if Candidate A fails during verification, Candidate B from the bounded candidate set is evaluated.
-- Failure classification as evidence (distinguishing syntax/compilation errors, missing dependencies, port conflicts, and process crashes).
-- Verified strategy caching: reuse `.octo.lock` entries when repository fingerprints match; invalidate cleanly when source or manifests change.
-- External decision providers (Jev, typed LLM, or interactive human prompts) to resolve bounded ties when multiple valid candidates exist.
+- **Bounded fallback strategies**: If Candidate A fails during startup or verification, Candidate B from the bounded candidate set is evaluated automatically, recording decision traces and failure history.
+- **Failure classification as evidence**: Structured categorization of execution failures into `port_conflict`, `missing_dependency`, `compilation_syntax`, `process_crash`, and `timeout`, converted directly into observable evidence.
+- **Verified strategy caching (`.octo.lock`)**:
+  - Reuses verified execution strategies across runs when repository fingerprints match.
+  - Automatically invalidates strategies on changes to source code, manifests, lockfiles (`poetry.lock`, `uv.lock`, `go.work`, `Cargo.lock`), or Docker Compose manifests.
+  - On fallback recovery, `.octo.lock` persists the successful fallback candidate.
+  - `octo verify` reports cached strategy status (active vs invalidated).
+- **External decision providers**:
+  - Bounded tie-breaking via Jev (`OCTO_JEV_URL`), typed LLMs / external endpoints (`OCTO_DECISION_URL`), and interactive terminal prompts (`ui.InteractiveDecisionProvider`).
+  - Strict bounded validation: external endpoints can only select from provided candidates and are prevented from hallucinating new commands.
 
 ---
 
 ## Phase 6 — Sandboxed & Containerized Runtimes
+
+**Immediate priority**
 
 Safe execution boundaries for developers and automated agents.
 

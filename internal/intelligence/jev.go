@@ -99,14 +99,115 @@ func (p *JevDecisionProvider) Decide(ctx context.Context, request DecisionReques
 	return DecisionResult{}, fmt.Errorf("Jev selected unknown option %q", result.OptionID)
 }
 
-// OptionalDecisionProvider returns Jev when explicitly enabled and falls back
-// to the deterministic provider whenever Jev is unavailable or rejects a
+// ExternalDecisionProvider delegates bounded decisions to an external HTTP
+// or typed LLM service. The endpoint receives only the decision name and bounded options,
+// and can only pick from the bounded options without inventing commands.
+type ExternalDecisionProvider struct {
+	Name   string
+	URL    string
+	Token  string
+	Client *http.Client
+}
+
+// NewExternalDecisionProviderFromEnv creates an optional external decision provider from:
+//   OCTO_DECISION_URL   — external decision endpoint (or OCTO_LLM_URL)
+//   OCTO_DECISION_TOKEN — optional bearer token (or OCTO_LLM_TOKEN)
+func NewExternalDecisionProviderFromEnv() *ExternalDecisionProvider {
+	url := strings.TrimSpace(os.Getenv("OCTO_DECISION_URL"))
+	if url == "" {
+		url = strings.TrimSpace(os.Getenv("OCTO_LLM_URL"))
+	}
+	if url == "" {
+		return nil
+	}
+	token := strings.TrimSpace(os.Getenv("OCTO_DECISION_TOKEN"))
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("OCTO_LLM_TOKEN"))
+	}
+	return &ExternalDecisionProvider{
+		Name:   "external",
+		URL:    strings.TrimRight(url, "/"),
+		Token:  token,
+		Client: &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+func (p *ExternalDecisionProvider) Decide(ctx context.Context, request DecisionRequest) (DecisionResult, error) {
+	if p == nil || strings.TrimSpace(p.URL) == "" {
+		return DecisionResult{}, fmt.Errorf("external decision provider is not configured")
+	}
+	if request.Name == "" {
+		return DecisionResult{}, fmt.Errorf("decision name is required")
+	}
+	if len(request.Options) == 0 {
+		return DecisionResult{}, fmt.Errorf("decision %q has no options", request.Name)
+	}
+
+	payload, err := json.Marshal(jevDecisionRequest{Name: request.Name, Options: request.Options})
+	if err != nil {
+		return DecisionResult{}, fmt.Errorf("encode external decision request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.URL, bytes.NewReader(payload))
+	if err != nil {
+		return DecisionResult{}, fmt.Errorf("create external decision request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if p.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+p.Token)
+	}
+
+	client := p.Client
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return DecisionResult{}, fmt.Errorf("call external decision provider: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return DecisionResult{}, fmt.Errorf("external decision provider returned HTTP %d", resp.StatusCode)
+	}
+
+	var result DecisionResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return DecisionResult{}, fmt.Errorf("decode external decision response: %w", err)
+	}
+
+	for _, option := range request.Options {
+		if option.ID != result.OptionID {
+			continue
+		}
+		if option.Value != result.Value {
+			return DecisionResult{}, fmt.Errorf("external provider changed the value of option %q", result.OptionID)
+		}
+		if result.Value == "" {
+			return DecisionResult{}, fmt.Errorf("external provider selected option %q with an empty value", result.OptionID)
+		}
+		return result, nil
+	}
+	return DecisionResult{}, fmt.Errorf("external provider selected unknown option %q", result.OptionID)
+}
+
+// OptionalDecisionProvider returns Jev or external decision provider when explicitly enabled and falls back
+// to the deterministic provider whenever external services are unavailable or reject a
 // decision. This keeps the intelligence path fully usable offline.
 func OptionalDecisionProvider() DecisionProvider {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("OCTO_DECISION_PROVIDER")), "jev") {
+	providerType := strings.ToLower(strings.TrimSpace(os.Getenv("OCTO_DECISION_PROVIDER")))
+	if providerType == "jev" {
 		if jev := NewJevDecisionProviderFromEnv(); jev != nil {
 			return FallbackDecisionProvider{
 				Primary:  jev,
+				Fallback: DeterministicDecisionProvider{},
+			}
+		}
+	}
+	if providerType == "external" || providerType == "llm" || os.Getenv("OCTO_DECISION_URL") != "" || os.Getenv("OCTO_LLM_URL") != "" {
+		if ext := NewExternalDecisionProviderFromEnv(); ext != nil {
+			return FallbackDecisionProvider{
+				Primary:  ext,
 				Fallback: DeterministicDecisionProvider{},
 			}
 		}
