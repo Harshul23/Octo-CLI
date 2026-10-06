@@ -34,6 +34,10 @@ var verifyCmd = &cobra.Command{
 
 		lock, _ := intelligence.LoadOctoLock(path)
 		lockPresent := len(lock.Strategies) > 0
+		var strategyStatus intelligence.VerifiedStrategyApplication
+		if lockPresent {
+			strategyStatus, _ = intelligence.ApplyVerifiedStrategies(path, &model, lock)
+		}
 
 		jsonOutput, err := cmd.Flags().GetBool("json")
 		if err != nil {
@@ -42,11 +46,13 @@ var verifyCmd = &cobra.Command{
 
 		if jsonOutput {
 			report := map[string]interface{}{
-				"project_name": model.Name,
-				"success":      verifyErr == nil,
-				"checks":       results,
-				"lock_present": lockPresent,
-				"lock_entries": len(lock.Strategies),
+				"project_name":     model.Name,
+				"success":          verifyErr == nil,
+				"checks":           results,
+				"lock_present":     lockPresent,
+				"lock_entries":     len(lock.Strategies),
+				"lock_reused":      len(strategyStatus.Reused),
+				"lock_invalidated": len(strategyStatus.Invalidated),
 			}
 			if verifyErr != nil {
 				report["error"] = verifyErr.Error()
@@ -76,7 +82,14 @@ var verifyCmd = &cobra.Command{
 		}
 
 		if lockPresent {
-			fmt.Printf("\n.octo.lock: %d verified candidate strategy(s) cached.\n", len(lock.Strategies))
+			fmt.Printf("\n.octo.lock: %d verified candidate strategy(s) cached (%d active, %d invalidated).\n",
+				len(lock.Strategies), len(strategyStatus.Reused), len(strategyStatus.Invalidated))
+			for _, s := range strategyStatus.Reused {
+				fmt.Printf("  • %s: %s (fingerprint verified)\n", s.Component, s.Command)
+			}
+			for _, s := range strategyStatus.Invalidated {
+				fmt.Printf("  ! %s: %s (invalidated by repository edits)\n", s.Component, s.Command)
+			}
 		} else {
 			fmt.Println("\n.octo.lock: no cached strategies found.")
 		}
