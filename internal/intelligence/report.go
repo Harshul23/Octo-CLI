@@ -49,8 +49,9 @@ type ActiveProcess struct {
 
 // ExecutionOptions configures execution behavior.
 type ExecutionOptions struct {
-	Detach bool `json:"detach" yaml:"detach"`
-	Silent bool `json:"silent" yaml:"silent"`
+	Detach  bool `json:"detach" yaml:"detach"`
+	Silent  bool `json:"silent" yaml:"silent"`
+	Sandbox bool `json:"sandbox" yaml:"sandbox"`
 }
 
 type executionContextKey string
@@ -64,6 +65,11 @@ func withSilentExecution(ctx context.Context, silent bool) context.Context {
 func isSilentExecution(ctx context.Context) bool {
 	v, ok := ctx.Value(silentExecutionKey).(bool)
 	return ok && v
+}
+
+func isSandboxEnv() bool {
+	v := strings.TrimSpace(os.Getenv("OCTO_SANDBOX"))
+	return v == "1" || strings.EqualFold(v, "true")
 }
 
 // ExecutionReport is the canonical result of an intelligence execution.
@@ -88,6 +94,15 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 
 // ExecutePlanReportWithOptions executes a plan with specific options (such as detached mode).
 func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan ExecutionPlan, resolver RuntimeResolver, env ResolvedEnvironment, opts ExecutionOptions) (report ExecutionReport) {
+	if resolver.adapters == nil {
+		sandbox := opts.Sandbox || isSandboxEnv()
+		resolver = NewRuntimeResolverWithOptions(RuntimeResolverOptions{
+			Sandbox:        sandbox,
+			Root:           model.Root,
+			Language:       model.Language,
+			RuntimeVersion: model.RuntimeVersion,
+		})
+	}
 	if opts.Silent {
 		ctx = withSilentExecution(ctx, true)
 	}

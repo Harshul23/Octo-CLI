@@ -111,6 +111,14 @@ func TestServerToolsList(t *testing.T) {
 			t.Fatalf("missing expected tool: %s", expected)
 		}
 	}
+
+	for _, tool := range res.Tools {
+		if tool.Name == "octo_run_and_verify" {
+			if _, ok := tool.InputSchema.Properties["sandbox"]; !ok {
+				t.Fatal("expected 'sandbox' property in octo_run_and_verify input schema")
+			}
+		}
+	}
 }
 
 func TestServerToolsCallInspectAndPlan(t *testing.T) {

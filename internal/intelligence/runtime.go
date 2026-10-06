@@ -41,8 +41,33 @@ type RuntimeResolver struct {
 	adapters []RuntimeAdapter
 }
 
+// RuntimeResolverOptions configures adapter selection in RuntimeResolver.
+type RuntimeResolverOptions struct {
+	Sandbox        bool
+	Root           string
+	Language       string
+	RuntimeVersion string
+}
+
 // NewRuntimeResolver creates a resolver with the built-in adapters.
 func NewRuntimeResolver() RuntimeResolver {
+	return NewRuntimeResolverWithOptions(RuntimeResolverOptions{})
+}
+
+// NewRuntimeResolverWithOptions creates a resolver configured for standard or sandboxed container execution.
+func NewRuntimeResolverWithOptions(opts RuntimeResolverOptions) RuntimeResolver {
+	if opts.Sandbox {
+		container := NewContainerAdapter(opts.Root)
+		container.Language = opts.Language
+		container.RuntimeVersion = opts.RuntimeVersion
+		return RuntimeResolver{
+			adapters: []RuntimeAdapter{
+				ComposeAdapter{},
+				container,
+				ShellAdapter{},
+			},
+		}
+	}
 	return RuntimeResolver{
 		adapters: []RuntimeAdapter{
 			ComposeAdapter{},

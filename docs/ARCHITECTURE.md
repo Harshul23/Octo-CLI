@@ -261,6 +261,25 @@ Octo introduces controlled adaptability without sacrificing determinism or intro
   - Pluggable decision providers resolve ties among bounded candidates (Jev, external typed LLM endpoints, or interactive terminal prompts).
   - External endpoints are strictly restricted: they cannot invent new candidates or mutate commands.
 
+## Sandboxed & Containerized Runtimes
+
+Octo provides isolated execution environments through native containerization, protecting host machines and enabling autonomous agents to safely run untrusted code:
+
+- **Containerized Runtime Adapter (`ContainerAdapter`)**:
+  - Automatically selects Docker or Podman based on host toolchain availability.
+  - Intercepts and executes plan steps in ephemeral containers with automatic cleanup (`--rm`).
+  - Activated via CLI `--sandbox` / `-s` flag, environment variable `OCTO_SANDBOX=1`, or the MCP tool argument `"sandbox": true`.
+- **Dynamic Image Derivation (`ResolveContainerImage`)**:
+  - Derives lightweight, official base images (Alpine and Slim variants) using detected repository languages and semver constraints.
+  - Automatically matches Node (`node:<ver>-alpine`), Go (`golang:<ver>-alpine`), Python (`python:<ver>-slim`), Rust, Java, and Ruby.
+- **Topology-Bound Mounts & Isolation**:
+  - Host project root is mapped into `/app` (`-v <root>:/app`) with subcomponent relative working directories (`-w /app/<workdir>`).
+  - Component ports discovered and negotiated in the topology graph are forwarded to the host (`-p <port>:<port>`).
+  - Scoped component environment variables and global values pass through cleanly (`-e KEY=VAL`).
+- **Container Lifecycle & Teardown**:
+  - Long-running services run detached (`-d`) via `containerProcess`, with stdout/stderr piped to `.octo/logs/<component>.log`.
+  - Failures trigger synchronous container stops (`docker/podman stop -t 2`) and removals, preventing abandoned containers from occupying host resources or ports.
+
 ## Contribution-friendly architecture
 
 To enable developers worldwide to contribute easily without breaking core contracts, Octo enforces strict modular boundaries:
