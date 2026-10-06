@@ -33,6 +33,7 @@ type NativeProjectDetector struct{}
 
 var projectSignals = []signalDefinition{
 	{File: "package.json", Language: "Node", Detect: detectNodeProject},
+	{File: "go.work", Language: "Go", Detect: detectGoWorkspaceProject},
 	{File: "go.mod", Language: "Go", Detect: detectGoProject},
 	{File: "pyproject.toml", Language: "Python", Detect: detectPythonProject},
 	{File: "requirements.txt", Language: "Python", Detect: detectPythonProject},
@@ -118,6 +119,22 @@ func detectNodeRuntimeVersion(root string, engines map[string]string) string {
 		}
 	}
 	return ""
+}
+
+func detectGoWorkspaceProject(root string) (DetectedProject, error) {
+	data, err := os.ReadFile(filepath.Join(root, "go.work"))
+	if err != nil {
+		return DetectedProject{}, err
+	}
+	project := DetectedProject{Name: filepath.Base(root), PackageManager: "go"}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "go" {
+			project.Version = fields[1]
+			break
+		}
+	}
+	return project, nil
 }
 
 func detectGoProject(root string) (DetectedProject, error) {
@@ -277,10 +294,14 @@ func detectSimpleProject(root string) (DetectedProject, error) {
 	if err != nil { return DetectedProject{}, err }
 	for _, entry := range entries {
 		if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".html") || strings.HasSuffix(entry.Name(), ".htm")) {
-			return DetectedProject{Name: filepath.Base(root), Language: "HTML"}, nil
+			project := DetectedProject{Name: filepath.Base(root), Language: "HTML"}
+			project.IsMonorepo, project.MonorepoRoot = detectMonorepo(root)
+			return project, nil
 		}
 	}
-	return DetectedProject{Name: filepath.Base(root), Language: "Unknown"}, nil
+	project := DetectedProject{Name: filepath.Base(root), Language: "Unknown"}
+	project.IsMonorepo, project.MonorepoRoot = detectMonorepo(root)
+	return project, nil
 }
 
 func detectNodePackageManager(root string) string {
@@ -293,13 +314,18 @@ func detectNodePackageManager(root string) string {
 }
 
 func detectMonorepo(root string) (bool, string) {
-	for _, file := range []string{"pnpm-workspace.yaml", "nx.json", "turbo.json", "lerna.json", "rush.json"} {
+	for _, file := range []string{"pnpm-workspace.yaml", "nx.json", "turbo.json", "lerna.json", "rush.json", "go.work"} {
 		if _, err := os.Stat(filepath.Join(root, file)); err == nil { return true, root }
 	}
 	data, err := os.ReadFile(filepath.Join(root, "package.json"))
 	if err == nil {
 		var pkg struct { Workspaces any `json:"workspaces"` }
 		if json.Unmarshal(data, &pkg) == nil && pkg.Workspaces != nil { return true, root }
+	}
+	if cargoData, err := os.ReadFile(filepath.Join(root, "Cargo.toml")); err == nil {
+		if strings.Contains(string(cargoData), "[workspace]") {
+			return true, root
+		}
 	}
 	return false, ""
 }
