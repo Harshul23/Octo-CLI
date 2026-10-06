@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -28,26 +29,59 @@ var graphCmd = &cobra.Command{
 			return err
 		}
 
+		jsonOutput, err := cmd.Flags().GetBool("json")
+		if err != nil {
+			return err
+		}
+		if jsonOutput {
+			data, err := json.MarshalIndent(graph, "", "  ")
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		}
+
 		fmt.Printf("Repository topology for %s\n\n", model.Name)
 		if len(graph.Nodes) == 0 {
 			fmt.Println("No topology nodes detected.")
 			return nil
 		}
 
-		edgesByFrom := make(map[string][]string)
-		for _, edge := range graph.Edges {
-			edgesByFrom[edge.From] = append(edgesByFrom[edge.From], edge.To)
-		}
-
 		for _, node := range graph.Nodes {
 			fmt.Printf("%s [%s]\n", node.ID, node.Kind)
-			deps := append([]string(nil), edgesByFrom[node.ID]...)
-			sort.Strings(deps)
-			if len(deps) == 0 {
+			var dependsOn []string
+			var references []string
+			seenDep := make(map[string]bool)
+			seenRef := make(map[string]bool)
+			for _, edge := range graph.Edges {
+				if edge.From != node.ID {
+					continue
+				}
+				if edge.Kind == intelligence.RelationshipDependsOn {
+					if !seenDep[edge.To] {
+						seenDep[edge.To] = true
+						dependsOn = append(dependsOn, edge.To)
+					}
+				} else {
+					if !seenRef[edge.To] {
+						seenRef[edge.To] = true
+						references = append(references, edge.To)
+					}
+				}
+			}
+			sort.Strings(dependsOn)
+			sort.Strings(references)
+			if len(dependsOn) == 0 && len(references) == 0 {
 				fmt.Println("  └─ depends on: none")
 				continue
 			}
-			fmt.Printf("  └─ depends on: %s\n", strings.Join(deps, ", "))
+			if len(dependsOn) > 0 {
+				fmt.Printf("  └─ depends on: %s\n", strings.Join(dependsOn, ", "))
+			}
+			if len(references) > 0 {
+				fmt.Printf("  └─ references: %s\n", strings.Join(references, ", "))
+			}
 		}
 
 		return nil
@@ -55,5 +89,6 @@ var graphCmd = &cobra.Command{
 }
 
 func init() {
+	graphCmd.Flags().Bool("json", false, "Output the TopologyGraph as JSON")
 	rootCmd.AddCommand(graphCmd)
 }

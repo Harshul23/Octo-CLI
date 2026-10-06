@@ -2,6 +2,14 @@
 
 This roadmap describes the direction of Octo. It is capability-oriented rather than tied to arbitrary release dates.
 
+## Vision Summary
+
+Octo's mission is simple: **Make “how do I run this?” disappear.**
+
+A repository should contain enough evidence to derive a safe, deterministic, explainable path toward execution—for both human developers and autonomous AI coding agents.
+
+---
+
 ## Phase 0 — Foundation
 
 **Status: substantially complete**
@@ -22,168 +30,145 @@ This roadmap describes the direction of Octo. It is capability-oriented rather t
 
 The purpose of this phase was to prove that Octo can reason about execution without becoming a collection of unrelated heuristics.
 
-## Phase 1 — Reliability across real repositories
+---
 
-**Next priority**
+## Phase 1 — Reliability across Real Repositories & Legacy Convergence
 
-Dogfood Octo against unfamiliar open-source repositories.
+**Immediate priority**
 
-Focus on:
+Dogfood Octo against unfamiliar open-source repositories and eliminate architectural fragmentation.
 
-- Node, Go, Python, Rust, Java, and Ruby applications
-- common monorepo layouts
-- applications mixed with examples, tools, and docs
-- multiple plausible entry points
-- infrastructure dependencies
+### 1. Ecosystem Reliability
+- Node, Go, Python, Rust, Java, and Ruby applications.
+- Common monorepo layouts and workspace boundaries.
+- Repositories mixed with examples, tools, scripts, and documentation.
+- Resolving multiple plausible entry points without speculative guessing.
+- Infrastructure dependencies (Docker Compose services).
 
-Success is not the number of supported languages.
+### 2. Legacy Convergence & Architecture Decoupling
+- Formally retire the legacy `.octo.yaml`-based blueprint orchestrator, web server (`cmd/serve.go`, `internal/server`), and external database dependencies.
+- Consolidate 100% of execution into the native headless intelligence engine.
+- Eliminate configuration friction: Octo must work zero-config out of the box.
 
-Success is the percentage of real repositories where Octo reaches the correct execution path without unsafe guessing.
+### 3. Execution Completeness
+- Bring log multiplexing, process lifecycle management, signal handling, `--watch` (file change reload), and `--detach` (background runs) natively into the intelligence runtime adapter.
+- Turn every real-world failure into a deterministic regression test.
 
-### Reliability rules
+---
 
-1. Prefer repository evidence over convention.
-2. Never select auxiliary entry points as production applications without evidence.
-3. Never silently invent missing commands or dependencies.
-4. Explain why execution cannot proceed.
-5. Turn real failures into regression tests.
-6. Preserve deterministic behavior when external intelligence is unavailable.
+## Phase 2 — Machine-Readable Core & MCP (Model Context Protocol) Server
 
-## Phase 2 — Dependency and environment reproduction
+**The Execution Substrate for AI Coding Agents**
+
+Modern software development is increasingly executed by autonomous AI coding agents (Claude Code, Cursor, Devin, GitHub Copilot, SWE-bench runners). When an AI agent enters a repository, it frequently fails at execution: guessing flags, hallucinating startup commands, missing database dependencies, and lacking verification.
+
+Octo's core philosophy—**Evidence before inference**, **Bounded candidates**, **Deterministic planning**, and **Verified state**—makes it the ideal execution and verification engine for AI agents.
+
+### 1. Machine-Readable Interfaces
+- First-class `--json` flag across all core commands (`octo inspect --json`, `octo graph --json`, `octo plan --json`, `octo run --json`, `octo verify --json`).
+- Strongly typed, versioned JSON schemas for `ProjectModel`, `TopologyGraph`, `ExecutionPlan`, and `ExecutionReport`.
+
+### 2. Native Model Context Protocol (MCP) Server
+- Provide a native MCP server (`octo mcp`) supporting standard stdio and SSE transports.
+- Expose bounded, deterministic execution tools to AI assistants:
+  - `octo_inspect`: Discovers repository evidence and returns the canonical `ProjectModel`.
+  - `octo_topology`: Returns the validated dependency DAG for components and infrastructure services.
+  - `octo_plan`: Generates the execution plan with bounded candidate options.
+  - `octo_run_and_verify`: Executes the plan via runtime adapters and verifies runtime health (ports, TCP, healthchecks).
+  - `octo_verify`: Verifies expected runtime state and manages `.octo.lock`.
+  - `octo_diagnose`: Explains execution failures without inventing commands.
+
+### 3. Agent Closed-Loop Verification
+- Enable AI agents to test, run, and verify repositories deterministically without trial-and-error shell hallucination.
+
+---
+
+## Phase 3 — Dependency and Environment Reproduction
 
 Move from command execution toward reproducible local environments.
 
-Potential capabilities:
+- Runtime version detection and compatibility checks (e.g., Node 18 vs 22, Go 1.22+, Python venvs).
+- Package-manager detection and installation boundaries (pnpm, yarn, npm, uv, poetry, cargo).
+- Missing environment variable discovery and safe `.env` template generation (without exposing or storing secrets).
+- Machine-change previews: planning is inspectable and explainable before any machine mutation occurs.
+- Service provisioning checks before dependency installation.
 
-- runtime compatibility checks
-- package-manager detection and installation boundaries
-- dependency installation planning
-- environment requirement discovery
-- service provisioning
-- database/cache/message-broker workflows
-- containerized dependencies
-- stronger health/readiness verification
-- explicit machine-change previews
+---
 
-Planning should be inspectable before it mutates the machine.
-
-## Phase 3 — Multi-component execution
+## Phase 4 — Multi-Component and Service Topology
 
 Treat repositories as systems rather than single processes.
 
-Potential capabilities:
+- Monorepo component discovery (npm/yarn/pnpm workspaces, Go workspaces, Cargo workspaces).
+- Docker Compose service discovery and lifecycle management.
+- Coordinated dynamic port shifting (avoiding collisions and dynamically rebinding `PORT` environment variables).
+- Topological startup ordering based strictly on explicit `depends_on` relationships.
+- Network-reference awareness (`network_reference` edges for cross-service URLs and connections).
+- Partial failure handling and graceful group teardown.
 
-- reliable monorepo component discovery
-- component dependency graphs
-- service dependency ordering
-- safe parallel execution
-- component-scoped environments
-- network-reference awareness
-- coordinated port allocation
-- partial failure handling
-- component-level verification
-- richer topology explanations
+---
 
-The goal is that `octo run` remains useful even when a repository requires several coordinated processes.
-
-## Phase 4 — Adaptive execution
+## Phase 5 — Adaptive Execution & Closed-Loop Healing
 
 Introduce controlled adaptation without sacrificing determinism.
 
-Potential capabilities:
+- Bounded fallback strategies: if Candidate A fails during verification, Candidate B from the bounded candidate set is evaluated.
+- Failure classification as evidence (distinguishing syntax/compilation errors, missing dependencies, port conflicts, and process crashes).
+- Verified strategy caching: reuse `.octo.lock` entries when repository fingerprints match; invalidate cleanly when source or manifests change.
+- External decision providers (Jev, typed LLM, or interactive human prompts) to resolve bounded ties when multiple valid candidates exist.
 
-- bounded fallback strategies
-- failure classification
-- execution feedback loops
-- verified-strategy reuse and invalidation
-- stronger decision-provider integrations
-- optional Jev/LLM assistance
-- human approval for ambiguous or potentially destructive actions
+---
 
-External intelligence must remain bounded by repository evidence and candidate sets.
+## Phase 6 — Sandboxed & Containerized Runtimes
 
-## Phase 5 — Ecosystem scale
+Safe execution boundaries for developers and automated agents.
 
-Expand Octo through extension points rather than a giant language-specific switch statement.
+- Running arbitrary repository scripts on host bare metal poses security and machine pollution risks.
+- Containerized runtime adapters: Docker/Podman container adapter to run plan steps inside ephemeral, reproducible containers.
+- Volume mounts, port mappings, and container networks derived directly from the canonical `TopologyGraph`.
+- Safe execution sandboxes for AI agents testing unverified third-party repositories.
 
-Potential extensions:
+---
 
-- framework detectors
-- candidate providers
-- runtime adapters
-- provisioning providers
-- verification providers
-- repository-specific strategy providers
-- community-maintained ecosystem packages
+## Phase 7 — Ecosystem Scale & Extension Points
 
-The core should provide stable primitives and contracts. Ecosystem knowledge should live behind those contracts.
+Expand Octo through modular contracts rather than language-specific conditional blocks.
 
-## Phase 6 — Developer trust
+- Extensible detector interface for new languages, frameworks, and tools.
+- Pluggable candidate providers and runtime adapters.
+- Custom healthcheck and verification providers.
+- Repository-specific strategy overrides and community-maintained ecosystem packages.
 
-Make reliability a product property.
+---
 
-Goals:
+## Phase 8 — Developer Trust & Open-Source Community
 
-- explain important decisions
-- provide useful dry-run/planning output
-- make machine mutations explicit
-- provide safe recovery paths
-- make failures actionable
-- maintain deterministic offline behavior
-- keep verified state auditable
-- build a large regression corpus from real repositories
+Make reliability and transparency product properties.
 
-A developer should trust Octo because they can understand what it did, not because Octo claims to be intelligent.
+- Explainability at every step: every candidate, edge, and step can explain *why* it exists and the evidence supporting it.
+- Large regression test suite drawn from real, popular open-source repositories.
+- Contributor documentation, good-first-issues, and architecture guides.
+- Transparent design discussions and release discipline.
+- Educational and mentorship pathways (e.g., GSoC) once the core has proven real-world stability.
 
-## Phase 7 — Open-source ecosystem
+---
 
-Grow the project around contributors once the technical foundation is strong enough.
-
-Priorities:
-
-- contributor documentation
-- architecture guides
-- good first issues
-- ecosystem-specific issue labels
-- clear contribution pathways
-- reproducible development environments
-- automated regression testing
-- release discipline
-- maintainer guidelines
-- transparent roadmap discussions
-
-### GSoC and similar programs
-
-GSoC should be an outcome of project maturity, not the reason to build Octo.
-
-A credible GSoC-ready project should have:
-
-- a stable, understandable architecture
-- active public development
-- meaningful contributor opportunities
-- well-scoped projects
-- documentation that gets new contributors productive
-- mentors with enough project context
-- a real user/community base
-
-If Octo reaches that point, GSoC can become one channel for bringing strong contributors into the ecosystem.
-
-## Measuring progress
+## Measuring Progress
 
 The important metrics are not lines of code or number of languages.
 
 Track:
 
-- successful execution rate on unseen repositories
-- false-positive execution rate
-- unsafe/unsupported guesses
-- actionable failure explanations
-- verified-strategy reuse
-- regression coverage from real repositories
-- time from clone to successful execution
-- contributor growth
-- independent users
+- Successful execution rate on unseen repositories without manual intervention
+- Zero command hallucinations (100% evidence-backed candidates)
+- Actionable failure explanations when execution cannot safely proceed
+- Verified-strategy reuse efficiency via `.octo.lock`
+- AI agent integration and adoption via the MCP server
+- Regression coverage from real repositories
+- Time from clone to verified running application
+- Independent developer and contributor adoption
 
 The ultimate metric:
 
-> **How often can a developer clone an unfamiliar repository and get it running without manually reconstructing its environment?**
+> **How often can a developer or AI agent clone an unfamiliar repository and get it running without manually reconstructing its environment?**
+

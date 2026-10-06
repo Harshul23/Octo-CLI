@@ -213,6 +213,40 @@ When adding a feature, ask:
 
 New execution capabilities should normally land in the intelligence pipeline.
 
+## Contribution-friendly architecture
+
+To enable developers worldwide to contribute easily without breaking core contracts, Octo enforces strict modular boundaries:
+
+### 1. Clear, isolated extension points
+Adding support for a new language, framework, or runtime should **never** require modifying core graph traversal, planning algorithms, or the decision engine. Contributors work against small, isolated interfaces:
+
+- **Detectors**: Discover signals, manifests, lockfiles, and workspace layouts.
+- **Candidate Providers**: Turn discovered evidence into bounded execution candidates (`ExecutionCandidate`).
+- **Runtime Adapters**: Map plan steps to concrete execution mechanisms (`RuntimeAdapter`).
+- **Verification Providers**: Implement deterministic health checks (ports, HTTP endpoints, process probes).
+
+### 2. Avoid monolithic switch statements
+Contributors should not add `if language == "XYZ"` branches across the core codebase. Instead:
+- Register providers through typed registries (`CandidateProviderRegistry`).
+- Keep ecosystem knowledge isolated in ecosystem-specific files or subpackages.
+- The core planner operates strictly on generic primitives (`ProjectModel`, `ExecutionCandidate`, `TopologyGraph`).
+
+### 3. Fast, hermetic testing (no external dependencies)
+Contributions must be easy to test locally in milliseconds:
+- Unit tests must not require internet access, live databases, or third-party daemon processes.
+- Use `t.TempDir()` or lightweight mock directory structures to simulate repository manifests.
+- Every new detector or candidate provider must include unit tests covering:
+  - Clear positive match (canonical project layout).
+  - Multi-entry point or ambiguous layout (bounded candidates).
+  - Negative match (should not falsely claim unrelated repos).
+
+### 4. The contributor recipe: "Adding a new ecosystem"
+1. Define evidence kinds and signal files for the ecosystem.
+2. Implement an `ExecutionCandidateProvider` returning bounded candidates with confidence scores.
+3. Add table-driven tests verifying candidate generation and edge cases.
+4. Register the provider in `NewExecutionCandidateProviders()`.
+5. Verify end-to-end execution with `octo plan` and `octo run`.
+
 ## Architectural north star
 
 A new contributor should be able to trace:
@@ -234,3 +268,4 @@ why the result can be trusted later
 ```
 
 If a feature makes that chain less explainable, it deserves scrutiny before it is merged.
+

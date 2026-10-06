@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 var explicitPortPatterns = []*regexp.Regexp{
@@ -49,6 +51,24 @@ func discoverComponentPort(root string, component Component, command string) (in
 		} else if port > 0 {
 			return port, evidence, true, nil
 		}
+	}
+
+	if port, evidence, err := discoverComposePort(root, component); err != nil {
+		return 0, nil, false, err
+	} else if port > 0 {
+		return port, evidence, false, nil
+	}
+
+	if port, evidence, err := discoverDockerfilePort(componentRoot, component.Path); err != nil {
+		return 0, nil, false, err
+	} else if port > 0 {
+		return port, evidence, false, nil
+	}
+
+	if port, evidence, err := discoverEnvFilePort(componentRoot, component.Path); err != nil {
+		return 0, nil, false, err
+	} else if port > 0 {
+		return port, evidence, false, nil
 	}
 
 	return 0, nil, false, nil
@@ -137,3 +157,98 @@ func discoverJavaApplicationPort(root, componentPath string) (int, []Evidence, e
 	}
 	return 0, nil, nil
 }
+
+func discoverComposePort(root string, component Component) (int, []Evidence, error) {
+	path := findComposeFile(root)
+	if path == "" {
+		return 0, nil, nil
+	}
+	data, err := os.ReadFile(filepath.Join(root, path))
+	if err != nil {
+		return 0, nil, nil
+	}
+	var compose composeFile
+	if err := yaml.Unmarshal(data, &compose); err != nil {
+		return 0, nil, nil
+	}
+	for name, service := range compose.Services {
+		isMatch := name == component.Name || name == "app" || name == "web"
+		if !isMatch && service.Build != nil {
+			buildCtx := composeBuild(service.Build)
+			if buildCtx == "." || buildCtx == component.Path {
+				isMatch = true
+			}
+		}
+		if !isMatch {
+			continue
+		}
+		ports := composePorts(service.Ports)
+		for _, portMapping := range ports {
+			parts := strings.Split(portMapping, ":")
+			var hostPortStr string
+			if len(parts) >= 2 {
+				hostPortStr = parts[0]
+			} else {
+				hostPortStr = parts[0]
+			}
+			if hostPort, err := strconv.Atoi(hostPortStr); err == nil && hostPort > 0 && hostPort < 65536 {
+				return hostPort, []Evidence{{
+					Kind:     EvidenceConfig,
+					Path:     filepath.ToSlash(path),
+					Detail:   "Docker Compose service " + name + " declares port " + strconv.Itoa(hostPort) + ".",
+					Strength: 0.95,
+				}}, nil
+			}
+		}
+	}
+	return 0, nil, nil
+}
+
+func discoverDockerfilePort(root, componentPath string) (int, []Evidence, error) {
+	data, err := os.ReadFile(filepath.Join(root, "Dockerfile"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil, nil
+		}
+		return 0, nil, err
+	}
+	pattern := regexp.MustCompile(`(?m)^\s*EXPOSE\s+(\d{1,5})\b`)
+	matches := pattern.FindStringSubmatch(string(data))
+	if len(matches) < 2 {
+		return 0, nil, nil
+	}
+	port, err := strconv.Atoi(matches[1])
+	if err != nil || port <= 0 || port >= 65536 {
+		return 0, nil, nil
+	}
+	return port, []Evidence{{
+		Kind:     EvidenceConfig,
+		Path:     filepath.ToSlash(filepath.Join(componentPath, "Dockerfile")),
+		Detail:   "Dockerfile explicitly exposes container port " + strconv.Itoa(port) + ".",
+		Strength: 0.90,
+	}}, nil
+}
+
+func discoverEnvFilePort(root, componentPath string) (int, []Evidence, error) {
+	for _, file := range []string{".env", ".env.local", ".env.example"} {
+		data, err := os.ReadFile(filepath.Join(root, file))
+		if err != nil {
+			continue
+		}
+		pattern := regexp.MustCompile(`(?m)^\s*(?:PORT|SERVER_PORT)\s*=\s*"?(\d{1,5})"?\s*$`)
+		matches := pattern.FindStringSubmatch(string(data))
+		if len(matches) >= 2 {
+			port, err := strconv.Atoi(matches[1])
+			if err == nil && port > 0 && port < 65536 {
+				return port, []Evidence{{
+					Kind:     EvidenceConfig,
+					Path:     filepath.ToSlash(filepath.Join(componentPath, file)),
+					Detail:   "Environment configuration explicitly declares PORT " + strconv.Itoa(port) + ".",
+					Strength: 0.90,
+				}}, nil
+			}
+		}
+	}
+	return 0, nil, nil
+}
+

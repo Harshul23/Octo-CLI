@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/harshul/octo-cli/internal/blueprint"
 	"github.com/harshul/octo-cli/internal/intelligence"
@@ -16,8 +19,9 @@ import (
 
 // runCmd represents the run command
 var runCmd = &cobra.Command{
-	Use:   "run",
+	Use:   "run [path]",
 	Short: "Understand and run the repository locally",
+	Args:  cobra.MaximumNArgs(1),
 	Long: `The run command analyzes the repository, builds an execution plan,
 resolves the required environment, executes the plan, and verifies the
 result.
@@ -39,6 +43,7 @@ func init() {
 	runCmd.Flags().Bool("skip-env-check", false, "Skip environment variable validation")
 	runCmd.Flags().Bool("no-tui", false, "Disable TUI dashboard (use plain scrolling output)")
 	runCmd.Flags().String("engine", "intelligence", "Execution engine: intelligence or legacy")
+	runCmd.Flags().Bool("json", false, "Output the ExecutionReport as JSON")
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -47,7 +52,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid execution engine %q: use legacy or intelligence", engine)
 	}
 	if engine == "intelligence" {
-		return runWithIntelligence(cmd)
+		return runWithIntelligence(cmd, args)
 	}
 
 	// ========================================
@@ -206,20 +211,29 @@ func maskEnvValue(value string) string {
 }
 
 
-func runWithIntelligence(cmd *cobra.Command) error {
-	cwd, err := os.Getwd()
+func runWithIntelligence(cmd *cobra.Command, args []string) error {
+	target := "."
+	if len(args) == 1 {
+		target = args[0]
+	}
+	cwd, err := filepath.Abs(target)
 	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
+		return fmt.Errorf("failed to resolve directory %s: %w", target, err)
 	}
 
 	watch, _ := cmd.Flags().GetBool("watch")
 	detach, _ := cmd.Flags().GetBool("detach")
-	if watch || detach {
-		return fmt.Errorf("the intelligence engine currently does not support --watch or --detach; use --engine legacy for these modes")
+	jsonOutput, _ := cmd.Flags().GetBool("json")
+	if watch && detach {
+		return fmt.Errorf("cannot combine --watch and --detach")
 	}
 
-	fmt.Println(ui.HeadingStyle.Render("Octo"))
-	fmt.Println(ui.Muted.Render("Analyzing repository..."))
+	if jsonOutput {
+		cmd.SilenceUsage = true
+	} else {
+		fmt.Println(ui.HeadingStyle.Render("Octo"))
+		fmt.Println(ui.Muted.Render("Analyzing repository..."))
+	}
 
 	model, err := intelligence.Analyze(cwd)
 	if err != nil {
@@ -234,16 +248,18 @@ func runWithIntelligence(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to validate verified strategies: %w", err)
 	}
-	for _, strategy := range strategyStatus.Reused {
-		fmt.Println(ui.SuccessLine(fmt.Sprintf("Reusing verified strategy for %s: %s → %s", strategy.Component, strategy.Candidate, strategy.Command)))
-	}
-	for _, strategy := range strategyStatus.Invalidated {
-		fmt.Println(ui.WarningLine(fmt.Sprintf("Verified strategy invalidated for %s: repository changed or candidate no longer matches", strategy.Component)))
+	if !jsonOutput {
+		for _, strategy := range strategyStatus.Reused {
+			fmt.Println(ui.SuccessLine(fmt.Sprintf("Reusing verified strategy for %s: %s → %s", strategy.Component, strategy.Candidate, strategy.Command)))
+		}
+		for _, strategy := range strategyStatus.Invalidated {
+			fmt.Println(ui.WarningLine(fmt.Sprintf("Verified strategy invalidated for %s: repository changed or candidate no longer matches", strategy.Component)))
+		}
 	}
 
 	noTUI, _ := cmd.Flags().GetBool("no-tui")
 	var decisionProvider intelligence.DecisionProvider = intelligence.DeterministicDecisionProvider{}
-	if !noTUI {
+	if !noTUI && !jsonOutput {
 		decisionProvider = ui.InteractiveDecisionProvider{}
 	}
 
@@ -253,15 +269,131 @@ func runWithIntelligence(cmd *cobra.Command) error {
 		return fmt.Errorf("execution planning failed: %w", err)
 	}
 
-	printExecutionOverview(model, plan)
+	if !jsonOutput {
+		printExecutionOverview(model, plan)
+	}
 
 	env, err := intelligence.ResolveProjectEnvironment(cwd, model)
 	if err != nil {
 		return fmt.Errorf("environment resolution failed: %w", err)
 	}
 
-	report := intelligence.ExecutePlanReport(cmd.Context(), model, plan, intelligence.NewRuntimeResolver(), env)
-	printExecutionReport(report)
+	if detach {
+		opts := intelligence.ExecutionOptions{Detach: true, Silent: jsonOutput}
+		report := intelligence.ExecutePlanReportWithOptions(cmd.Context(), model, plan, intelligence.NewRuntimeResolver(), env, opts)
+		if jsonOutput {
+			data, err := json.MarshalIndent(report, "", "  ")
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+		} else {
+			printExecutionReport(report)
+		}
+
+		if !report.Success {
+			return fmt.Errorf("intelligence execution failed: %s", report.FailureReason)
+		}
+
+		if err := intelligence.RecordVerifiedStrategies(cwd, model, plan, report, lock); err != nil {
+			return fmt.Errorf("failed to update .octo.lock: %w", err)
+		}
+		_ = intelligence.SaveDetachedState(cwd, report)
+
+		if !jsonOutput {
+			fmt.Println()
+			fmt.Println(ui.SuccessStyle.Render("✓ Execution verified successfully."))
+			if len(report.ActiveProcesses) > 0 {
+				fmt.Println()
+				fmt.Println(ui.HeadingStyle.Render("Running in detached mode:"))
+				for _, proc := range report.ActiveProcesses {
+					portInfo := ""
+					if proc.Port > 0 {
+						portInfo = fmt.Sprintf(" → http://localhost:%d", proc.Port)
+					}
+					fmt.Printf("  • %s (PID: %d)%s\n", proc.Component, proc.PID, portInfo)
+				}
+				fmt.Println(ui.Muted.Render("Active processes recorded in .octo/processes.json"))
+			}
+		}
+		return nil
+	}
+
+	if watch {
+		if !jsonOutput {
+			fmt.Println(ui.Muted.Render("Watching for changes... (press Ctrl+C to stop)"))
+		}
+		for {
+			execCtx, cancelExec := context.WithCancel(cmd.Context())
+			changeChan := make(chan struct{}, 1)
+
+			go func(currModel intelligence.ProjectModel) {
+				changed, _ := intelligence.WatchForChanges(execCtx, cwd, currModel, 500*time.Millisecond)
+				if changed {
+					select {
+					case changeChan <- struct{}{}:
+					default:
+					}
+					cancelExec()
+				}
+			}(model)
+
+			report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, intelligence.NewRuntimeResolver(), env, intelligence.ExecutionOptions{})
+			if !jsonOutput {
+				printExecutionReport(report)
+			}
+
+			if report.Success {
+				_ = intelligence.RecordVerifiedStrategies(cwd, model, plan, report, lock)
+			}
+
+			select {
+			case <-changeChan:
+				cancelExec()
+				if !jsonOutput {
+					fmt.Println()
+					fmt.Println(ui.InfoLine("↻ File change detected. Restarting application..."))
+				}
+				if m, err := intelligence.Analyze(cwd); err == nil {
+					model = m
+					if p, err := planner.Plan(cmd.Context(), model); err == nil {
+						plan = p
+					}
+				}
+				continue
+			case <-cmd.Context().Done():
+				cancelExec()
+				return nil
+			default:
+				cancelExec()
+				if !jsonOutput {
+					fmt.Println(ui.WarningLine("Process stopped. Waiting for file changes to restart..."))
+				}
+				changed, _ := intelligence.WatchForChanges(cmd.Context(), cwd, model, 500*time.Millisecond)
+				if changed {
+					if m, err := intelligence.Analyze(cwd); err == nil {
+						model = m
+						if p, err := planner.Plan(cmd.Context(), model); err == nil {
+							plan = p
+						}
+					}
+					continue
+				}
+				return nil
+			}
+		}
+	}
+
+	report := intelligence.ExecutePlanReportWithOptions(cmd.Context(), model, plan, intelligence.NewRuntimeResolver(), env, intelligence.ExecutionOptions{Silent: jsonOutput})
+	if jsonOutput {
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+	} else {
+		printExecutionReport(report)
+	}
 
 	if !report.Success {
 		return fmt.Errorf("intelligence execution failed: %s", report.FailureReason)
@@ -270,8 +402,10 @@ func runWithIntelligence(cmd *cobra.Command) error {
 	if err := intelligence.RecordVerifiedStrategies(cwd, model, plan, report, lock); err != nil {
 		return fmt.Errorf("failed to update .octo.lock: %w", err)
 	}
-	fmt.Println()
-	fmt.Println(ui.SuccessStyle.Render("✓ Execution verified successfully."))
+	if !jsonOutput {
+		fmt.Println()
+		fmt.Println(ui.SuccessStyle.Render("✓ Execution verified successfully."))
+	}
 	return nil
 }
 

@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 
 	"golang.org/x/term"
 )
@@ -22,6 +26,7 @@ type RuntimeAdapter interface {
 type RunningProcess interface {
 	Wait() error
 	Stop() error
+	Pid() int
 }
 
 // StartableRuntimeAdapter supports starting long-running commands without
@@ -77,6 +82,20 @@ func (ShellAdapter) Execute(ctx context.Context, step ExecutionStep, env Resolve
 	cmd.Stdin = os.Stdin
 	cmd.Env = mergedEnvironmentWithStep(env.ForStep(step).Values, step.Environment)
 
+	if isSilentExecution(ctx) {
+		var output bytes.Buffer
+		cmd.Stdout = &output
+		cmd.Stderr = &output
+		if err := cmd.Run(); err != nil {
+			detail := strings.TrimSpace(output.String())
+			if detail != "" {
+				return fmt.Errorf("shell step %q failed: %w\n%s", step.ID, err, detail)
+			}
+			return fmt.Errorf("shell step %q failed: %w", step.ID, err)
+		}
+		return nil
+	}
+
 	// Interactive start commands (for example terminal UIs) must keep their
 	// stdout/stderr attached to the user's terminal. Capturing them would make
 	// the process appear stuck because the child is waiting for terminal input
@@ -118,15 +137,38 @@ func (ShellAdapter) Start(ctx context.Context, step ExecutionStep, env ResolvedE
 	if step.Command == "" {
 		return nil, fmt.Errorf("step %q has no command", step.ID)
 	}
-	cmd := exec.CommandContext(ctx, "sh", "-c", step.Command)
+	cmd := exec.Command("sh", "-c", step.Command)
 	if step.WorkDir != "" {
 		cmd.Dir = step.WorkDir
 	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
 	stepEnv := env.ForStep(step)
 	cmd.Env = mergedEnvironmentWithStep(stepEnv.Values, step.Environment)
+
+	workDir := step.WorkDir
+	if workDir == "" {
+		workDir = "."
+	}
+	logDir := filepath.Join(workDir, ".octo", "logs")
+	_ = os.MkdirAll(logDir, 0o755)
+	logName := step.Component
+	if logName == "" {
+		logName = "process"
+	}
+	logFile, err := os.OpenFile(filepath.Join(logDir, logName+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err == nil {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+	} else if isSilentExecution(ctx) {
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("shell step %q failed to start: %w", step.ID, err)
 	}
@@ -145,7 +187,18 @@ func (p *shellProcess) Stop() error {
 	if p.cmd.Process == nil {
 		return nil
 	}
+	if runtime.GOOS != "windows" && p.cmd.Process.Pid > 0 {
+		_ = syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
+		return nil
+	}
 	return p.cmd.Process.Kill()
+}
+
+func (p *shellProcess) Pid() int {
+	if p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
 }
 
 // ComposeAdapter executes Docker Compose service steps.
@@ -164,6 +217,20 @@ func (ComposeAdapter) Execute(ctx context.Context, step ExecutionStep, env Resol
 	cmd := exec.CommandContext(ctx, "sh", "-c", step.Command)
 	if step.WorkDir != "" {
 		cmd.Dir = step.WorkDir
+	}
+	if isSilentExecution(ctx) {
+		var output bytes.Buffer
+		cmd.Stdout = &output
+		cmd.Stderr = &output
+		cmd.Env = mergedEnvironmentWithStep(env.Values, step.Environment)
+		if err := cmd.Run(); err != nil {
+			detail := strings.TrimSpace(output.String())
+			if detail != "" {
+				return fmt.Errorf("Compose step %q failed: %w\n%s", step.ID, err, detail)
+			}
+			return fmt.Errorf("Compose step %q failed: %w", step.ID, err)
+		}
+		return nil
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

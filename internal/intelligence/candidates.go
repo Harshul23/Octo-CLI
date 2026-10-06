@@ -195,21 +195,160 @@ func (PythonExecutionCandidateProvider) Candidates(ctx context.Context, root str
 	if err := ctx.Err(); err != nil { return nil, err }
 	componentRoot := root
 	if component.Path != "" && component.Path != "." { componentRoot = filepath.Join(root, filepath.FromSlash(component.Path)) }
-	candidates := make([]ExecutionCandidate, 0, 3)
-	pythonCommand := "python"
-	if component.PackageManager == "uv" { pythonCommand = "uv run python" } else if component.PackageManager == "poetry" { pythonCommand = "poetry run python" }
-	for _, entry := range []struct{ file string; confidence float64 }{{"main.py", 0.90}, {"app.py", 0.82}} {
-		if _, err := os.Stat(filepath.Join(componentRoot, entry.file)); err != nil { continue }
-		candidates = append(candidates, ExecutionCandidate{ID: "python."+strings.TrimSuffix(entry.file, ".py"), Command: pythonCommand+" "+entry.file, Confidence: entry.confidence, Evidence: []Evidence{{Kind: EvidenceConfig, Path: filepath.ToSlash(filepath.Join(component.Path, entry.file)), Detail: "A conventional Python application entry file exists.", Strength: entry.confidence}}})
+	candidates := make([]ExecutionCandidate, 0, 8)
+
+	runPrefix := ""
+	switch component.PackageManager {
+	case "uv":
+		runPrefix = "uv run "
+	case "poetry":
+		runPrefix = "poetry run "
+	case "pipenv":
+		runPrefix = "pipenv run "
 	}
+
+	// 1. Django: check for manage.py
+	if _, err := os.Stat(filepath.Join(componentRoot, "manage.py")); err == nil {
+		cmd := runPrefix + "python manage.py runserver"
+		candidates = append(candidates, ExecutionCandidate{
+			ID:         "python.django",
+			Command:    cmd,
+			Confidence: 0.98,
+			Evidence: []Evidence{{
+				Kind:     EvidenceConfig,
+				Path:     filepath.ToSlash(filepath.Join(component.Path, "manage.py")),
+				Detail:   "Django manage.py entry script exists.",
+				Strength: 0.98,
+			}},
+		})
+	}
+
+	// 2. FastAPI: check for FastAPI application entry points
+	if component.Framework == "FastAPI" || hasFastAPISignal(componentRoot) {
+		fastapiEntries := []struct {
+			relPath string
+			module  string
+		}{
+			{"app/main.py", "app.main:app"},
+			{"main.py", "main:app"},
+			{"app.py", "app:app"},
+			{"app/app.py", "app.app:app"},
+			{"src/main.py", "src.main:app"},
+			{"src/app/main.py", "src.app.main:app"},
+		}
+		for _, entry := range fastapiEntries {
+			if _, err := os.Stat(filepath.Join(componentRoot, entry.relPath)); err == nil {
+				uvicornCmd := runPrefix + "uvicorn " + entry.module
+				candidates = append(candidates, ExecutionCandidate{
+					ID:         "python.fastapi." + strings.ReplaceAll(filepath.Dir(entry.relPath), "/", "."),
+					Command:    uvicornCmd,
+					Confidence: 0.96,
+					Evidence: []Evidence{{
+						Kind:     EvidenceConfig,
+						Path:     filepath.ToSlash(filepath.Join(component.Path, entry.relPath)),
+						Detail:   "FastAPI application entry point found at " + entry.relPath + ".",
+						Strength: 0.96,
+					}},
+				})
+				break
+			}
+		}
+	}
+
+	// 3. Flask: check for Flask application entry points
+	if component.Framework == "Flask" {
+		flaskEntries := []string{"app.py", "wsgi.py", "main.py"}
+		for _, file := range flaskEntries {
+			if _, err := os.Stat(filepath.Join(componentRoot, file)); err == nil {
+				candidates = append(candidates, ExecutionCandidate{
+					ID:         "python.flask",
+					Command:    runPrefix + "flask run",
+					Confidence: 0.95,
+					Evidence: []Evidence{{
+						Kind:     EvidenceConfig,
+						Path:     filepath.ToSlash(filepath.Join(component.Path, file)),
+						Detail:   "Flask application entry point found at " + file + ".",
+						Strength: 0.95,
+					}},
+				})
+				break
+			}
+		}
+	}
+
+	// 4. Conventional Python entry files
+	entryFiles := []struct {
+		file       string
+		confidence float64
+	}{
+		{"main.py", 0.90},
+		{"app.py", 0.85},
+		{"app/main.py", 0.88},
+		{"app/app.py", 0.82},
+		{"src/main.py", 0.85},
+		{"src/app.py", 0.80},
+		{"wsgi.py", 0.78},
+	}
+	for _, entry := range entryFiles {
+		if _, err := os.Stat(filepath.Join(componentRoot, entry.file)); err != nil {
+			continue
+		}
+		id := "python." + strings.ReplaceAll(strings.TrimSuffix(entry.file, ".py"), "/", ".")
+		cmd := runPrefix + "python " + entry.file
+		candidates = append(candidates, ExecutionCandidate{
+			ID:         id,
+			Command:    cmd,
+			Confidence: entry.confidence,
+			Evidence: []Evidence{{
+				Kind:     EvidenceConfig,
+				Path:     filepath.ToSlash(filepath.Join(component.Path, entry.file)),
+				Detail:   "A conventional Python application entry file exists.",
+				Strength: entry.confidence,
+			}},
+		})
+	}
+
+	// 5. Package modules exposing __main__.py
 	entries, err := os.ReadDir(componentRoot)
-	if err != nil { return nil, err }
-	for _, entry := range entries {
-		if !entry.IsDir() { continue }
-		if _, err := os.Stat(filepath.Join(componentRoot, entry.Name(), "__main__.py")); err != nil { continue }
-		candidates = append(candidates, ExecutionCandidate{ID: "python.module."+entry.Name(), Command: pythonCommand+" -m "+entry.Name(), Confidence: 0.94, Evidence: []Evidence{{Kind: EvidenceConfig, Path: filepath.ToSlash(filepath.Join(component.Path, entry.Name(), "__main__.py")), Detail: "A Python package exposes an executable __main__.py module.", Strength: 0.94}}})
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "venv" || entry.Name() == "tests" {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(componentRoot, entry.Name(), "__main__.py")); err == nil {
+				candidates = append(candidates, ExecutionCandidate{
+					ID:         "python.module." + entry.Name(),
+					Command:    runPrefix + "python -m " + entry.Name(),
+					Confidence: 0.94,
+					Evidence: []Evidence{{
+						Kind:     EvidenceConfig,
+						Path:     filepath.ToSlash(filepath.Join(component.Path, entry.Name(), "__main__.py")),
+						Detail:   "A Python package exposes an executable __main__.py module.",
+						Strength: 0.94,
+					}},
+				})
+			}
+		}
 	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Confidence != candidates[j].Confidence {
+			return candidates[i].Confidence > candidates[j].Confidence
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
 	return candidates, nil
+}
+
+func hasFastAPISignal(root string) bool {
+	for _, f := range []string{"pyproject.toml", "requirements.txt", "Pipfile"} {
+		if data, err := os.ReadFile(filepath.Join(root, f)); err == nil {
+			if strings.Contains(strings.ToLower(string(data)), "fastapi") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type NodeExecutionCandidateProvider struct{}
@@ -227,7 +366,11 @@ func (NodeExecutionCandidateProvider) Candidates(ctx context.Context, root strin
 	for _, script := range []struct{ name string; confidence float64 }{{"start", 0.94}, {"dev", 0.82}} {
 		if _, ok := pkg.Scripts[script.name]; !ok { continue }
 		pm := component.PackageManager; if pm == "" { pm = "npm" }
-		candidates = append(candidates, ExecutionCandidate{ID: "node.script."+script.name, Command: pm+" "+script.name, Confidence: script.confidence, Evidence: []Evidence{{Kind: EvidenceScript, Path: filepath.ToSlash(filepath.Join(component.Path, "package.json")), Detail: "package.json defines the "+script.name+" script.", Strength: script.confidence}}})
+		command := pm + " " + script.name
+		if pm == "npm" && script.name != "start" && script.name != "test" {
+			command = "npm run " + script.name
+		}
+		candidates = append(candidates, ExecutionCandidate{ID: "node.script."+script.name, Command: command, Confidence: script.confidence, Evidence: []Evidence{{Kind: EvidenceScript, Path: filepath.ToSlash(filepath.Join(component.Path, "package.json")), Detail: "package.json defines the "+script.name+" script.", Strength: script.confidence}}})
 	}
 	return candidates, nil
 }

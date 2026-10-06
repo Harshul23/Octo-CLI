@@ -2,7 +2,10 @@ package intelligence
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -33,21 +36,57 @@ type ExecutionFailure struct {
 	Evidence    Evidence `json:"evidence" yaml:"evidence"`
 }
 
-// ExecutionReport is the canonical result of an intelligence execution.
-type ExecutionReport struct {
-	ProjectName   string               `json:"project_name" yaml:"project_name"`
-	Confidence    float64              `json:"confidence" yaml:"confidence"`
-	Plan          ExecutionPlan        `json:"plan" yaml:"plan"`
-	Steps         []ExecutionStepResult `json:"steps" yaml:"steps"`
-	Verification []VerificationResult `json:"verification,omitempty" yaml:"verification,omitempty"`
-	Failures     []ExecutionFailure  `json:"failures,omitempty" yaml:"failures,omitempty"`
-	Decisions    []DecisionTraceEntry `json:"decisions,omitempty" yaml:"decisions,omitempty"`
-	Success      bool                 `json:"success" yaml:"success"`
-	FailureReason string               `json:"failure_reason,omitempty" yaml:"failure_reason,omitempty"`
+// ActiveProcess describes an active long-running process managed by Octo.
+type ActiveProcess struct {
+	StepID    string `json:"step_id" yaml:"step_id"`
+	Component string `json:"component,omitempty" yaml:"component,omitempty"`
+	PID       int    `json:"pid,omitempty" yaml:"pid,omitempty"`
+	Port      int    `json:"port,omitempty" yaml:"port,omitempty"`
 }
 
-// ExecutePlanReport executes a plan and returns a serializable execution report.
+// ExecutionOptions configures execution behavior.
+type ExecutionOptions struct {
+	Detach bool `json:"detach" yaml:"detach"`
+	Silent bool `json:"silent" yaml:"silent"`
+}
+
+type executionContextKey string
+
+const silentExecutionKey executionContextKey = "octo.silent"
+
+func withSilentExecution(ctx context.Context, silent bool) context.Context {
+	return context.WithValue(ctx, silentExecutionKey, silent)
+}
+
+func isSilentExecution(ctx context.Context) bool {
+	v, ok := ctx.Value(silentExecutionKey).(bool)
+	return ok && v
+}
+
+// ExecutionReport is the canonical result of an intelligence execution.
+type ExecutionReport struct {
+	ProjectName     string                `json:"project_name" yaml:"project_name"`
+	Confidence      float64               `json:"confidence" yaml:"confidence"`
+	Plan            ExecutionPlan         `json:"plan" yaml:"plan"`
+	Steps           []ExecutionStepResult `json:"steps" yaml:"steps"`
+	Verification    []VerificationResult  `json:"verification,omitempty" yaml:"verification,omitempty"`
+	Failures        []ExecutionFailure   `json:"failures,omitempty" yaml:"failures,omitempty"`
+	Decisions       []DecisionTraceEntry  `json:"decisions,omitempty" yaml:"decisions,omitempty"`
+	ActiveProcesses []ActiveProcess       `json:"active_processes,omitempty" yaml:"active_processes,omitempty"`
+	Success         bool                  `json:"success" yaml:"success"`
+	FailureReason   string                `json:"failure_reason,omitempty" yaml:"failure_reason,omitempty"`
+}
+
+// ExecutePlanReport executes a plan with default options and returns a serializable execution report.
 func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPlan, resolver RuntimeResolver, env ResolvedEnvironment) ExecutionReport {
+	return ExecutePlanReportWithOptions(ctx, model, plan, resolver, env, ExecutionOptions{})
+}
+
+// ExecutePlanReportWithOptions executes a plan with specific options (such as detached mode).
+func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan ExecutionPlan, resolver RuntimeResolver, env ResolvedEnvironment, opts ExecutionOptions) ExecutionReport {
+	if opts.Silent {
+		ctx = withSilentExecution(ctx, true)
+	}
 	report := ExecutionReport{
 		ProjectName: model.Name,
 		Confidence: model.Confidence,
@@ -114,7 +153,8 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 			// Resolve the environment at the execution boundary so component-local
 			// values are visible only to steps belonging to that component.
 			stepEnv := env.ForStep(attempt)
-			if attempt.LongRunning {
+			isStartable := attempt.LongRunning || (opts.Detach && attempt.Phase == PhaseStart)
+			if isStartable {
 				startable, ok := adapter.(StartableRuntimeAdapter)
 				if !ok {
 					err := fmt.Errorf("runtime adapter %q cannot start long-running step %q", adapter.Name(), id)
@@ -163,6 +203,16 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 					}
 				}
 				running = append(running, process)
+				pid := 0
+				if p, ok := process.(interface{ Pid() int }); ok {
+					pid = p.Pid()
+				}
+				report.ActiveProcesses = append(report.ActiveProcesses, ActiveProcess{
+					StepID:    id,
+					Component: attempt.Component,
+					PID:       pid,
+					Port:      port,
+				})
 			} else if err := adapter.Execute(ctx, attempt, stepEnv); err != nil {
 				result.Status = StepFailed
 				result.Reason = err.Error()
@@ -204,7 +254,7 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 		return report
 	}
 
-	if len(running) > 0 {
+	if !opts.Detach && len(running) > 0 {
 		if err := waitForRunningProcesses(ctx, running); err != nil {
 			report.FailureReason = err.Error()
 			return report
@@ -214,6 +264,22 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 	report.Success = true
 	report.FailureReason = ""
 	return report
+}
+
+// SaveDetachedState writes active detached process information to .octo/processes.json.
+func SaveDetachedState(root string, report ExecutionReport) error {
+	if len(report.ActiveProcesses) == 0 {
+		return nil
+	}
+	dir := filepath.Join(root, ".octo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(report.ActiveProcesses, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "processes.json"), data, 0o644)
 }
 
 func portForComponent(ports []PortAssignment, component string) int {
