@@ -50,6 +50,15 @@ var explainCmd = &cobra.Command{
     plan, err := planner.Plan(cmd.Context(), model)
     if err != nil { return err }
 
+    jsonOutput, err := cmd.Flags().GetBool("json")
+    if err == nil && jsonOutput {
+      decisions := intelligence.BuildDecisionTrace(model, plan)
+      data, err := json.MarshalIndent(decisions, "", "  ")
+      if err != nil { return err }
+      fmt.Println(string(data))
+      return nil
+    }
+
     fmt.Printf("Why Octo made these decisions for %s:\n\n", model.Name)
     for _, d := range intelligence.BuildDecisionTrace(model, plan) {
       fmt.Printf("- %s = %s\n  %s (confidence %.0f%%)\n", d.Decision, unknown(d.Value), d.Reason, d.Confidence*100)
@@ -64,4 +73,9 @@ var explainCmd = &cobra.Command{
 
 func unknown(s string) string { if s == "" { return "unknown" }; return s }
 
-func init() { inspectCmd.Flags().Bool("json", false, "Output the ProjectModel as JSON"); rootCmd.AddCommand(inspectCmd); rootCmd.AddCommand(explainCmd) }
+func init() {
+	inspectCmd.Flags().Bool("json", false, "Output the ProjectModel as JSON")
+	explainCmd.Flags().Bool("json", false, "Output decisions and evidence as JSON")
+	rootCmd.AddCommand(inspectCmd)
+	rootCmd.AddCommand(explainCmd)
+}
