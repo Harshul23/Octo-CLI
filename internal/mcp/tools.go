@@ -93,6 +93,32 @@ func DefaultTools() []Tool {
 				},
 			},
 		},
+		{
+			Name:        "octo_env",
+			Description: "Inspect present and missing environment variables, and generate safe non-secret configuration templates.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"path": {
+						Type:        "string",
+						Description: "Path to the repository directory (defaults to current working directory).",
+					},
+				},
+			},
+		},
+		{
+			Name:        "octo_preview",
+			Description: "Preview all machine changes, filesystem mutations, port allocations, and processes before execution.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"path": {
+						Type:        "string",
+						Description: "Path to the repository directory (defaults to current working directory).",
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -110,6 +136,10 @@ func ExecuteTool(ctx context.Context, name string, args map[string]interface{}) 
 		return handleVerify(ctx, args)
 	case "octo_diagnose":
 		return handleDiagnose(ctx, args)
+	case "octo_env":
+		return handleEnv(ctx, args)
+	case "octo_preview":
+		return handlePreview(ctx, args)
 	default:
 		return CallToolResult{
 			IsError: true,
@@ -366,6 +396,62 @@ func handleVerify(ctx context.Context, args map[string]interface{}) (CallToolRes
 
 	return CallToolResult{
 		IsError: verifyErr != nil,
+		Content: []ContentItem{{
+			Type: "text",
+			Text: string(data),
+		}},
+	}, nil
+}
+
+func handleEnv(ctx context.Context, args map[string]interface{}) (CallToolResult, error) {
+	target, err := resolvePath(args)
+	if err != nil {
+		return toolError(err.Error()), nil
+	}
+
+	model, err := intelligence.Analyze(target)
+	if err != nil {
+		return toolError(fmt.Sprintf("analysis failed: %v", err)), nil
+	}
+
+	status := intelligence.InspectEnvironmentStatus(target, model)
+	data, err := json.MarshalIndent(status, "", "  ")
+	if err != nil {
+		return toolError(fmt.Sprintf("failed to serialize environment status: %v", err)), nil
+	}
+
+	return CallToolResult{
+		Content: []ContentItem{{
+			Type: "text",
+			Text: string(data),
+		}},
+	}, nil
+}
+
+func handlePreview(ctx context.Context, args map[string]interface{}) (CallToolResult, error) {
+	target, err := resolvePath(args)
+	if err != nil {
+		return toolError(err.Error()), nil
+	}
+
+	model, err := intelligence.Analyze(target)
+	if err != nil {
+		return toolError(fmt.Sprintf("analysis failed: %v", err)), nil
+	}
+
+	planner := intelligence.DeterministicPlanner{}
+	plan, err := planner.Plan(ctx, model)
+	if err != nil {
+		return toolError(fmt.Sprintf("planning failed: %v", err)), nil
+	}
+
+	preview := intelligence.BuildMachinePreview(ctx, model, plan)
+	data, err := json.MarshalIndent(preview, "", "  ")
+	if err != nil {
+		return toolError(fmt.Sprintf("failed to serialize machine preview: %v", err)), nil
+	}
+
+	return CallToolResult{
 		Content: []ContentItem{{
 			Type: "text",
 			Text: string(data),

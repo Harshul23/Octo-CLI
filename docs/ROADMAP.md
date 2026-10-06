@@ -92,19 +92,30 @@ Octo's core philosophy—**Evidence before inference**, **Bounded candidates**, 
 
 ## Phase 3 — Dependency and Environment Reproduction
 
-**Immediate priority**
+**Status: completed**
 
-Move from command execution toward reproducible local environments.
+Moved from command execution toward reproducible local environments.
 
-- Runtime version detection and compatibility checks (e.g., Node 18 vs 22, Go 1.22+, Python venvs).
-- Package-manager detection and installation boundaries (pnpm, yarn, npm, uv, poetry, cargo).
-- Missing environment variable discovery and safe `.env` template generation (without exposing or storing secrets).
-- Machine-change previews: planning is inspectable and explainable before any machine mutation occurs.
-- Service provisioning checks before dependency installation.
+- **Runtime version detection & compatibility**:
+  - Semantic version constraint matching (semver ranges like `>=18`, `^20`, `20.x`, Go minor compatibility).
+  - Pre-flight runtime toolchain verification against the host (`node`, `go`, `python3`, `rustc`).
+  - Python virtual environment (`.venv`, `venv`) automatic discovery, wiring into `PATH` and setting `VIRTUAL_ENV`.
+- **Package-manager boundaries**:
+  - Explicit detection and isolation across `pnpm`, `yarn`, `npm`, `uv`, `poetry`, `pip`, `cargo`, and `go`.
+  - Installation prerequisites with actionable remediation guidance.
+- **Environment variables & safe templates**:
+  - Missing required vs optional variable discovery without secret exposure (`octo env`, `octo_env`).
+  - Safe placeholder `.env.template` generation (`octo env template`).
+- **Machine-change previews**:
+  - Complete pre-execution inspection of projected filesystem mutations, network port listeners, and processes before any command runs (`octo preview`, `octo_preview`).
+- **Service provisioning checks**:
+  - Pre-flight infrastructure checks (`service.docker`) verified before execution.
 
 ---
 
 ## Phase 4 — Multi-Component and Service Topology
+
+**Immediate priority**
 
 Treat repositories as systems rather than single processes.
 
