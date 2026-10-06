@@ -177,18 +177,32 @@ Safe execution boundaries for developers and automated AI agents.
 
 ## Phase 7 — Ecosystem Scale & Extension Points
 
-**Immediate priority**
+**Status: completed**
 
 Expand Octo through modular contracts rather than language-specific conditional blocks.
 
-- Extensible detector interface for new languages, frameworks, and tools.
-- Pluggable candidate providers and runtime adapters.
-- Custom healthcheck and verification providers.
-- Repository-specific strategy overrides and community-maintained ecosystem packages.
+- **Extensible Detector Registry (`ProjectDetectorRegistry`)**:
+  - Modular project detectors (`ProjectDetector`) and signal definitions (`SignalDefinition`) registered dynamically without modifying core algorithms.
+  - Native global registration via `RegisterProjectDetector` and `RegisterProjectSignal`.
+  - Added built-in detection for PHP (`composer.json`) and Elixir (`mix.exs`).
+- **Pluggable Candidate Provider Registry (`CandidateProviderRegistry`)**:
+  - Decoupled candidate providers from hardcoded lists: any ecosystem can register via `RegisterCandidateProvider`.
+  - Added built-in candidate providers for PHP (Laravel `artisan serve`, `composer run dev`, PHP CLI server) and Elixir (Phoenix `mix phx.server`, `mix run --no-halt`).
+- **Extensible Verification Providers (`VerificationRegistry`)**:
+  - Decoupled runtime readiness checks into pluggable `VerificationProvider` implementations.
+  - Added `HTTPVerificationProvider` (`VerificationHTTP`) to verify endpoint health, HTTP status codes, and paths (e.g. `/healthz`).
+  - Allows custom protocols and probes via `RegisterVerificationProvider`.
+- **Repository-Specific Strategy Overrides (`.octo.yaml` / `.octo.yml`)**:
+  - Declarative developer configuration overriding auto-detected run commands, strict ports, environments, and custom verification endpoints.
+  - Generates explicit `override.*` candidates with 1.0 confidence and clear `EvidenceConfig` tracing.
+- **Pluggable Runtime Adapter Registry (`RuntimeAdapterRegistry`)**:
+  - Dynamic runtime adapter registration (`RegisterRuntimeAdapter`) for custom execution engines.
 
 ---
 
 ## Phase 8 — Developer Trust & Open-Source Community
+
+**Immediate priority**
 
 Make reliability and transparency product properties.
 

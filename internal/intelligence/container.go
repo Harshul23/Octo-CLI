@@ -295,6 +295,13 @@ func ResolveContainerImage(language, runtimeVersion string) string {
 			return fmt.Sprintf("ruby:%s-alpine", major)
 		}
 		return "ruby:3.3-alpine"
+	case "php":
+		if major != "" {
+			return fmt.Sprintf("php:%s-cli-alpine", major)
+		}
+		return "php:8.3-cli-alpine"
+	case "elixir":
+		return "elixir:1.16-alpine"
 	default:
 		return "alpine:latest"
 	}

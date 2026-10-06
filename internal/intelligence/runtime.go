@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/term"
@@ -41,6 +42,45 @@ type RuntimeResolver struct {
 	adapters []RuntimeAdapter
 }
 
+// RegisterAdapter adds a custom runtime adapter with highest precedence.
+func (r *RuntimeResolver) RegisterAdapter(adapter RuntimeAdapter) {
+	r.adapters = append([]RuntimeAdapter{adapter}, r.adapters...)
+}
+
+// RuntimeAdapterRegistry manages global or custom runtime adapters.
+type RuntimeAdapterRegistry struct {
+	mu       sync.RWMutex
+	adapters []RuntimeAdapter
+}
+
+func NewRuntimeAdapterRegistry() *RuntimeAdapterRegistry {
+	return &RuntimeAdapterRegistry{}
+}
+
+var defaultRuntimeAdapterRegistry = NewRuntimeAdapterRegistry()
+
+func DefaultRuntimeAdapterRegistry() *RuntimeAdapterRegistry {
+	return defaultRuntimeAdapterRegistry
+}
+
+func RegisterRuntimeAdapter(adapter RuntimeAdapter) {
+	defaultRuntimeAdapterRegistry.Register(adapter)
+}
+
+func (r *RuntimeAdapterRegistry) Register(adapter RuntimeAdapter) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.adapters = append([]RuntimeAdapter{adapter}, r.adapters...)
+}
+
+func (r *RuntimeAdapterRegistry) Adapters() []RuntimeAdapter {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]RuntimeAdapter, len(r.adapters))
+	copy(out, r.adapters)
+	return out
+}
+
 // RuntimeResolverOptions configures adapter selection in RuntimeResolver.
 type RuntimeResolverOptions struct {
 	Sandbox        bool
@@ -56,24 +96,23 @@ func NewRuntimeResolver() RuntimeResolver {
 
 // NewRuntimeResolverWithOptions creates a resolver configured for standard or sandboxed container execution.
 func NewRuntimeResolverWithOptions(opts RuntimeResolverOptions) RuntimeResolver {
+	custom := defaultRuntimeAdapterRegistry.Adapters()
 	if opts.Sandbox {
 		container := NewContainerAdapter(opts.Root)
 		container.Language = opts.Language
 		container.RuntimeVersion = opts.RuntimeVersion
-		return RuntimeResolver{
-			adapters: []RuntimeAdapter{
-				ComposeAdapter{},
-				container,
-				ShellAdapter{},
-			},
-		}
-	}
-	return RuntimeResolver{
-		adapters: []RuntimeAdapter{
+		base := []RuntimeAdapter{
 			ComposeAdapter{},
+			container,
 			ShellAdapter{},
-		},
+		}
+		return RuntimeResolver{adapters: append(custom, base...)}
 	}
+	base := []RuntimeAdapter{
+		ComposeAdapter{},
+		ShellAdapter{},
+	}
+	return RuntimeResolver{adapters: append(custom, base...)}
 }
 
 // Resolve returns the first adapter that explicitly supports the step.

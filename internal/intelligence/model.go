@@ -116,4 +116,5 @@ type ProjectModel struct {
 	Services []Service `json:"services,omitempty" yaml:"services,omitempty"`
 	Environment EnvironmentModel `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Evidence []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
+	CustomVerification []VerificationCheck `json:"custom_verification,omitempty" yaml:"custom_verification,omitempty"`
 }
