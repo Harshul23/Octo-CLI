@@ -97,8 +97,8 @@ func TestServerToolsList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(res.Tools) < 6 {
-		t.Fatalf("expected at least 6 tools, got %d", len(res.Tools))
+	if len(res.Tools) < 8 {
+		t.Fatalf("expected at least 8 tools, got %d", len(res.Tools))
 	}
 
 	toolMap := make(map[string]bool)
@@ -106,7 +106,7 @@ func TestServerToolsList(t *testing.T) {
 		toolMap[tool.Name] = true
 	}
 
-	for _, expected := range []string{"octo_inspect", "octo_topology", "octo_plan", "octo_run_and_verify", "octo_verify", "octo_diagnose"} {
+	for _, expected := range []string{"octo_inspect", "octo_topology", "octo_plan", "octo_run_and_verify", "octo_verify", "octo_diagnose", "octo_env", "octo_preview"} {
 		if !toolMap[expected] {
 			t.Fatalf("missing expected tool: %s", expected)
 		}
@@ -427,6 +427,93 @@ func TestServerToolsCallTopologyAndVerify(t *testing.T) {
 	}
 	if !strings.Contains(toolVerify.Content[0].Text, `"project_name": "demo"`) {
 		t.Fatalf("expected verify result to contain project name 'demo': %s", toolVerify.Content[0].Text)
+	}
+}
+
+func TestServerToolsCallEnvAndPreview(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/demo\ngo 1.24\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\nfunc main() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer()
+
+	// 1. Env
+	envReq := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      50,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "octo_env",
+			"arguments": map[string]interface{}{
+				"path": root,
+			},
+		},
+	}
+	envData, _ := json.Marshal(envReq)
+
+	// 2. Preview
+	prevReq := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      51,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "octo_preview",
+			"arguments": map[string]interface{}{
+				"path": root,
+			},
+		},
+	}
+	prevData, _ := json.Marshal(prevReq)
+
+	input := string(envData) + "\n" + string(prevData) + "\n"
+	in := strings.NewReader(input)
+	var out bytes.Buffer
+
+	if err := s.Serve(context.Background(), in, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	dec := json.NewDecoder(&out)
+
+	var respEnv Response
+	if err := dec.Decode(&respEnv); err != nil {
+		t.Fatal(err)
+	}
+	if respEnv.Error != nil {
+		t.Fatalf("env error: %v", respEnv.Error)
+	}
+	dataEnv, _ := json.Marshal(respEnv.Result)
+	var toolEnv CallToolResult
+	_ = json.Unmarshal(dataEnv, &toolEnv)
+	if toolEnv.IsError || len(toolEnv.Content) == 0 {
+		t.Fatalf("unexpected env result: %#v", toolEnv)
+	}
+	if !strings.Contains(toolEnv.Content[0].Text, "total_variables") {
+		t.Fatalf("expected env result to contain 'total_variables': %s", toolEnv.Content[0].Text)
+	}
+
+	var respPrev Response
+	if err := dec.Decode(&respPrev); err != nil {
+		t.Fatal(err)
+	}
+	if respPrev.Error != nil {
+		t.Fatalf("preview error: %v", respPrev.Error)
+	}
+	dataPrev, _ := json.Marshal(respPrev.Result)
+	var toolPrev CallToolResult
+	_ = json.Unmarshal(dataPrev, &toolPrev)
+	if toolPrev.IsError || len(toolPrev.Content) == 0 {
+		t.Fatalf("unexpected preview result: %#v", toolPrev)
+	}
+	if !strings.Contains(toolPrev.Content[0].Text, `"project_name": "demo"`) {
+		t.Fatalf("expected preview result to contain project name 'demo': %s", toolPrev.Content[0].Text)
+	}
+	if !strings.Contains(toolPrev.Content[0].Text, "runtime_check") {
+		t.Fatalf("expected preview result to contain runtime_check: %s", toolPrev.Content[0].Text)
 	}
 }
 
