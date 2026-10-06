@@ -112,3 +112,113 @@ func findComponent(components []Component, name string) *Component {
 	}
 	return nil
 }
+
+func TestGoWorkspaceDiscovery(t *testing.T) {
+	root := t.TempDir()
+
+	write := func(path, content string) {
+		t.Helper()
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("go.work", `go 1.24
+use (
+	./services/api
+	./services/web
+)
+`)
+	write("services/api/go.mod", "module example.com/api\n\ngo 1.24\n")
+	write("services/api/main.go", "package main\nfunc main() {}\n")
+
+	write("services/web/go.mod", "module example.com/web\n\ngo 1.24\nrequire example.com/api v0.0.0\n")
+	write("services/web/main.go", "package main\nfunc main() {}\n")
+	write("services/web/web.go", "package main\n")
+
+	model, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !model.Monorepo {
+		t.Fatal("expected Go workspace to be detected as monorepo")
+	}
+	if len(model.Components) != 2 {
+		t.Fatalf("expected 2 components, got %d", len(model.Components))
+	}
+
+	web := findComponent(model.Components, "web")
+	if web == nil {
+		t.Fatal("web component not found")
+	}
+	if len(web.DependsOn) != 1 || web.DependsOn[0] != "api" {
+		t.Fatalf("expected web to depend on api: %v", web.DependsOn)
+	}
+	if web.RunCommand != "go run ." {
+		t.Fatalf("expected run command 'go run .', got %q", web.RunCommand)
+	}
+}
+
+func TestCargoWorkspaceDiscovery(t *testing.T) {
+	root := t.TempDir()
+
+	write := func(path, content string) {
+		t.Helper()
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("Cargo.toml", `[workspace]
+members = [
+	"crates/cli",
+	"crates/core",
+]
+`)
+	write("crates/core/Cargo.toml", `[package]
+name = "core"
+version = "0.1.0"
+`)
+	write("crates/core/src/lib.rs", "pub fn hello() {}")
+
+	write("crates/cli/Cargo.toml", `[package]
+name = "cli"
+version = "0.1.0"
+
+[dependencies]
+core = { path = "../core" }
+`)
+	write("crates/cli/src/main.rs", "fn main() {}")
+
+	model, err := Analyze(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !model.Monorepo {
+		t.Fatal("expected Cargo workspace to be detected as monorepo")
+	}
+	if len(model.Components) != 2 {
+		t.Fatalf("expected 2 components, got %d", len(model.Components))
+	}
+
+	cli := findComponent(model.Components, "cli")
+	if cli == nil {
+		t.Fatal("cli component not found")
+	}
+	if len(cli.DependsOn) != 1 || cli.DependsOn[0] != "core" {
+		t.Fatalf("expected cli to depend on core: %v", cli.DependsOn)
+	}
+	if cli.RunCommand != "cargo run -p cli" {
+		t.Fatalf("expected run command 'cargo run -p cli', got %q", cli.RunCommand)
+	}
+}

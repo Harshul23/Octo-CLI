@@ -97,3 +97,49 @@ func TestAllocateComponentPortsShiftsNonStrictPort(t *testing.T) {
 		t.Fatalf("assignments=%+v", assignments)
 	}
 }
+
+func TestAllocateComponentPortsShiftsPortConflictingWithService(t *testing.T) {
+	servicePort := freeTestPort(t)
+	services := []Service{
+		{
+			Name:  "postgres",
+			Ports: []string{fmt.Sprintf("%d:5432", servicePort)},
+		},
+	}
+	components := []Component{
+		{Name: "api", Port: servicePort, PortStrict: false},
+	}
+
+	assignments, err := AllocateComponentPortsWithServices(components, services)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assignments) != 1 {
+		t.Fatalf("expected 1 assignment, got %d", len(assignments))
+	}
+	if assignments[0].Resolved == servicePort {
+		t.Fatalf("expected port to shift away from service port %d, got %d", servicePort, assignments[0].Resolved)
+	}
+	if !assignments[0].Automatic {
+		t.Fatal("expected assignment to be marked automatic")
+	}
+}
+
+func TestAllocateComponentPortsStrictFailsWhenConflictingWithService(t *testing.T) {
+	servicePort := freeTestPort(t)
+	services := []Service{
+		{
+			Name:  "redis",
+			Ports: []string{fmt.Sprintf("%d:6379", servicePort)},
+		},
+	}
+	components := []Component{
+		{Name: "cache", Port: servicePort, PortStrict: true},
+	}
+
+	_, err := AllocateComponentPortsWithServices(components, services)
+	if err == nil {
+		t.Fatal("expected strict port conflict with service to fail")
+	}
+}
+

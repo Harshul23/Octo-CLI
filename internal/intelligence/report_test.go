@@ -170,6 +170,9 @@ type mockStartableAdapter struct {
 func (m *mockStartableAdapter) Name() string { return "mock-startable" }
 func (m *mockStartableAdapter) Supports(step ExecutionStep) bool { return step.Command != "" }
 func (m *mockStartableAdapter) Execute(_ context.Context, step ExecutionStep, _ ResolvedEnvironment) error {
+	if step.Command == "failing-command" {
+		return fmt.Errorf("step execution failed")
+	}
 	return nil
 }
 func (m *mockStartableAdapter) Start(_ context.Context, step ExecutionStep, _ ResolvedEnvironment) (RunningProcess, error) {
@@ -221,4 +224,35 @@ func TestExecutePlanReportDetachedMode(t *testing.T) {
 		t.Fatalf("SaveDetachedState failed: %v", err)
 	}
 }
+
+func TestExecutePlanReportTeardownOnPartialFailure(t *testing.T) {
+	adapter := &mockStartableAdapter{}
+	plan := ExecutionPlan{
+		ProjectName: "demo",
+		Steps: []ExecutionStep{
+			{
+				ID: "component.web.start", Component: "web", Phase: PhaseStart,
+				Command: "run-server", LongRunning: true,
+			},
+			{
+				ID: "component.worker.start", Component: "worker", Phase: PhaseStart,
+				Command: "failing-command", LongRunning: false,
+			},
+		},
+	}
+	report := ExecutePlanReportWithOptions(context.Background(), ProjectModel{Name: "demo"}, plan, RuntimeResolver{
+		adapters: []RuntimeAdapter{adapter},
+	}, ResolvedEnvironment{Values: map[string]string{}}, ExecutionOptions{})
+
+	if report.Success {
+		t.Fatal("expected execution to fail")
+	}
+	if !report.TeardownPerformed {
+		t.Fatal("expected teardown to be performed on partial failure")
+	}
+	if adapter.startedProcess == nil || !adapter.startedProcess.stopped {
+		t.Fatal("expected previously started background process to be stopped during teardown")
+	}
+}
+
 

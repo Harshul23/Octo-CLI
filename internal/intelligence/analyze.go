@@ -104,6 +104,15 @@ func Analyze(path string) (ProjectModel, error) {
 }
 
 func signalFile(root, lang string) string {
+  if lang == "Go" {
+    if _, e := os.Stat(filepath.Join(root, "go.mod")); e == nil {
+      return "go.mod"
+    }
+    if _, e := os.Stat(filepath.Join(root, "go.work")); e == nil {
+      return "go.work"
+    }
+    return ""
+  }
   files:=map[string]string{"Node":"package.json","Java":"pom.xml","Python":"pyproject.toml","Go":"go.mod","Rust":"Cargo.toml","Ruby":"Gemfile"}
   f:=files[lang]; if f=="" { return "" }; if _,e:=os.Stat(filepath.Join(root,f)); e!=nil{return ""}; return f
 }
@@ -120,9 +129,15 @@ func lockfile(root, pm string) string {
   f:=files[pm]; if f=="" {return ""}; if _,e:=os.Stat(filepath.Join(root,f));e!=nil{return ""};return f
 }
 func monorepoMarker(root string) string {
-  for _,f:=range []string{"pnpm-workspace.yaml","nx.json","turbo.json","lerna.json","rush.json"} {
+  for _,f:=range []string{"pnpm-workspace.yaml","nx.json","turbo.json","lerna.json","rush.json","go.work"} {
     if _,e:=os.Stat(filepath.Join(root,f));e==nil{return f}
-  }; return ""
+  }
+  if cargoData, err := os.ReadFile(filepath.Join(root, "Cargo.toml")); err == nil {
+    if strings.Contains(string(cargoData), "[workspace]") {
+      return "Cargo.toml"
+    }
+  }
+  return ""
 }
 func detectFramework(root, lang string) string {
   if lang=="Node" {

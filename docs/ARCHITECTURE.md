@@ -232,7 +232,16 @@ Octo separates configuration requirements from secrets and mutations:
 - **Safe Environment Templates**: Automatically discovers missing required vs optional environment variables from repository evidence and provides zero-secret `.env` templates (`octo env template`, `octo_env`).
 - **Machine Mutation Previews**: Before any process or filesystem mutation occurs, agents and developers can inspect projected impact (`octo preview`, `octo_preview`) covering filesystem changes, network port listeners, and spawned processes.
 
+## Multi-Component & Service Topology
 
+Octo models multi-service architectures and monorepos as unified dependency graphs:
+
+- **Workspace Manifest Parsers**: Discovers component boundaries, inter-package dependencies, and package-scoped run targets across Node (npm, yarn, pnpm workspaces), Go workspaces (`go.work`), and Rust Cargo workspaces (`[workspace]` in `Cargo.toml`).
+- **Compose Service Discovery**: Scans and parses Docker Compose manifests (`compose.yml`, `docker-compose.yml`), mapping healthchecks, declared exposed ports, and dependency chains.
+- **Port Conflict Pre-Reservation & Shifting**: Infrastructure services often declare fixed host port bindings (e.g., PostgreSQL `5432:5432`). Octo pre-reserves service host ports before allocating application component ports. Conflicting non-strict component ports dynamically shift to free host ports with updated `PORT` environment bindings.
+- **Topological Startup & Teardown Lifecycle**:
+  - The deterministic planner constructs a strict directed acyclic graph based on `depends_on` relationships with cycle detection.
+  - In partial failure scenarios (a component crashes or fails health verification), the teardown loop automatically halts all previously launched background processes and Compose services, preventing orphaned processes and lingering containers.
 
 ## Contribution-friendly architecture
 

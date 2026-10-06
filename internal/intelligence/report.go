@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -72,9 +74,10 @@ type ExecutionReport struct {
 	Verification    []VerificationResult  `json:"verification,omitempty" yaml:"verification,omitempty"`
 	Failures        []ExecutionFailure   `json:"failures,omitempty" yaml:"failures,omitempty"`
 	Decisions       []DecisionTraceEntry  `json:"decisions,omitempty" yaml:"decisions,omitempty"`
-	ActiveProcesses []ActiveProcess       `json:"active_processes,omitempty" yaml:"active_processes,omitempty"`
-	Success         bool                  `json:"success" yaml:"success"`
-	FailureReason   string                `json:"failure_reason,omitempty" yaml:"failure_reason,omitempty"`
+	ActiveProcesses   []ActiveProcess       `json:"active_processes,omitempty" yaml:"active_processes,omitempty"`
+	TeardownPerformed bool                  `json:"teardown_performed,omitempty" yaml:"teardown_performed,omitempty"`
+	Success           bool                  `json:"success" yaml:"success"`
+	FailureReason     string                `json:"failure_reason,omitempty" yaml:"failure_reason,omitempty"`
 }
 
 // ExecutePlanReport executes a plan with default options and returns a serializable execution report.
@@ -83,22 +86,29 @@ func ExecutePlanReport(ctx context.Context, model ProjectModel, plan ExecutionPl
 }
 
 // ExecutePlanReportWithOptions executes a plan with specific options (such as detached mode).
-func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan ExecutionPlan, resolver RuntimeResolver, env ResolvedEnvironment, opts ExecutionOptions) ExecutionReport {
+func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan ExecutionPlan, resolver RuntimeResolver, env ResolvedEnvironment, opts ExecutionOptions) (report ExecutionReport) {
 	if opts.Silent {
 		ctx = withSilentExecution(ctx, true)
 	}
-	report := ExecutionReport{
+	report = ExecutionReport{
 		ProjectName: model.Name,
-		Confidence: model.Confidence,
-		Plan: plan,
-		Success: false,
-		Steps: make([]ExecutionStepResult, 0, len(plan.Steps)),
+		Confidence:  model.Confidence,
+		Plan:         plan,
+		Success:      false,
+		Steps:        make([]ExecutionStepResult, 0, len(plan.Steps)),
 	}
 	var running []RunningProcess
 	defer func() {
 		if !report.Success {
-			for _, process := range running {
-				_ = process.Stop()
+			if len(running) > 0 {
+				for _, process := range running {
+					_ = process.Stop()
+				}
+				report.TeardownPerformed = true
+			}
+			if !opts.Detach && len(model.Services) > 0 {
+				stopComposeServices(model.Services, model.Root)
+				report.TeardownPerformed = true
 			}
 		}
 	}()
@@ -340,4 +350,17 @@ func executionCandidatesForStep(step ExecutionStep) []ExecutionCandidate {
 		ordered = append(ordered, candidate)
 	}
 	return ordered
+}
+
+func stopComposeServices(services []Service, root string) {
+	for _, svc := range services {
+		for _, ev := range svc.Evidence {
+			if ev.Kind == EvidenceConfig && (strings.HasSuffix(ev.Path, "compose.yml") || strings.HasSuffix(ev.Path, "compose.yaml") || strings.HasSuffix(ev.Path, "docker-compose.yml") || strings.HasSuffix(ev.Path, "docker-compose.yaml")) {
+				cmd := exec.Command("docker", "compose", "-f", ev.Path, "stop", svc.Name)
+				cmd.Dir = root
+				_ = cmd.Run()
+				break
+			}
+		}
+	}
 }
