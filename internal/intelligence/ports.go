@@ -55,10 +55,24 @@ func portAvailable(port int) bool {
 }
 
 func AllocateComponentPorts(components []Component) ([]PortAssignment, error) {
+	return AllocateComponentPortsWithServices(components, nil)
+}
+
+// AllocateComponentPortsWithServices reserves service ports before allocating component ports,
+// coordinating dynamic port shifting when conflicts occur.
+func AllocateComponentPortsWithServices(components []Component, services []Service) ([]PortAssignment, error) {
 	ordered := append([]Component(nil), components...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
 
 	reserved := make(map[int]struct{})
+	for _, svc := range services {
+		for _, p := range svc.Ports {
+			if port := extractHostPort(p); port > 0 {
+				reserved[port] = struct{}{}
+			}
+		}
+	}
+
 	assignments := make([]PortAssignment, 0)
 	allocator := PortAllocator{}
 
@@ -74,9 +88,9 @@ func AllocateComponentPorts(components []Component) ([]PortAssignment, error) {
 		assignments = append(assignments, PortAssignment{
 			Component: component.Name,
 			Requested: component.Port,
-			Resolved: port,
+			Resolved:  port,
 			Automatic: automatic,
-			Strict: component.PortStrict,
+			Strict:    component.PortStrict,
 		})
 	}
 	return assignments, nil

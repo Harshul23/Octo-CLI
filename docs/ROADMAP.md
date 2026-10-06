@@ -115,20 +115,22 @@ Moved from command execution toward reproducible local environments.
 
 ## Phase 4 — Multi-Component and Service Topology
 
-**Immediate priority**
+**Status: completed**
 
 Treat repositories as systems rather than single processes.
 
-- Monorepo component discovery (npm/yarn/pnpm workspaces, Go workspaces, Cargo workspaces).
-- Docker Compose service discovery and lifecycle management.
-- Coordinated dynamic port shifting (avoiding collisions and dynamically rebinding `PORT` environment variables).
-- Topological startup ordering based strictly on explicit `depends_on` relationships.
-- Network-reference awareness (`network_reference` edges for cross-service URLs and connections).
-- Partial failure handling and graceful group teardown.
+- **Monorepo component discovery**: Full workspace discovery across npm/yarn/pnpm workspaces, Go workspaces (`go.work`), and Cargo workspaces (`[workspace]` in `Cargo.toml`).
+- **Docker Compose service discovery & lifecycle**: Compose services identified with dependencies, ports, and lifecycle commands.
+- **Coordinated dynamic port shifting**: Host ports declared in Compose services are pre-reserved; component port conflicts dynamically shift and rebind `PORT` environment variables smoothly.
+- **Strict topological startup ordering**: Directed acyclic graph startup ordering strictly adhering to explicit `depends_on` relationships with cycle detection.
+- **Network-reference awareness**: `network_reference` edges for cross-service URLs and connections without introducing artificial startup delays.
+- **Partial failure handling & graceful group teardown**: If any step in a multi-component startup sequence fails or times out, previously launched background processes and Compose services are automatically stopped with `TeardownPerformed` recorded in the `ExecutionReport`.
 
 ---
 
 ## Phase 5 — Adaptive Execution & Closed-Loop Healing
+
+**Immediate priority**
 
 Introduce controlled adaptation without sacrificing determinism.
 

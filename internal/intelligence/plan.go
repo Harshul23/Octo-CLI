@@ -200,7 +200,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 		}
 	}
 
-	ports, err := AllocateComponentPorts(model.Components)
+	ports, err := AllocateComponentPortsWithServices(model.Components, model.Services)
 	if err != nil {
 		return ExecutionPlan{}, err
 	}

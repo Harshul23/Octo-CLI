@@ -434,14 +434,22 @@ func (RustExecutionCandidateProvider) Candidates(ctx context.Context, root strin
 	candidates := make([]ExecutionCandidate, 0, 4)
 	mainPath := filepath.Join(componentRoot, "src", "main.rs")
 	if _, err := os.Stat(mainPath); err == nil {
-		candidates = append(candidates, ExecutionCandidate{ID: "rust.cargo-run", Command: "cargo run", Confidence: 0.96, Evidence: []Evidence{{Kind: EvidenceConfig, Path: filepath.ToSlash(filepath.Join(component.Path, "src", "main.rs")), Detail: "Cargo project contains the conventional binary entry point at src/main.rs.", Strength: 0.96}}})
+		runCmd := "cargo run"
+		if component.Path != "" && component.Path != "." {
+			runCmd = "cargo run -p " + component.Name
+		}
+		candidates = append(candidates, ExecutionCandidate{ID: "rust.cargo-run", Command: runCmd, Confidence: 0.96, Evidence: []Evidence{{Kind: EvidenceConfig, Path: filepath.ToSlash(filepath.Join(component.Path, "src", "main.rs")), Detail: "Cargo project contains the conventional binary entry point at src/main.rs.", Strength: 0.96}}})
 	}
 	binDir := filepath.Join(componentRoot, "src", "bin")
 	entries, err := os.ReadDir(binDir); if err != nil && !os.IsNotExist(err) { return nil, err }
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".rs" { continue }
 		name := strings.TrimSuffix(entry.Name(), ".rs"); if name == "" { continue }
-		candidates = append(candidates, ExecutionCandidate{ID: "rust.bin."+name, Command: "cargo run --bin "+name, Confidence: 0.94, Evidence: []Evidence{{Kind: EvidenceConfig, Path: filepath.ToSlash(filepath.Join(component.Path, "src", "bin", entry.Name())), Detail: "Cargo project declares an executable binary under src/bin.", Strength: 0.94}}})
+		binCmd := "cargo run --bin " + name
+		if component.Path != "" && component.Path != "." {
+			binCmd = "cargo run -p " + component.Name + " --bin " + name
+		}
+		candidates = append(candidates, ExecutionCandidate{ID: "rust.bin."+name, Command: binCmd, Confidence: 0.94, Evidence: []Evidence{{Kind: EvidenceConfig, Path: filepath.ToSlash(filepath.Join(component.Path, "src", "bin", entry.Name())), Detail: "Cargo project declares an executable binary under src/bin.", Strength: 0.94}}})
 	}
 	return candidates, nil
 }
