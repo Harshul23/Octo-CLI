@@ -221,8 +221,17 @@ Octo acts as the deterministic execution substrate for AI coding agents (Claude 
 2. **Model Context Protocol (MCP)**: Native stdio server launched via `octo mcp`. Built in pure Go with zero external dependencies, providing JSON-RPC 2.0 (version `2024-11-05`).
 
 AI agents consume bounded, deterministic tools and resources:
-- Tools: `octo_inspect`, `octo_topology`, `octo_plan`, `octo_run_and_verify`, `octo_verify`, `octo_diagnose`.
+- Tools: `octo_inspect`, `octo_topology`, `octo_plan`, `octo_run_and_verify`, `octo_verify`, `octo_diagnose`, `octo_env`, `octo_preview`.
 - Resources: `octo://topology`, `octo://execution-plan`, `octo://lock`.
+
+## Dependency & Environment Reproduction
+
+Octo separates configuration requirements from secrets and mutations:
+- **Runtime Compatibility**: Detects version constraints (`.nvmrc`, `package.json`, `go.mod`, `pyproject.toml`, `Cargo.toml`) and evaluates compatibility against host tools without altering global environments.
+- **Virtual Environment Isolation**: Detects workspace Python virtualenvs (`.venv`, `venv`) and prioritizes them in step execution paths without polluting system site-packages.
+- **Safe Environment Templates**: Automatically discovers missing required vs optional environment variables from repository evidence and provides zero-secret `.env` templates (`octo env template`, `octo_env`).
+- **Machine Mutation Previews**: Before any process or filesystem mutation occurs, agents and developers can inspect projected impact (`octo preview`, `octo_preview`) covering filesystem changes, network port listeners, and spawned processes.
+
 
 
 ## Contribution-friendly architecture

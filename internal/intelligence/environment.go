@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 )
 
 // ResolvedEnvironment contains runtime-only environment values.
@@ -44,7 +46,25 @@ func ResolveEnvironment(root string, model EnvironmentModel) (ResolvedEnvironmen
 }
 
 func ResolveProjectEnvironment(root string, project ProjectModel) (ResolvedEnvironment, error) {
-	return resolveEnvironment(root, project.Environment, project.Components)
+	env, err := resolveEnvironment(root, project.Environment, project.Components)
+	if err != nil {
+		return env, err
+	}
+	if strings.EqualFold(project.Language, "Python") {
+		if venv := DetectVirtualEnv(root); venv != "" {
+			venvBin := filepath.Join(venv, "bin")
+			if runtime.GOOS == "windows" {
+				venvBin = filepath.Join(venv, "Scripts")
+			}
+			currentPath := os.Getenv("PATH")
+			if env.Values == nil {
+				env.Values = make(map[string]string)
+			}
+			env.Values["PATH"] = venvBin + string(os.PathListSeparator) + currentPath
+			env.Values["VIRTUAL_ENV"] = venv
+		}
+	}
+	return env, nil
 }
 
 func resolveEnvironment(root string, model EnvironmentModel, components []Component) (ResolvedEnvironment, error) {
