@@ -33,3 +33,20 @@ func TestIntelligenceRunPlanningPath(t *testing.T) {
 		t.Fatalf("first phase=%q, want prepare", plan.Steps[0].Phase)
 	}
 }
+
+func TestRunCommandRegistersPhase1Flags(t *testing.T) {
+	for _, flagName := range []string{"detach", "watch", "json", "engine"} {
+		flag := runCmd.Flags().Lookup(flagName)
+		if flag == nil {
+			t.Fatalf("expected flag %q to be registered on runCmd", flagName)
+		}
+	}
+}
+
+func TestGraphCommandRegistersJsonFlag(t *testing.T) {
+	flag := graphCmd.Flags().Lookup("json")
+	if flag == nil {
+		t.Fatal("expected --json flag to be registered on graphCmd")
+	}
+}
+
