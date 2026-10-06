@@ -35,7 +35,7 @@ func TestIntelligenceRunPlanningPath(t *testing.T) {
 }
 
 func TestRunCommandRegistersPhase1Flags(t *testing.T) {
-	for _, flagName := range []string{"detach", "watch", "json", "engine"} {
+	for _, flagName := range []string{"detach", "watch", "json", "engine", "sandbox"} {
 		flag := runCmd.Flags().Lookup(flagName)
 		if flag == nil {
 			t.Fatalf("expected flag %q to be registered on runCmd", flagName)

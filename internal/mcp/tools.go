@@ -64,6 +64,10 @@ func DefaultTools() []Tool {
 						Type:        "boolean",
 						Description: "Run long-running services in the background (detached mode).",
 					},
+					"sandbox": {
+						Type:        "boolean",
+						Description: "Run plan steps inside an ephemeral, isolated container sandbox (Docker or Podman) to protect the host environment.",
+					},
 				},
 			},
 		},
@@ -239,12 +243,18 @@ func handleRunAndVerify(ctx context.Context, args map[string]interface{}) (CallT
 		return toolError(fmt.Sprintf("environment resolution failed: %v", err)), nil
 	}
 
+	sandbox, _ := args["sandbox"].(bool)
 	opts := intelligence.ExecutionOptions{
-		Detach: detach,
-		Silent: true,
+		Detach:  detach,
+		Silent:  true,
+		Sandbox: sandbox,
 	}
 
-	report := intelligence.ExecutePlanReportWithOptions(ctx, model, plan, intelligence.NewRuntimeResolver(), env, opts)
+	resolver := intelligence.NewRuntimeResolverWithOptions(intelligence.RuntimeResolverOptions{
+		Sandbox: sandbox,
+		Root:    target,
+	})
+	report := intelligence.ExecutePlanReportWithOptions(ctx, model, plan, resolver, env, opts)
 
 	if report.Success {
 		_ = intelligence.RecordVerifiedStrategies(target, model, plan, report, lock)
