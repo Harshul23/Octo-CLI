@@ -54,6 +54,7 @@ func Analyze(path string) (ProjectModel, error) {
   if composeFound {
     m.Services = services
     m.Evidence = append(m.Evidence, composeEvidence...)
+    linkComponentComposeServices(m.Components, m.Services)
   }
   if err := discoverComponentNetworkReferences(root, m.Components, m.Services); err != nil {
     return ProjectModel{}, err
@@ -107,7 +108,15 @@ func signalFile(root, lang string) string {
   f:=files[lang]; if f=="" { return "" }; if _,e:=os.Stat(filepath.Join(root,f)); e!=nil{return ""}; return f
 }
 func lockfile(root, pm string) string {
-  files:=map[string]string{"pnpm":"pnpm-lock.yaml","yarn":"yarn.lock","bun":"bun.lock","npm":"package-lock.json"}
+  files:=map[string]string{
+    "pnpm":"pnpm-lock.yaml",
+    "yarn":"yarn.lock",
+    "bun":"bun.lock",
+    "npm":"package-lock.json",
+    "cargo":"Cargo.lock",
+    "poetry":"poetry.lock",
+    "uv":"uv.lock",
+  }
   f:=files[pm]; if f=="" {return ""}; if _,e:=os.Stat(filepath.Join(root,f));e!=nil{return ""};return f
 }
 func monorepoMarker(root string) string {
@@ -169,4 +178,30 @@ func discoverEnvironment(root, language string) (EnvironmentModel, error) {
 	}
 	sort.Slice(out.Variables, func(i, j int) bool { return out.Variables[i].Name < out.Variables[j].Name })
 	return out, nil
+}
+
+func linkComponentComposeServices(components []Component, services []Service) {
+	for i := range components {
+		compPath := filepath.Clean(components[i].Path)
+		for _, svc := range services {
+			if svc.Build == "" {
+				continue
+			}
+			buildPath := filepath.Clean(svc.Build)
+			if buildPath == compPath || (compPath == "." && (buildPath == "." || buildPath == "")) {
+				for _, dep := range svc.DependsOn {
+					found := false
+					for _, d := range components[i].DependsOn {
+						if d == dep {
+							found = true
+							break
+						}
+					}
+					if !found {
+						components[i].DependsOn = append(components[i].DependsOn, dep)
+					}
+				}
+			}
+		}
+	}
 }

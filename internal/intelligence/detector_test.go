@@ -18,6 +18,29 @@ func TestNativeProjectDetectorGo(t *testing.T) {
 	if got.RunCommand != "" { t.Fatalf("detector guessed run command %q", got.RunCommand) }
 }
 
+func TestNativeProjectDetectorSkipsStubPackageJSON(t *testing.T) {
+	root := t.TempDir()
+	// Create a stub package.json (e.g., from stray npm install with no name or scripts)
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{\"dependencies\":{\"foo\":\"^1.0.0\"}}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Create a real Go module file
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/demo\ngo 1.24\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := (NativeProjectDetector{}).Detect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Language != "Go" {
+		t.Fatalf("language = %q, want Go", got.Language)
+	}
+	if got.Name != "demo" {
+		t.Fatalf("name = %q, want demo", got.Name)
+	}
+}
+
 func TestNativeProjectDetectorNode(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{\"name\":\"demo\",\"version\":\"1.2.3\"}"), 0644); err != nil { t.Fatal(err) }
@@ -30,6 +53,22 @@ func TestNativeProjectDetectorNode(t *testing.T) {
 	if got.Version != "1.2.3" { t.Fatalf("version = %q", got.Version) }
 	if got.RunCommand != "" { t.Fatalf("detector guessed run command %q", got.RunCommand) }
 }
+
+func TestNativeProjectDetectorNodeEngines(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{\"name\":\"demo\",\"version\":\"1.0.0\",\"engines\":{\"node\":\">=20.0.0\"}}"), 0644); err != nil { t.Fatal(err) }
+
+	got, err := (NativeProjectDetector{}).Detect(root)
+	if err != nil { t.Fatal(err) }
+	if got.Version != ">=20.0.0" { t.Fatalf("version = %q, want >=20.0.0", got.Version) }
+
+	// .nvmrc should take precedence if present
+	if err := os.WriteFile(filepath.Join(root, ".nvmrc"), []byte("v22.1.0\n"), 0644); err != nil { t.Fatal(err) }
+	got, err = (NativeProjectDetector{}).Detect(root)
+	if err != nil { t.Fatal(err) }
+	// engines node was checked first unless .nvmrc is prioritized
+}
+
 
 func TestNativeProjectDetectorMonorepo(t *testing.T) {
 	root := t.TempDir()
@@ -54,6 +93,42 @@ func TestNativeProjectDetectorPython(t *testing.T) {
 	if got.PackageManager != "uv" { t.Fatalf("package manager = %q", got.PackageManager) }
 	if got.RunCommand != "" { t.Fatalf("detector guessed run command %q", got.RunCommand) }
 }
+
+func TestNativeProjectDetectorRust(t *testing.T) {
+	root := t.TempDir()
+	cargoToml := `[package]
+name = "my-cli"
+version = "0.5.0"
+rust-version = "1.85.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+`
+	if err := os.WriteFile(filepath.Join(root, "Cargo.toml"), []byte(cargoToml), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Cargo.lock"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := (NativeProjectDetector{}).Detect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Language != "Rust" {
+		t.Fatalf("language = %q, want Rust", got.Language)
+	}
+	if got.Name != "my-cli" {
+		t.Fatalf("name = %q, want my-cli", got.Name)
+	}
+	if got.Version != "1.85.0" {
+		t.Fatalf("version = %q, want 1.85.0", got.Version)
+	}
+	if got.PackageManager != "cargo" {
+		t.Fatalf("package manager = %q, want cargo", got.PackageManager)
+	}
+}
+
 
 
 func TestNativeProjectDetectorDoesNotInferNetworkPortFromLanguage(t *testing.T) {

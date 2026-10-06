@@ -162,3 +162,63 @@ func (a *fallbackAdapterForReport) Execute(_ context.Context, step ExecutionStep
 	}
 	return nil
 }
+
+type mockStartableAdapter struct {
+	startedProcess *mockRunningProcess
+}
+
+func (m *mockStartableAdapter) Name() string { return "mock-startable" }
+func (m *mockStartableAdapter) Supports(step ExecutionStep) bool { return step.Command != "" }
+func (m *mockStartableAdapter) Execute(_ context.Context, step ExecutionStep, _ ResolvedEnvironment) error {
+	return nil
+}
+func (m *mockStartableAdapter) Start(_ context.Context, step ExecutionStep, _ ResolvedEnvironment) (RunningProcess, error) {
+	proc := &mockRunningProcess{pid: 4242}
+	m.startedProcess = proc
+	return proc, nil
+}
+
+type mockRunningProcess struct {
+	pid     int
+	stopped bool
+}
+
+func (p *mockRunningProcess) Wait() error { return nil }
+func (p *mockRunningProcess) Stop() error {
+	p.stopped = true
+	return nil
+}
+func (p *mockRunningProcess) Pid() int { return p.pid }
+
+func TestExecutePlanReportDetachedMode(t *testing.T) {
+	adapter := &mockStartableAdapter{}
+	plan := ExecutionPlan{
+		ProjectName: "demo",
+		Steps: []ExecutionStep{{
+			ID: "component.web.start", Component: "web", Phase: PhaseStart,
+			Command: "run-server", LongRunning: true,
+		}},
+	}
+	report := ExecutePlanReportWithOptions(context.Background(), ProjectModel{Name: "demo"}, plan, RuntimeResolver{
+		adapters: []RuntimeAdapter{adapter},
+	}, ResolvedEnvironment{Values: map[string]string{}}, ExecutionOptions{Detach: true})
+
+	if !report.Success {
+		t.Fatalf("expected success, got failure: %s", report.FailureReason)
+	}
+	if len(report.ActiveProcesses) != 1 {
+		t.Fatalf("active processes=%d, want 1", len(report.ActiveProcesses))
+	}
+	if report.ActiveProcesses[0].PID != 4242 {
+		t.Fatalf("pid=%d, want 4242", report.ActiveProcesses[0].PID)
+	}
+	if adapter.startedProcess.stopped {
+		t.Fatal("detached process should not be stopped after successful start")
+	}
+
+	tmp := t.TempDir()
+	if err := SaveDetachedState(tmp, report); err != nil {
+		t.Fatalf("SaveDetachedState failed: %v", err)
+	}
+}
+

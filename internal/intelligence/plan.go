@@ -87,10 +87,11 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 
 		nodeID := topologyID(NodeComponent, component.Name)
 		prefix := "component." + component.Name
+		compWorkDir := componentWorkDir(model.Root, component.Path)
 		prepareID := prefix + ".prepare"
 		steps = append(steps, ExecutionStep{
 			ID: prepareID, Component: component.Name, NodeID: nodeID, Phase: PhasePrepare,
-			WorkDir: component.Path,
+			WorkDir: compWorkDir,
 			Explanation: "Prepare the component working directory.",
 		})
 
@@ -99,7 +100,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 			provisionID := prefix + ".provision"
 			steps = append(steps, ExecutionStep{
 				ID: provisionID, Component: component.Name, NodeID: nodeID, Phase: PhaseProvision,
-				Command: "command -v " + requirement.Name, WorkDir: component.Path,
+				Command: "command -v " + requirement.Name, WorkDir: compWorkDir,
 				DependsOn: []string{prepareID},
 				Explanation: "Verify the required package manager is available before installation.",
 			})
@@ -109,7 +110,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 			installID := prefix + ".install"
 			steps = append(steps, ExecutionStep{
 				ID: installID, Component: component.Name, NodeID: nodeID, Phase: PhaseInstall,
-				Command: install, WorkDir: component.Path, DependsOn: setupDepends,
+				Command: install, WorkDir: compWorkDir, DependsOn: setupDepends,
 				Explanation: "Install dependencies using the detected package manager.",
 			})
 			setupDepends = []string{installID}
@@ -119,7 +120,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 			setupID := prefix + ".setup"
 			steps = append(steps, ExecutionStep{
 				ID: setupID, Component: component.Name, NodeID: nodeID, Phase: PhaseSetup,
-				Command: model.SetupCommand, WorkDir: component.Path, DependsOn: setupDepends,
+				Command: model.SetupCommand, WorkDir: compWorkDir, DependsOn: setupDepends,
 				Explanation: "Run the repository setup command discovered by the analyzer.",
 			})
 			setupDepends = []string{setupID}
@@ -155,10 +156,10 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 			}
 		}
 
-	steps = append(steps, ExecutionStep{
+		steps = append(steps, ExecutionStep{
 			ID: prefix + ".start", Component: component.Name, NodeID: nodeID, Phase: PhaseStart,
 			Command: startCommand, Candidates: startCandidates, SelectedCandidate: selectedCandidate,
-			WorkDir: component.Path, DependsOn: uniqueStrings(deps),
+			WorkDir: compWorkDir, DependsOn: uniqueStrings(deps),
 			Explanation: "Start the component after all topology dependencies are started.",
 		})
 	}
@@ -168,6 +169,9 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 	for _, service := range services {
 		if strings.TrimSpace(service.Name) == "" {
 			return ExecutionPlan{}, newFailure(FailureInvalidService, "", "Octo found a service without a name.", "The service metadata is incomplete.")
+		}
+		if isComponentServiceWrapper(service, model.Components) {
+			continue
 		}
 		nodeID := topologyID(NodeService, service.Name)
 		stepID := startStepID(nodeID)
@@ -407,3 +411,33 @@ func provisioningRequirementFor(component Component, requirements []Provisioning
 	}
 	return nil
 }
+
+func componentWorkDir(root, compPath string) string {
+	if root == "" {
+		return compPath
+	}
+	if compPath == "" || compPath == "." {
+		return root
+	}
+	if filepath.IsAbs(compPath) {
+		return compPath
+	}
+	return filepath.Join(root, filepath.FromSlash(compPath))
+}
+
+func isComponentServiceWrapper(service Service, components []Component) bool {
+	if service.Build == "" {
+		return false
+	}
+	buildPath := filepath.Clean(service.Build)
+	for _, comp := range components {
+		compPath := filepath.Clean(comp.Path)
+		if buildPath == compPath || (compPath == "." && (buildPath == "." || buildPath == "")) {
+			if comp.RunCommand != "" || len(comp.ExecutionCandidates) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
