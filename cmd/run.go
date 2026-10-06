@@ -43,6 +43,7 @@ func init() {
 	runCmd.Flags().Bool("skip-env-check", false, "Skip environment variable validation")
 	runCmd.Flags().Bool("no-tui", false, "Disable TUI dashboard (use plain scrolling output)")
 	runCmd.Flags().String("engine", "intelligence", "Execution engine: intelligence or legacy")
+	runCmd.Flags().BoolP("sandbox", "s", false, "Execute application inside an ephemeral, isolated container sandbox")
 	runCmd.Flags().Bool("json", false, "Output the ExecutionReport as JSON")
 }
 
@@ -223,6 +224,7 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 
 	watch, _ := cmd.Flags().GetBool("watch")
 	detach, _ := cmd.Flags().GetBool("detach")
+	sandbox, _ := cmd.Flags().GetBool("sandbox")
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	if watch && detach {
 		return fmt.Errorf("cannot combine --watch and --detach")
@@ -278,9 +280,14 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("environment resolution failed: %w", err)
 	}
 
+	resolver := intelligence.NewRuntimeResolverWithOptions(intelligence.RuntimeResolverOptions{
+		Sandbox: sandbox,
+		Root:    cwd,
+	})
+
 	if detach {
-		opts := intelligence.ExecutionOptions{Detach: true, Silent: jsonOutput}
-		report := intelligence.ExecutePlanReportWithOptions(cmd.Context(), model, plan, intelligence.NewRuntimeResolver(), env, opts)
+		opts := intelligence.ExecutionOptions{Detach: true, Silent: jsonOutput, Sandbox: sandbox}
+		report := intelligence.ExecutePlanReportWithOptions(cmd.Context(), model, plan, resolver, env, opts)
 		if jsonOutput {
 			data, err := json.MarshalIndent(report, "", "  ")
 			if err != nil {
@@ -338,7 +345,7 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 				}
 			}(model)
 
-			report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, intelligence.NewRuntimeResolver(), env, intelligence.ExecutionOptions{})
+			report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, resolver, env, intelligence.ExecutionOptions{Sandbox: sandbox})
 			if !jsonOutput {
 				printExecutionReport(report)
 			}
@@ -384,7 +391,7 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	report := intelligence.ExecutePlanReportWithOptions(cmd.Context(), model, plan, intelligence.NewRuntimeResolver(), env, intelligence.ExecutionOptions{Silent: jsonOutput})
+	report := intelligence.ExecutePlanReportWithOptions(cmd.Context(), model, plan, resolver, env, intelligence.ExecutionOptions{Silent: jsonOutput, Sandbox: sandbox})
 	if jsonOutput {
 		data, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {

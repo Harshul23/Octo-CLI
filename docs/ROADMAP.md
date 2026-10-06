@@ -149,18 +149,35 @@ Introduced controlled adaptation without sacrificing determinism.
 
 ## Phase 6 — Sandboxed & Containerized Runtimes
 
-**Immediate priority**
+**Status: completed**
 
-Safe execution boundaries for developers and automated agents.
+Safe execution boundaries for developers and automated AI agents.
 
-- Running arbitrary repository scripts on host bare metal poses security and machine pollution risks.
-- Containerized runtime adapters: Docker/Podman container adapter to run plan steps inside ephemeral, reproducible containers.
-- Volume mounts, port mappings, and container networks derived directly from the canonical `TopologyGraph`.
-- Safe execution sandboxes for AI agents testing unverified third-party repositories.
+- **Containerized runtime adapter (`ContainerAdapter`)**:
+  - Ephemeral, reproducible execution inside Docker or Podman containers (`--rm`).
+  - Safe runtime isolation protecting host bare metal from machine pollution or unsafe repository scripts.
+- **Dynamic base image derivation (`ResolveContainerImage`)**:
+  - Language and runtime version-aware base image derivation (Node Alpine, Go Alpine, Python Slim, Rust Alpine, OpenJDK Temurin, Ruby Alpine).
+  - Automatically maps versions detected from `.nvmrc`, `package.json`, `go.mod`, `pyproject.toml`, etc.
+- **Topology-derived volume mounts and port forwarding**:
+  - Host root volume mounting (`-v <host_root>:/app -w /app/<workdir>`).
+  - Container port forwarding (`-p <port>:<port>`) and scoped environment variable pass-through (`-e KEY=VAL`).
+- **CLI & Environment integration**:
+  - First-class `--sandbox` / `-s` flag on `octo run`.
+  - Global `OCTO_SANDBOX=1` environment variable support.
+  - Full compatibility across foreground, `--detach`, and `--watch` modes.
+- **AI Agent Safe Execution via MCP**:
+  - Added `"sandbox": boolean` option to the `octo_run_and_verify` MCP tool.
+  - Allows autonomous AI coding agents (Claude Code, Cursor, Devin, SWE-bench) to safely run and verify unverified code in sandboxed containers.
+- **Container process lifecycle & teardown**:
+  - Detached container process tracking (`containerProcess`) with log multiplexing (`.octo/logs/<component>.log`).
+  - Coordinated teardown on failure or cancellation via `docker/podman stop -t 2` and `rm -f`.
 
 ---
 
 ## Phase 7 — Ecosystem Scale & Extension Points
+
+**Immediate priority**
 
 Expand Octo through modular contracts rather than language-specific conditional blocks.
 
