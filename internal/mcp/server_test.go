@@ -97,8 +97,8 @@ func TestServerToolsList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(res.Tools) < 8 {
-		t.Fatalf("expected at least 8 tools, got %d", len(res.Tools))
+	if len(res.Tools) < 9 {
+		t.Fatalf("expected at least 9 tools, got %d", len(res.Tools))
 	}
 
 	toolMap := make(map[string]bool)
@@ -106,7 +106,7 @@ func TestServerToolsList(t *testing.T) {
 		toolMap[tool.Name] = true
 	}
 
-	for _, expected := range []string{"octo_inspect", "octo_topology", "octo_plan", "octo_run_and_verify", "octo_verify", "octo_diagnose", "octo_env", "octo_preview"} {
+	for _, expected := range []string{"octo_inspect", "octo_topology", "octo_plan", "octo_run_and_verify", "octo_verify", "octo_diagnose", "octo_env", "octo_preview", "octo_benchmark"} {
 		if !toolMap[expected] {
 			t.Fatalf("missing expected tool: %s", expected)
 		}
@@ -522,6 +522,91 @@ func TestServerToolsCallEnvAndPreview(t *testing.T) {
 	}
 	if !strings.Contains(toolPrev.Content[0].Text, "runtime_check") {
 		t.Fatalf("expected preview result to contain runtime_check: %s", toolPrev.Content[0].Text)
+	}
+}
+
+func TestServerToolsCallBenchmark(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"bench-test","scripts":{"start":"node index.js"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer()
+
+	// 1. Single repo benchmark
+	reqSingle := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      50,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "octo_benchmark",
+			"arguments": map[string]interface{}{
+				"path": root,
+			},
+		},
+	}
+	data, _ := json.Marshal(reqSingle)
+	in := bytes.NewReader(append(data, '\n'))
+	var out bytes.Buffer
+
+	if err := s.Serve(context.Background(), in, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	var resp Response
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected benchmark tool error: %v", resp.Error)
+	}
+
+	resData, _ := json.Marshal(resp.Result)
+	var toolRes CallToolResult
+	_ = json.Unmarshal(resData, &toolRes)
+	if toolRes.IsError || len(toolRes.Content) == 0 {
+		t.Fatalf("unexpected tool result: %#v", toolRes)
+	}
+	if !strings.Contains(toolRes.Content[0].Text, "one_shot_success") {
+		t.Fatalf("expected benchmark output to contain one_shot_success, got: %s", toolRes.Content[0].Text)
+	}
+
+	// 2. Suite benchmark
+	reqSuite := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      51,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "octo_benchmark",
+			"arguments": map[string]interface{}{
+				"suite": true,
+			},
+		},
+	}
+	dataSuite, _ := json.Marshal(reqSuite)
+	inSuite := bytes.NewReader(append(dataSuite, '\n'))
+	var outSuite bytes.Buffer
+
+	if err := s.Serve(context.Background(), inSuite, &outSuite); err != nil {
+		t.Fatal(err)
+	}
+
+	var respSuite Response
+	if err := json.Unmarshal(outSuite.Bytes(), &respSuite); err != nil {
+		t.Fatal(err)
+	}
+	if respSuite.Error != nil {
+		t.Fatalf("unexpected benchmark suite tool error: %v", respSuite.Error)
+	}
+
+	resDataSuite, _ := json.Marshal(respSuite.Result)
+	var toolResSuite CallToolResult
+	_ = json.Unmarshal(resDataSuite, &toolResSuite)
+	if toolResSuite.IsError || len(toolResSuite.Content) == 0 {
+		t.Fatalf("unexpected suite tool result: %#v", toolResSuite)
+	}
+	if !strings.Contains(toolResSuite.Content[0].Text, "zero_hallucination_confirmed") {
+		t.Fatalf("expected suite output to contain zero_hallucination_confirmed, got: %s", toolResSuite.Content[0].Text)
 	}
 }
 
