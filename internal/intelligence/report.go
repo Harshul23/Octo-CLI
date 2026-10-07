@@ -115,15 +115,9 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 	}
 	var running []RunningProcess
 	defer func() {
-		if !report.Success {
-			if len(running) > 0 {
-				for _, process := range running {
-					_ = process.Stop()
-				}
-				report.TeardownPerformed = true
-			}
-			if !opts.Detach && len(model.Services) > 0 {
-				stopComposeServices(model.Services, model.Root)
+		if !report.Success || ctx.Err() != nil {
+			if len(running) > 0 || len(model.Services) > 0 {
+				_ = TeardownExecution(model, plan, running, opts)
 				report.TeardownPerformed = true
 			}
 		}
@@ -331,7 +325,7 @@ func waitForRunningProcesses(ctx context.Context, processes []RunningProcess) er
 	select {
 	case err := <-done:
 		for _, process := range processes {
-			_ = process.Stop()
+			_ = process.GracefulStop(2 * time.Second)
 		}
 		if err != nil {
 			return fmt.Errorf("long-running process exited: %w", err)
@@ -339,9 +333,9 @@ func waitForRunningProcesses(ctx context.Context, processes []RunningProcess) er
 		return fmt.Errorf("long-running process exited unexpectedly")
 	case <-ctx.Done():
 		for _, process := range processes {
-			_ = process.Stop()
+			_ = process.GracefulStop(3 * time.Second)
 		}
-		return nil
+		return ctx.Err()
 	}
 }
 
@@ -372,15 +366,57 @@ func executionCandidatesForStep(step ExecutionStep) []ExecutionCandidate {
 	return ordered
 }
 
-func stopComposeServices(services []Service, root string) {
+func stopComposeServices(services []Service, root string) int {
+	stopped := 0
 	for _, svc := range services {
 		for _, ev := range svc.Evidence {
 			if ev.Kind == EvidenceConfig && (strings.HasSuffix(ev.Path, "compose.yml") || strings.HasSuffix(ev.Path, "compose.yaml") || strings.HasSuffix(ev.Path, "docker-compose.yml") || strings.HasSuffix(ev.Path, "docker-compose.yaml")) {
 				cmd := exec.Command("docker", "compose", "-f", ev.Path, "stop", svc.Name)
 				cmd.Dir = root
-				_ = cmd.Run()
+				if err := cmd.Run(); err == nil {
+					stopped++
+				}
 				break
 			}
 		}
 	}
+	return stopped
+}
+
+// TeardownSummary records completed cleanup tasks during shutdown.
+type TeardownSummary struct {
+	ProcessesStopped int  `json:"processes_stopped"`
+	ServicesStopped  int  `json:"services_stopped"`
+	StateCleaned     bool `json:"state_cleaned"`
+}
+
+// TeardownExecution performs a graceful shutdown of all active processes, backing services, and temporary state.
+func TeardownExecution(model ProjectModel, plan ExecutionPlan, running []RunningProcess, opts ExecutionOptions) TeardownSummary {
+	summary := TeardownSummary{}
+
+	// 1. Gracefully stop all application processes
+	for _, process := range running {
+		if err := process.GracefulStop(3 * time.Second); err == nil {
+			summary.ProcessesStopped++
+		} else {
+			_ = process.Stop()
+			summary.ProcessesStopped++
+		}
+	}
+
+	// 2. Stop backing Docker Compose services
+	if !opts.Detach && len(model.Services) > 0 {
+		summary.ServicesStopped = stopComposeServices(model.Services, model.Root)
+	}
+
+	// 3. Clean up non-detached process state file
+	if !opts.Detach {
+		path := filepath.Join(model.Root, ".octo", "processes.json")
+		if _, err := os.Stat(path); err == nil {
+			_ = os.Remove(path)
+			summary.StateCleaned = true
+		}
+	}
+
+	return summary
 }

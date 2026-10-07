@@ -246,7 +246,15 @@ func (p *containerProcess) Wait() error {
 }
 
 func (p *containerProcess) Stop() error {
-	cmd := exec.Command(p.engine, "stop", "-t", "2", p.containerName)
+	return p.GracefulStop(2 * time.Second)
+}
+
+func (p *containerProcess) GracefulStop(timeout time.Duration) error {
+	secs := int(timeout.Seconds())
+	if secs <= 0 {
+		secs = 2
+	}
+	cmd := exec.Command(p.engine, "stop", "-t", fmt.Sprintf("%d", secs), p.containerName)
 	_ = cmd.Run()
 	rmCmd := exec.Command(p.engine, "rm", "-f", p.containerName)
 	_ = rmCmd.Run()
