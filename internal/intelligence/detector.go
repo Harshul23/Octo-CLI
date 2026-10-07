@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type DetectedProject struct {
@@ -23,34 +24,93 @@ type DetectedProject struct {
 
 type ProjectDetector interface { Detect(path string) (DetectedProject, error) }
 
-type signalDefinition struct {
-	File string
+// SignalDefinition defines a project file marker and its detector function.
+type SignalDefinition struct {
+	File     string
 	Language string
-	Detect func(root string) (DetectedProject, error)
+	Detect   func(root string) (DetectedProject, error)
 }
 
-type NativeProjectDetector struct{}
-
-var projectSignals = []signalDefinition{
-	{File: "package.json", Language: "Node", Detect: detectNodeProject},
-	{File: "go.work", Language: "Go", Detect: detectGoWorkspaceProject},
-	{File: "go.mod", Language: "Go", Detect: detectGoProject},
-	{File: "pyproject.toml", Language: "Python", Detect: detectPythonProject},
-	{File: "requirements.txt", Language: "Python", Detect: detectPythonProject},
-	{File: "Cargo.toml", Language: "Rust", Detect: detectRustProject},
-	{File: "pom.xml", Language: "Java", Detect: detectJavaProject},
-	{File: "build.gradle", Language: "Java", Detect: detectJavaProject},
-	{File: "Gemfile", Language: "Ruby", Detect: detectRubyProject},
+// ProjectDetectorRegistry provides an extensible registry for project detectors and signals.
+type ProjectDetectorRegistry struct {
+	mu        sync.RWMutex
+	detectors []ProjectDetector
+	signals   []SignalDefinition
 }
 
-func (NativeProjectDetector) Detect(path string) (DetectedProject, error) {
+// NewProjectDetectorRegistry initializes a detector registry populated with built-in ecosystem signals.
+func NewProjectDetectorRegistry() *ProjectDetectorRegistry {
+	return &ProjectDetectorRegistry{
+		signals: []SignalDefinition{
+			{File: "package.json", Language: "Node", Detect: detectNodeProject},
+			{File: "go.work", Language: "Go", Detect: detectGoWorkspaceProject},
+			{File: "go.mod", Language: "Go", Detect: detectGoProject},
+			{File: "pyproject.toml", Language: "Python", Detect: detectPythonProject},
+			{File: "requirements.txt", Language: "Python", Detect: detectPythonProject},
+			{File: "Cargo.toml", Language: "Rust", Detect: detectRustProject},
+			{File: "pom.xml", Language: "Java", Detect: detectJavaProject},
+			{File: "build.gradle", Language: "Java", Detect: detectJavaProject},
+			{File: "Gemfile", Language: "Ruby", Detect: detectRubyProject},
+			{File: "composer.json", Language: "PHP", Detect: detectPHPProject},
+			{File: "mix.exs", Language: "Elixir", Detect: detectElixirProject},
+		},
+	}
+}
+
+var defaultDetectorRegistry = NewProjectDetectorRegistry()
+
+// DefaultDetectorRegistry returns the shared global detector registry.
+func DefaultDetectorRegistry() *ProjectDetectorRegistry {
+	return defaultDetectorRegistry
+}
+
+// RegisterProjectDetector registers a custom ProjectDetector into the default registry.
+func RegisterProjectDetector(d ProjectDetector) {
+	defaultDetectorRegistry.RegisterDetector(d)
+}
+
+// RegisterProjectSignal registers a project signal definition into the default registry.
+func RegisterProjectSignal(sig SignalDefinition) {
+	defaultDetectorRegistry.RegisterSignal(sig)
+}
+
+// RegisterDetector appends a detector to the registry.
+func (r *ProjectDetectorRegistry) RegisterDetector(d ProjectDetector) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.detectors = append(r.detectors, d)
+}
+
+// RegisterSignal appends a signal definition to the registry.
+func (r *ProjectDetectorRegistry) RegisterSignal(sig SignalDefinition) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.signals = append(r.signals, sig)
+}
+
+func (r *ProjectDetectorRegistry) Detect(path string) (DetectedProject, error) {
 	root, err := filepath.Abs(path)
 	if err != nil { return DetectedProject{}, err }
 	info, err := os.Stat(root)
 	if err != nil { return DetectedProject{}, err }
 	if !info.IsDir() { return DetectedProject{}, errors.New("project path is not a directory") }
 
-	for _, signal := range projectSignals {
+	r.mu.RLock()
+	customDetectors := make([]ProjectDetector, len(r.detectors))
+	copy(customDetectors, r.detectors)
+	signals := make([]SignalDefinition, len(r.signals))
+	copy(signals, r.signals)
+	r.mu.RUnlock()
+
+	for _, d := range customDetectors {
+		if proj, err := d.Detect(root); err == nil && proj.Language != "" {
+			if proj.Name == "" { proj.Name = filepath.Base(root) }
+			proj.IsMonorepo, proj.MonorepoRoot = detectMonorepo(root)
+			return proj, nil
+		}
+	}
+
+	for _, signal := range signals {
 		if _, err := os.Stat(filepath.Join(root, signal.File)); err != nil { continue }
 		if signal.File == "package.json" && isStubPackageJSON(root) && hasOtherProjectSignals(root) {
 			continue
@@ -63,6 +123,12 @@ func (NativeProjectDetector) Detect(path string) (DetectedProject, error) {
 		return project, nil
 	}
 	return detectSimpleProject(root)
+}
+
+type NativeProjectDetector struct{}
+
+func (NativeProjectDetector) Detect(path string) (DetectedProject, error) {
+	return defaultDetectorRegistry.Detect(path)
 }
 
 func isStubPackageJSON(root string) bool {
@@ -79,13 +145,91 @@ func isStubPackageJSON(root string) bool {
 }
 
 func hasOtherProjectSignals(root string) bool {
-	for _, sig := range projectSignals {
+	defaultDetectorRegistry.mu.RLock()
+	signals := defaultDetectorRegistry.signals
+	defaultDetectorRegistry.mu.RUnlock()
+
+	for _, sig := range signals {
 		if sig.File == "package.json" { continue }
 		if _, err := os.Stat(filepath.Join(root, sig.File)); err == nil {
 			return true
 		}
 	}
 	return false
+}
+
+func detectPHPProject(root string) (DetectedProject, error) {
+	data, err := os.ReadFile(filepath.Join(root, "composer.json"))
+	if err != nil {
+		return DetectedProject{}, err
+	}
+	var comp struct {
+		Name    string            `json:"name"`
+		Scripts map[string]string `json:"scripts"`
+		Require map[string]string `json:"require"`
+	}
+	_ = json.Unmarshal(data, &comp)
+
+	name := filepath.Base(root)
+	if comp.Name != "" {
+		parts := strings.Split(comp.Name, "/")
+		if len(parts) > 1 {
+			name = parts[1]
+		} else {
+			name = comp.Name
+		}
+	}
+
+	phpVer := ""
+	if v, ok := comp.Require["php"]; ok {
+		phpVer = v
+	}
+
+	runCmd := "php -S 127.0.0.1:8000"
+	port := 8000
+	if _, ok := comp.Scripts["dev"]; ok {
+		runCmd = "composer run dev"
+	} else if _, ok := comp.Scripts["start"]; ok {
+		runCmd = "composer start"
+	} else if _, ok := comp.Scripts["serve"]; ok {
+		runCmd = "composer serve"
+	} else if _, err := os.Stat(filepath.Join(root, "artisan")); err == nil {
+		runCmd = "php artisan serve"
+	}
+
+	return DetectedProject{
+		Name:           name,
+		Language:       "PHP",
+		Version:        phpVer,
+		RunCommand:     runCmd,
+		Port:           port,
+		PackageManager: "composer",
+		SetupCommand:   "composer install",
+		SetupRequired:  true,
+	}, nil
+}
+
+func detectElixirProject(root string) (DetectedProject, error) {
+	name := filepath.Base(root)
+	mixPath := filepath.Join(root, "mix.exs")
+	data, _ := os.ReadFile(mixPath)
+	content := string(data)
+
+	runCmd := "mix run --no-halt"
+	port := 4000
+	if strings.Contains(content, ":phoenix") || strings.Contains(content, "phoenix") {
+		runCmd = "mix phx.server"
+	}
+
+	return DetectedProject{
+		Name:           name,
+		Language:       "Elixir",
+		RunCommand:     runCmd,
+		Port:           port,
+		PackageManager: "mix",
+		SetupCommand:   "mix deps.get",
+		SetupRequired:  true,
+	}, nil
 }
 
 func detectNodeProject(root string) (DetectedProject, error) {

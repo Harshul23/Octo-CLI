@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 type ExecutionCandidate struct {
@@ -24,14 +25,60 @@ type CandidateProvider interface {
 	Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error)
 }
 
+// CandidateProviderRegistry provides an extensible registry for CandidateProviders.
+type CandidateProviderRegistry struct {
+	mu        sync.RWMutex
+	providers []CandidateProvider
+}
+
+// NewCandidateProviderRegistry initializes a candidate provider registry with built-in ecosystem providers.
+func NewCandidateProviderRegistry() *CandidateProviderRegistry {
+	return &CandidateProviderRegistry{
+		providers: []CandidateProvider{
+			GoExecutionCandidateProvider{},
+			NodeExecutionCandidateProvider{},
+			PythonExecutionCandidateProvider{},
+			JavaExecutionCandidateProvider{},
+			RubyExecutionCandidateProvider{},
+			RustExecutionCandidateProvider{},
+			PHPExecutionCandidateProvider{},
+			ElixirExecutionCandidateProvider{},
+		},
+	}
+}
+
+var defaultCandidateProviderRegistry = NewCandidateProviderRegistry()
+
+// DefaultCandidateProviderRegistry returns the shared global candidate provider registry.
+func DefaultCandidateProviderRegistry() *CandidateProviderRegistry {
+	return defaultCandidateProviderRegistry
+}
+
+// RegisterCandidateProvider registers a new candidate provider into the default registry.
+func RegisterCandidateProvider(p CandidateProvider) {
+	defaultCandidateProviderRegistry.Register(p)
+}
+
+// Register adds a candidate provider to the registry.
+func (r *CandidateProviderRegistry) Register(p CandidateProvider) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.providers = append(r.providers, p)
+}
+
+// Providers returns a copy of registered candidate providers.
+func (r *CandidateProviderRegistry) Providers() []CandidateProvider {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]CandidateProvider, len(r.providers))
+	copy(out, r.providers)
+	return out
+}
+
 type ExecutionCandidateProviders struct { providers []CandidateProvider }
 
 func NewExecutionCandidateProviders() ExecutionCandidateProviders {
-	return ExecutionCandidateProviders{providers: []CandidateProvider{
-		GoExecutionCandidateProvider{}, NodeExecutionCandidateProvider{},
-		PythonExecutionCandidateProvider{}, JavaExecutionCandidateProvider{},
-		RubyExecutionCandidateProvider{}, RustExecutionCandidateProvider{},
-	}}
+	return ExecutionCandidateProviders{providers: defaultCandidateProviderRegistry.Providers()}
 }
 
 func (p ExecutionCandidateProviders) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
@@ -476,4 +523,115 @@ func isGoAuxiliaryEntryPoint(path string) bool {
 	default:
 		return false
 	}
+}
+
+type PHPExecutionCandidateProvider struct{}
+
+func (PHPExecutionCandidateProvider) Name() string { return "php" }
+func (PHPExecutionCandidateProvider) Supports(component Component) bool {
+	return strings.EqualFold(component.Language, "php")
+}
+
+func (PHPExecutionCandidateProvider) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
+	compDir := filepath.Join(root, filepath.FromSlash(component.Path))
+	var candidates []ExecutionCandidate
+
+	// Check artisan (Laravel)
+	if _, err := os.Stat(filepath.Join(compDir, "artisan")); err == nil {
+		candidates = append(candidates, ExecutionCandidate{
+			ID:         "php.artisan.serve",
+			Command:    "php artisan serve",
+			Confidence: 0.95,
+			Evidence: []Evidence{{
+				Kind:     EvidenceManifest,
+				Path:     filepath.Join(component.Path, "artisan"),
+				Detail:   "Laravel artisan console found",
+				Strength: 0.95,
+			}},
+		})
+	}
+
+	// Check composer.json scripts
+	composerPath := filepath.Join(compDir, "composer.json")
+	if data, err := os.ReadFile(composerPath); err == nil {
+		var comp struct {
+			Scripts map[string]string `json:"scripts"`
+		}
+		if json.Unmarshal(data, &comp) == nil {
+			for _, scriptName := range []string{"dev", "start", "serve"} {
+				if _, ok := comp.Scripts[scriptName]; ok {
+					candidates = append(candidates, ExecutionCandidate{
+						ID:         "php.composer." + scriptName,
+						Command:    "composer run " + scriptName,
+						Confidence: 0.90,
+						Evidence: []Evidence{{
+							Kind:     EvidenceManifest,
+							Path:     filepath.Join(component.Path, "composer.json"),
+							Detail:   fmt.Sprintf("composer script %q defined", scriptName),
+							Strength: 0.90,
+						}},
+					})
+				}
+			}
+		}
+	}
+
+	// Built-in PHP development server fallback
+	candidates = append(candidates, ExecutionCandidate{
+		ID:         "php.builtin.serve",
+		Command:    "php -S 127.0.0.1:8000",
+		Confidence: 0.70,
+		Evidence: []Evidence{{
+			Kind:     EvidenceSignalFile,
+			Path:     component.Path,
+			Detail:   "PHP built-in CLI server fallback",
+			Strength: 0.70,
+		}},
+	})
+
+	return candidates, nil
+}
+
+type ElixirExecutionCandidateProvider struct{}
+
+func (ElixirExecutionCandidateProvider) Name() string { return "elixir" }
+func (ElixirExecutionCandidateProvider) Supports(component Component) bool {
+	return strings.EqualFold(component.Language, "elixir")
+}
+
+func (ElixirExecutionCandidateProvider) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
+	compDir := filepath.Join(root, filepath.FromSlash(component.Path))
+	var candidates []ExecutionCandidate
+
+	mixPath := filepath.Join(compDir, "mix.exs")
+	if data, err := os.ReadFile(mixPath); err == nil {
+		content := string(data)
+		if strings.Contains(content, ":phoenix") || strings.Contains(content, "phoenix") {
+			candidates = append(candidates, ExecutionCandidate{
+				ID:         "elixir.mix.phx.server",
+				Command:    "mix phx.server",
+				Confidence: 0.95,
+				Evidence: []Evidence{{
+					Kind:     EvidenceManifest,
+					Path:     filepath.Join(component.Path, "mix.exs"),
+					Detail:   "Phoenix framework dependency found in mix.exs",
+					Strength: 0.95,
+				}},
+			})
+		}
+	}
+
+	candidates = append(candidates, ExecutionCandidate{
+		ID:         "elixir.mix.run",
+		Command:    "mix run --no-halt",
+		Confidence: 0.75,
+		Evidence: []Evidence{{
+			Kind:     EvidenceSignalFile,
+			Path:     component.Path,
+			Detail:   "Elixir mix standard runner",
+			Strength: 0.75,
+		}},
+	})
+
+	return candidates, nil
 }
