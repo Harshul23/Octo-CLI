@@ -16,7 +16,6 @@ import (
 	"github.com/harshul/octo-cli/internal/ports"
 	"github.com/harshul/octo-cli/internal/provisioner"
 	"github.com/harshul/octo-cli/internal/secrets"
-	"github.com/harshul/octo-cli/internal/thermal"
 	"github.com/harshul/octo-cli/internal/ui"
 )
 
@@ -46,37 +45,28 @@ type Orchestrator struct {
 	bp          blueprint.Blueprint
 	opts        Options
 	envVars     map[string]string // Loaded env vars for global injection
-	hwInfo      thermal.HardwareInfo
 	concurrency int
 	batchSize   int
 	dashboard   *ui.DashboardRunner // Optional TUI dashboard
 }
 
 func New(bp blueprint.Blueprint, opts Options) (*Orchestrator, error) {
-	// Detect hardware for thermal management
-	hwInfo := thermal.DetectHardware()
+	concurrency := bp.Thermal.Concurrency
+	if concurrency <= 0 {
+		concurrency = runtime.NumCPU()
+	}
 
-	// Determine concurrency based on hardware and config
-	concurrency := thermal.GetOptimalConcurrency(hwInfo, bp.Thermal.Concurrency)
-
-	// If thermal mode is "performance", use all cores
-	if bp.Thermal.Mode == "performance" {
-		concurrency = hwInfo.NumCPU
-	} else if bp.Thermal.Mode == "cool" {
-		// In "cool" mode, be more conservative
-		concurrency = hwInfo.NumCPU / 2
-		if concurrency < 1 {
-			concurrency = 1
-		}
+	batchSize := bp.Thermal.BatchSize
+	if batchSize <= 0 {
+		batchSize = 5
 	}
 
 	o := &Orchestrator{
 		bp:          bp,
 		opts:        opts,
 		envVars:     make(map[string]string),
-		hwInfo:      hwInfo,
 		concurrency: concurrency,
-		batchSize:   bp.Thermal.BatchSize,
+		batchSize:   batchSize,
 	}
 
 	// Initialize dashboard if requested
@@ -126,56 +116,14 @@ func (o *Orchestrator) checkRuntime() {
 	}
 }
 
-// displayThermalInfo shows hardware and thermal configuration information
-func (o *Orchestrator) displayThermalInfo() {
-	// Only display detailed info for monorepos or when thermal mode is explicitly set
-	if !o.bp.IsMonorepo && o.bp.Thermal.Mode == "" {
-		return
-	}
-
-	hwDesc := thermal.FormatHardwareInfo(o.hwInfo)
-	fmt.Printf("🖥️  Hardware: %s\n", hwDesc)
-
-	// Determine what mode we're running in
-	modeDesc := "auto"
-	if o.bp.Thermal.Mode != "" {
-		modeDesc = o.bp.Thermal.Mode
-	}
-
-	// Show concurrency info
-	if o.hwInfo.IsMacBookAir && modeDesc != "performance" {
-		fmt.Printf("🌡️  Thermal mode: %s (MacBook Air detected - reduced concurrency for quiet operation)\n", modeDesc)
-	} else if o.hwInfo.IsDarwin && o.hwInfo.IsAppleSilicon && modeDesc != "performance" {
-		fmt.Printf("🌡️  Thermal mode: %s (Apple Silicon - optimized concurrency)\n", modeDesc)
-	}
-
-	fmt.Printf("⚡ Concurrency: %d workers\n", o.concurrency)
-
-	// Check current thermal status on macOS
-	if o.hwInfo.IsDarwin && (modeDesc == "auto" || modeDesc == "cool") {
-		status := thermal.GetThermalStatus(o.hwInfo)
-		if status.Level != "cool" {
-			fmt.Printf("🌡️  Thermal status: %s - %s\n", status.Level, status.Message)
-		}
-	}
-}
-
 // injectConcurrencyFlags adds concurrency flags to supported tools in the command
 func (o *Orchestrator) injectConcurrencyFlags(command string) string {
-	// Skip if performance mode - let tools use their defaults
-	if o.bp.Thermal.Mode == "performance" {
-		return command
-	}
-
-	return thermal.InjectConcurrencyFlag(command, o.concurrency)
+	return command
 }
 
 func (o *Orchestrator) Run() error {
 	fmt.Printf("🚀 Starting %s (env=%s, build=%v, watch=%v, detach=%v)\n",
 		o.bp.Name, o.opts.Environment, o.opts.RunBuild, o.opts.Watch, o.opts.Detach)
-
-	// Display thermal/hardware info
-	o.displayThermalInfo()
 
 	// Handle options that are currently not implemented to avoid silently ignoring them.
 	if o.opts.Watch {
@@ -1088,111 +1036,35 @@ func (o *Orchestrator) detectNpmWorkspacePackages(workDir string) ([]MonorepoPac
 	return packages, nil
 }
 
-// BatchProcessor handles batch processing of tasks for thermal management
+// BatchProcessor handles batch processing of tasks
 type BatchProcessor struct {
 	BatchSize   int
 	CoolDownMs  int
 	TotalItems  int
-	HwInfo      thermal.HardwareInfo
 }
 
-// NewBatchProcessor creates a new batch processor with optimal settings
+// NewBatchProcessor creates a new batch processor
 func (o *Orchestrator) NewBatchProcessor(totalItems int) *BatchProcessor {
-	batchSize := thermal.GetOptimalBatchSize(o.hwInfo, totalItems, o.batchSize)
+	batchSize := o.batchSize
+	if batchSize <= 0 {
+		batchSize = 5
+	}
 	
 	coolDownMs := o.bp.Thermal.CoolDownMs
 	if coolDownMs == 0 {
-		coolDownMs = thermal.DefaultCoolDownMs
+		coolDownMs = 500
 	}
 
 	return &BatchProcessor{
 		BatchSize:   batchSize,
 		CoolDownMs:  coolDownMs,
 		TotalItems:  totalItems,
-		HwInfo:      o.hwInfo,
 	}
 }
 
 // ShouldBatch returns true if batching should be used
 func (bp *BatchProcessor) ShouldBatch() bool {
-	return bp.TotalItems > thermal.DefaultBatchThreshold
-}
-
-// GetBatches returns the items split into batches
-func (bp *BatchProcessor) GetBatches(items []string) [][]string {
-	if !bp.ShouldBatch() {
-		return [][]string{items}
-	}
-
-	var batches [][]string
-	for i := 0; i < len(items); i += bp.BatchSize {
-		end := i + bp.BatchSize
-		if end > len(items) {
-			end = len(items)
-		}
-		batches = append(batches, items[i:end])
-	}
-
-	return batches
-}
-
-// CoolDown pauses between batches for thermal management
-func (bp *BatchProcessor) CoolDown() {
-	if bp.CoolDownMs > 0 {
-		time.Sleep(time.Duration(bp.CoolDownMs) * time.Millisecond)
-	}
-}
-
-// ExecuteInBatches executes a function for each item in batches with cool-down periods
-func (o *Orchestrator) ExecuteInBatches(items []string, fn func(item string) error) error {
-	processor := o.NewBatchProcessor(len(items))
-
-	if !processor.ShouldBatch() {
-		// No batching needed, execute all at once
-		for _, item := range items {
-			if err := fn(item); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	batches := processor.GetBatches(items)
-	fmt.Printf("📦 Processing %d items in %d batches (batch size: %d, cool-down: %dms)\n",
-		len(items), len(batches), processor.BatchSize, processor.CoolDownMs)
-
-	for i, batch := range batches {
-		fmt.Printf("\n🔄 Batch %d/%d (%d items)\n", i+1, len(batches), len(batch))
-
-		for _, item := range batch {
-			if err := fn(item); err != nil {
-				return err
-			}
-		}
-
-		// Cool down between batches (but not after the last batch)
-		if i < len(batches)-1 {
-			fmt.Printf("🌡️  Cooling down for %dms...\n", processor.CoolDownMs)
-			processor.CoolDown()
-		}
-	}
-
-	return nil
-}
-
-// GetThermalConfig returns the effective thermal configuration
-func (o *Orchestrator) GetThermalConfig() thermal.Config {
-	return thermal.Config{
-		Concurrency: o.concurrency,
-		BatchSize:   o.batchSize,
-		CoolDownMs:  o.bp.Thermal.CoolDownMs,
-		ThermalMode: o.bp.Thermal.Mode,
-	}
-}
-
-// GetHardwareInfo returns the detected hardware information
-func (o *Orchestrator) GetHardwareInfo() thermal.HardwareInfo {
-	return o.hwInfo
+	return bp.TotalItems > 5
 }
 
 // ==========================================
