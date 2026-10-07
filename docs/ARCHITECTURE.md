@@ -280,6 +280,26 @@ Octo provides isolated execution environments through native containerization, p
   - Long-running services run detached (`-d`) via `containerProcess`, with stdout/stderr piped to `.octo/logs/<component>.log`.
   - Failures trigger synchronous container stops (`docker/podman stop -t 2`) and removals, preventing abandoned containers from occupying host resources or ports.
 
+## Ecosystem Scale & Extension Registries
+
+Octo separates core analysis and planning algorithms from language-specific knowledge through typed, pluggable registries:
+
+- **Project Detector Registry (`ProjectDetectorRegistry`)**:
+  - Dynamically registers project detectors and signal file definitions via `RegisterProjectDetector` and `RegisterProjectSignal`.
+  - Built-in support for Node, Go, Python, Rust, Java, Ruby, PHP (`composer.json`), and Elixir (`mix.exs`).
+  - Community extensions can support novel languages or frameworks without modifying the core traversal engine.
+- **Candidate Provider Registry (`CandidateProviderRegistry`)**:
+  - Pluggable provider architecture (`RegisterCandidateProvider`) turning component manifests into bounded, confidence-scored `ExecutionCandidate` sets.
+  - Ecosystem providers (Go, Node, Python, Java, Ruby, Rust, PHP, Elixir) operate as self-contained units.
+- **Verification Provider Registry (`VerificationRegistry`)**:
+  - Extensible post-execution readiness validation through `VerificationProvider` implementations.
+  - Built-in providers for TCP port connectivity (`VerificationPort`), command-based health checks (`VerificationHealth`), and HTTP status/path probes (`VerificationHTTP`).
+- **Repository Strategy Overrides (`.octo.yaml` / `.octo.yml`)**:
+  - Repository maintainers can specify exact run commands, strict port bindings, environment variables, and custom verification endpoints in `.octo.yaml`.
+  - Overrides are treated as first-class evidence (`EvidenceConfig`), generating 1.0 confidence candidates that explain their origin clearly in decision traces.
+- **Runtime Adapter Registry (`RuntimeAdapterRegistry`)**:
+  - Pluggable runtime adapters allowing custom execution engines (e.g. Kubernetes, remote dev containers) to register without altering planner logic.
+
 ## Contribution-friendly architecture
 
 To enable developers worldwide to contribute easily without breaking core contracts, Octo enforces strict modular boundaries:

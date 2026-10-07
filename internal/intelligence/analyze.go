@@ -100,7 +100,26 @@ func Analyze(path string) (ProjectModel, error) {
       m.Confidence = confidence(m.Evidence, true)
     }
   }
-  return m,nil
+
+  override, overridePath, err := LoadRepositoryOverride(root)
+  if err == nil && override != nil {
+    ApplyRepositoryOverrides(&m, override, overridePath)
+    if len(m.Components) > 0 && m.Components[0].Path == "." && m.Components[0].RunCommand != "" {
+      m.RunCommand = m.Components[0].RunCommand
+      if m.Components[0].Port > 0 {
+        m.Port = m.Components[0].Port
+      }
+    }
+    relPath, _ := filepath.Rel(root, overridePath)
+    if relPath == "" { relPath = filepath.Base(overridePath) }
+    m.Evidence = append(m.Evidence, Evidence{
+      Kind:     EvidenceConfig,
+      Path:     relPath,
+      Detail:   "Repository-level strategy override (.octo.yaml) applied",
+      Strength: 1.0,
+    })
+  }
+  return m, nil
 }
 
 func signalFile(root, lang string) string {
@@ -113,7 +132,7 @@ func signalFile(root, lang string) string {
     }
     return ""
   }
-  files:=map[string]string{"Node":"package.json","Java":"pom.xml","Python":"pyproject.toml","Go":"go.mod","Rust":"Cargo.toml","Ruby":"Gemfile"}
+  files:=map[string]string{"Node":"package.json","Java":"pom.xml","Python":"pyproject.toml","Go":"go.mod","Rust":"Cargo.toml","Ruby":"Gemfile","PHP":"composer.json","Elixir":"mix.exs"}
   f:=files[lang]; if f=="" { return "" }; if _,e:=os.Stat(filepath.Join(root,f)); e!=nil{return ""}; return f
 }
 func lockfile(root, pm string) string {
@@ -125,6 +144,8 @@ func lockfile(root, pm string) string {
     "cargo":"Cargo.lock",
     "poetry":"poetry.lock",
     "uv":"uv.lock",
+    "composer":"composer.lock",
+    "mix":"mix.lock",
   }
   f:=files[pm]; if f=="" {return ""}; if _,e:=os.Stat(filepath.Join(root,f));e!=nil{return ""};return f
 }
