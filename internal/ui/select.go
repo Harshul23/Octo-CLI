@@ -190,10 +190,10 @@ func (m decisionModel) View() string {
 
 
 	for i := start; i < end; i++ {
-		cursor := "  "
+		cursor := decisionMutedStyle.Render("○ ")
 		style := decisionNormalStyle
 		if i == m.cursor {
-			cursor = decisionSelectedStyle.Render("❯ ")
+			cursor = decisionSelectedStyle.Render("● ")
 			style = decisionSelectedStyle
 		}
 

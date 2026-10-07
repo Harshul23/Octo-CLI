@@ -31,7 +31,7 @@ var (
 
 	promptCursorStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#AD8EE6"})
+				Foreground(lipgloss.AdaptiveColor{Light: "#2563EB", Dark: "#60A5FA"})
 
 	promptCheckmarkStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.AdaptiveColor{Light: "#00AA00", Dark: "#00FF00"})
@@ -105,15 +105,15 @@ func (m YesNoPrompt) View() string {
 	// Options
 	yesStyle := promptUnselectedStyle
 	noStyle := promptUnselectedStyle
-	yesCursor := "  "
-	noCursor := "  "
+	yesCursor := promptDimStyle.Render("○ ")
+	noCursor := promptDimStyle.Render("○ ")
 
 	if m.selected {
 		yesStyle = promptSelectedStyle
-		yesCursor = promptCursorStyle.Render("❯ ")
+		yesCursor = promptCursorStyle.Render("● ")
 	} else {
 		noStyle = promptSelectedStyle
-		noCursor = promptCursorStyle.Render("❯ ")
+		noCursor = promptCursorStyle.Render("● ")
 	}
 
 	b.WriteString("\n")
@@ -225,11 +225,11 @@ func (m SelectPrompt) View() string {
 
 	// Options
 	for i, opt := range m.options {
-		cursor := "  "
+		cursor := promptDimStyle.Render("○ ")
 		style := promptUnselectedStyle
 
 		if i == m.cursor {
-			cursor = promptCursorStyle.Render("❯ ")
+			cursor = promptCursorStyle.Render("● ")
 			style = promptSelectedStyle
 		}
 
@@ -473,17 +473,17 @@ func (m MultiSelectPrompt) View() string {
 
 	// Options
 	for i, opt := range m.options {
-		cursor := "  "
+		cursor := promptDimStyle.Render("○ ")
 		style := promptUnselectedStyle
-		checkbox := "○"
+		checkbox := "[ ]"
 
 		if i == m.cursor {
-			cursor = promptCursorStyle.Render("❯ ")
+			cursor = promptCursorStyle.Render("● ")
 			style = promptHighlightStyle
 		}
 
 		if m.selected[i] {
-			checkbox = promptCheckmarkStyle.Render("●")
+			checkbox = promptCheckmarkStyle.Render("[✓]")
 		}
 
 		b.WriteString(cursor + checkbox + " " + style.Render(opt.Label))
