@@ -3,3 +3,4 @@ octo
 bin/
 .octo/
 .DS_Store
+.agents
