@@ -1,4 +1,0 @@
-name: octo-cli
-language: Go
-version: 1.25.6
-run: go run ./cmd/...

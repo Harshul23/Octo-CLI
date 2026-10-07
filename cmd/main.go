@@ -15,15 +15,17 @@ var (
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:           "octo",
-	Short:         "Understand and run software repositories locally",
+	Short:         "Execution intelligence engine for software repositories and AI agents",
 	SilenceErrors: true,
-	Long: `Octo is a CLI tool that automates the local deployment of any software 
-with zero configuration. It analyzes your codebase, detects the tech stack,
-and generates a deployment configuration file.
+	Long: `Octo is an execution intelligence CLI that analyzes codebases, detects
+runtimes and dependencies, resolves network ports, plans execution deterministically,
+and runs and verifies software stacks locally with zero configuration.
 
 Usage:
-  octo init    Analyze the codebase and generate a .octo.yaml file
-  octo run     Analyze, plan, execute, and verify the repository locally`,
+  octo run [path]       Analyze, plan, execute, and verify a repository locally
+  octo plan [path]      Display the deterministic execution plan
+  octo inspect [path]   Inspect detected runtime facts, dependencies, and evidence
+  octo mcp              Start the Model Context Protocol (MCP) server for AI coding agents`,
 	Version: version,
 }
 
@@ -31,8 +33,6 @@ func init() {
 	// Add subcommands
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(runCmd)
-	rootCmd.AddCommand(serveCmd)
-	rootCmd.AddCommand(publishCmd)
 }
 
 func main() {
