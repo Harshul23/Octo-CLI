@@ -8,10 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -207,9 +205,7 @@ func (ShellAdapter) Start(ctx context.Context, step ExecutionStep, env ResolvedE
 	if step.WorkDir != "" {
 		cmd.Dir = step.WorkDir
 	}
-	if runtime.GOOS != "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	}
+	setProcessGroup(cmd)
 	stepEnv := env.ForStep(step)
 	cmd.Env = mergedEnvironmentWithStep(stepEnv.Values, step.Environment)
 
@@ -254,29 +250,7 @@ func (p *shellProcess) Stop() error {
 }
 
 func (p *shellProcess) GracefulStop(timeout time.Duration) error {
-	if p.cmd.Process == nil {
-		return nil
-	}
-	if runtime.GOOS != "windows" && p.cmd.Process.Pid > 0 {
-		pgid := p.cmd.Process.Pid
-		// Attempt clean termination via SIGTERM to process group
-		_ = syscall.Kill(-pgid, syscall.SIGTERM)
-
-		done := make(chan error, 1)
-		go func() {
-			done <- p.cmd.Wait()
-		}()
-
-		select {
-		case err := <-done:
-			return err
-		case <-time.After(timeout):
-			// Force terminate if process did not exit within timeout
-			_ = syscall.Kill(-pgid, syscall.SIGKILL)
-			return nil
-		}
-	}
-	return p.cmd.Process.Kill()
+	return gracefulStopShellProcess(p.cmd, timeout)
 }
 
 func (p *shellProcess) Pid() int {

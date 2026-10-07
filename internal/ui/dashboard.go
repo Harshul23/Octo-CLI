@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -300,14 +299,14 @@ func (p *Project) GracefulStop() error {
 	pid := cmd.Process.Pid
 	
 	// First, try to kill the entire process group with SIGTERM for graceful shutdown
-	syscall.Kill(-pid, syscall.SIGTERM)
+	killProcessGroup(pid, true)
 	
 	// Give processes a brief moment to handle SIGTERM
 	time.Sleep(100 * time.Millisecond)
 	
 	// Then force kill the process group with SIGKILL
 	// This ensures child processes spawned by shells are also killed
-	syscall.Kill(-pid, syscall.SIGKILL)
+	killProcessGroup(pid, false)
 	
 	// Also try direct kill as fallback
 	cmd.Process.Kill()
@@ -341,8 +340,8 @@ func (p *Project) killProcessesOnPort() {
 			continue
 		}
 		// Kill the process and its group
-		syscall.Kill(-pid, syscall.SIGKILL)
-		syscall.Kill(pid, syscall.SIGKILL)
+		killProcessGroup(pid, false)
+		killProcessSingle(pid)
 	}
 }
 
@@ -1441,7 +1440,7 @@ func (m *DashboardModel) GracefulShutdown() {
 		// Timeout - force kill any remaining processes
 		for _, p := range m.projects {
 			if p.Cmd != nil && p.Cmd.Process != nil {
-				syscall.Kill(-p.Cmd.Process.Pid, syscall.SIGKILL)
+				killProcessGroup(p.Cmd.Process.Pid, false)
 				p.Cmd.Process.Kill()
 			}
 			// Also kill by port as last resort
