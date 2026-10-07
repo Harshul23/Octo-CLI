@@ -202,15 +202,35 @@ Expand Octo through modular contracts rather than language-specific conditional 
 
 ## Phase 8 — Developer Trust & Open-Source Community
 
-**Immediate priority**
+**Status: completed**
 
 Make reliability and transparency product properties.
 
-- Explainability at every step: every candidate, edge, and step can explain *why* it exists and the evidence supporting it.
-- Large regression test suite drawn from real, popular open-source repositories.
-- Contributor documentation, good-first-issues, and architecture guides.
-- Transparent design discussions and release discipline.
-- Educational and mentorship pathways (e.g., GSoC) once the core has proven real-world stability.
+- **Explainability at every step (`octo explain`)**:
+  - `BuildDecisionTrace` provides complete transparency into why Octo selected each language, package manager, framework, run command, port, and candidate.
+  - Transparently explains maintainer strategy overrides (`.octo.yaml`) and evaluated candidate sets.
+- **Large open-source regression test suite (`regression_repos_test.go`)**:
+  - Hermetic regression suite simulating popular real-world open-source repositories:
+    - Next.js 14 App Router with Tailwind & pnpm
+    - FastAPI with Poetry and Alembic migrations
+    - Go microservices with `go.work` and Docker Compose
+    - Rust Cargo workspace with Axum & SQLite
+    - Spring Boot (Java 21) with Gradle
+    - Ruby on Rails 7 with Puma & PostgreSQL
+    - Phoenix 1.7 (Elixir) with Ecto
+    - Laravel 11 (PHP) with Artisan
+    - Monorepos with `.octo.yaml` strategy overrides
+- **Contributor documentation & architecture guides (`CONTRIBUTION.md`)**:
+  - Step-by-step Contributor Recipe for adding new ecosystems using pluggable registries.
+  - Good First Issues guide for newcomers.
+  - Strict hermetic testing rules (no live network, no external daemons, millisecond execution).
+  - Semantic versioning and release discipline contracts.
+- **Transparent community templates**:
+  - GitHub Pull Request template (`.github/pull_request_template.md`).
+  - Structured issue templates for bug reports, ecosystem expansion proposals, and feature requests (`.github/ISSUE_TEMPLATE/`).
+- **Educational and mentorship pathways (`docs/COMMUNITY_AND_MENTORSHIP.md`)**:
+  - Comprehensive mentorship onboarding guide for Google Summer of Code (GSoC), LFX Mentorship, and open-source cohorts.
+  - Curated high-impact project tracks and educational study exercises.
 
 ---
 
