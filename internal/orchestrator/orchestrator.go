@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/harshul/octo-cli/internal/blueprint"
@@ -1324,9 +1323,7 @@ func (o *Orchestrator) executeWithDashboard(workDir string, runCommand string, i
 	
 	// Set process group so we can kill all child processes together
 	// This is critical for killing dev servers spawned by shell commands
-	if runtime.GOOS != "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	}
+	setProcessGroup(cmd)
 
 	if isHTMLProject {
 		if err := cmd.Start(); err != nil {

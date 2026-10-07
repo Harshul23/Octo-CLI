@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build & Publish Release Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.6"
+
+      - name: Build and Package Multi-Arch Binaries
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME:-v1.1.0}"
+          VERSION="${TAG_NAME#v}"
+          DIST_DIR="dist"
+          mkdir -p "$DIST_DIR"
+
+          PLATFORMS=(
+            "darwin/arm64/octo"
+            "darwin/amd64/octo"
+            "linux/amd64/octo"
+            "linux/arm64/octo"
+            "windows/amd64/octo.exe"
+          )
+
+          for PLATFORM in "${PLATFORMS[@]}"; do
+            PARTS=(${PLATFORM//\// })
+            GOOS="${PARTS[0]}"
+            GOARCH="${PARTS[1]}"
+            BIN_NAME="${PARTS[2]}"
+            BUILD_DIR="build_${GOOS}_${GOARCH}"
+            ARCHIVE_NAME="octo_${TAG_NAME}_${GOOS}_${GOARCH}"
+
+            echo "==> Building for ${GOOS}/${GOARCH}..."
+            mkdir -p "$BUILD_DIR"
+            CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build \
+              -ldflags="-s -w -X main.version=${VERSION}" \
+              -o "${BUILD_DIR}/${BIN_NAME}" ./cmd
+
+            cp README.md LICENSE.md "$BUILD_DIR/" 2>/dev/null || true
+
+            if [ "$GOOS" = "windows" ]; then
+              (cd "$BUILD_DIR" && zip -q -r "../${DIST_DIR}/${ARCHIVE_NAME}.zip" .)
+            else
+              tar -czf "${DIST_DIR}/${ARCHIVE_NAME}.tar.gz" -C "$BUILD_DIR" .
+            fi
+
+            rm -rf "$BUILD_DIR"
+          done
+
+          echo "==> Generating checksums.txt..."
+          cd "$DIST_DIR"
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release & Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
