@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/harshul/octo-cli/internal/blueprint"
@@ -326,26 +328,56 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Setup graceful signal handling for SIGINT (Ctrl+C) and SIGTERM
+	sigChan := make(chan os.Signal, 2)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	execCtx, cancelExec := context.WithCancel(cmd.Context())
+	defer cancelExec()
+
+	interrupted := false
+	go func() {
+		sig, ok := <-sigChan
+		if !ok {
+			return
+		}
+		interrupted = true
+		if !jsonOutput {
+			fmt.Println()
+			fmt.Println(ui.WarningLine(fmt.Sprintf("Interrupt received (%s). Wrapping up tasks and shutting down cleanly...", sig)))
+		}
+		cancelExec()
+
+		// Secondary interrupt: user wants immediate emergency exit
+		<-sigChan
+		if !jsonOutput {
+			fmt.Println()
+			fmt.Println(ui.ErrorLine("Second interrupt received. Exiting immediately."))
+		}
+		os.Exit(130)
+	}()
+
 	if watch {
 		if !jsonOutput {
 			fmt.Println(ui.Muted.Render("Watching for changes... (press Ctrl+C to stop)"))
 		}
 		for {
-			execCtx, cancelExec := context.WithCancel(cmd.Context())
+			watchExecCtx, cancelWatchExec := context.WithCancel(execCtx)
 			changeChan := make(chan struct{}, 1)
 
 			go func(currModel intelligence.ProjectModel) {
-				changed, _ := intelligence.WatchForChanges(execCtx, cwd, currModel, 500*time.Millisecond)
+				changed, _ := intelligence.WatchForChanges(watchExecCtx, cwd, currModel, 500*time.Millisecond)
 				if changed {
 					select {
 					case changeChan <- struct{}{}:
 					default:
 					}
-					cancelExec()
+					cancelWatchExec()
 				}
 			}(model)
 
-			report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, resolver, env, intelligence.ExecutionOptions{Sandbox: sandbox})
+			report := intelligence.ExecutePlanReportWithOptions(watchExecCtx, model, plan, resolver, env, intelligence.ExecutionOptions{Sandbox: sandbox})
 			if !jsonOutput {
 				printExecutionReport(report)
 			}
@@ -356,31 +388,34 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 
 			select {
 			case <-changeChan:
-				cancelExec()
+				cancelWatchExec()
 				if !jsonOutput {
 					fmt.Println()
 					fmt.Println(ui.InfoLine("↻ File change detected. Restarting application..."))
 				}
 				if m, err := intelligence.Analyze(cwd); err == nil {
 					model = m
-					if p, err := planner.Plan(cmd.Context(), model); err == nil {
+					if p, err := planner.Plan(execCtx, model); err == nil {
 						plan = p
 					}
 				}
 				continue
-			case <-cmd.Context().Done():
-				cancelExec()
+			case <-execCtx.Done():
+				cancelWatchExec()
+				if !jsonOutput && interrupted {
+					fmt.Println(ui.SuccessLine("All services stopped. Wrap-up complete."))
+				}
 				return nil
 			default:
-				cancelExec()
+				cancelWatchExec()
 				if !jsonOutput {
 					fmt.Println(ui.WarningLine("Process stopped. Waiting for file changes to restart..."))
 				}
-				changed, _ := intelligence.WatchForChanges(cmd.Context(), cwd, model, 500*time.Millisecond)
+				changed, _ := intelligence.WatchForChanges(execCtx, cwd, model, 500*time.Millisecond)
 				if changed {
 					if m, err := intelligence.Analyze(cwd); err == nil {
 						model = m
-						if p, err := planner.Plan(cmd.Context(), model); err == nil {
+						if p, err := planner.Plan(execCtx, model); err == nil {
 							plan = p
 						}
 					}
@@ -391,7 +426,7 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	report := intelligence.ExecutePlanReportWithOptions(cmd.Context(), model, plan, resolver, env, intelligence.ExecutionOptions{Silent: jsonOutput, Sandbox: sandbox})
+	report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, resolver, env, intelligence.ExecutionOptions{Silent: jsonOutput, Sandbox: sandbox})
 	if jsonOutput {
 		data, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
@@ -400,6 +435,13 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		fmt.Println(string(data))
 	} else {
 		printExecutionReport(report)
+	}
+
+	if interrupted || execCtx.Err() != nil {
+		if !jsonOutput {
+			fmt.Println(ui.SuccessLine("All services stopped. Wrap-up complete."))
+		}
+		return nil
 	}
 
 	if !report.Success {
