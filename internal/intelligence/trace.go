@@ -2,6 +2,7 @@ package intelligence
 
 import (
 	"fmt"
+	"strings"
 )
 
 // DecisionTrace records why Octo made important repository and execution decisions.
@@ -48,6 +49,31 @@ func BuildDecisionTrace(model ProjectModel, plan ExecutionPlan) []DecisionTrace 
 			Evidence: filterEvidence(model.Evidence, EvidenceManifest),
 			Confidence: model.Confidence,
 		})
+	}
+
+	for _, ev := range filterEvidence(model.Evidence, EvidenceConfig) {
+		if strings.Contains(ev.Path, "octo.yaml") || strings.Contains(ev.Path, "octo.yml") {
+			trace = append(trace, DecisionTrace{
+				Decision:   "strategy_override",
+				Value:      ev.Path,
+				Reason:     "applied repository maintainer configuration from " + ev.Path,
+				Evidence:   []Evidence{ev},
+				Confidence: 1.0,
+			})
+			break
+		}
+	}
+
+	for _, comp := range model.Components {
+		if len(comp.ExecutionCandidates) > 1 {
+			trace = append(trace, DecisionTrace{
+				Decision:   "candidates." + comp.Name,
+				Value:      fmt.Sprintf("%d candidate(s) evaluated", len(comp.ExecutionCandidates)),
+				Reason:     fmt.Sprintf("selected %q based on bounded evidence and confidence", comp.RunCommand),
+				Evidence:   comp.Evidence,
+				Confidence: comp.Confidence,
+			})
+		}
 	}
 
 	for _, step := range plan.Steps {

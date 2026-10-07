@@ -1,239 +1,138 @@
-# Contributing
+# Contributing to Octo CLI
 
-Thanks for your interest in contributing to **Octo CLI**. We're happy to have you here.
+Thanks for your interest in contributing to **Octo CLI**. We're excited to have you here!
 
-Please take a moment to review this document before submitting your first pull request. We also strongly recommend that you check for open issues and pull requests to see if someone else is working on something similar.
+Octo's mission is simple: **Make “how do I run this?” disappear.**
 
-## Ways to Contribute
+A repository should contain enough evidence to derive a safe, deterministic, explainable path toward execution—for both human developers and autonomous AI coding agents.
 
-You can contribute in multiple ways:
+---
 
-* Reporting bugs
-* Suggesting features
-* Improving detection logic
-* Improving documentation
-* Writing tests
-* Fixing runtime or framework support
-* Improving performance
+## Architectural North Star
 
-Even small improvements matter.
+Every contribution must preserve Octo's core execution philosophy:
 
+1. **Evidence before inference**: Never guess flags, ports, or startup commands. Every decision must be traceable to observable facts in the repository (manifests, lockfiles, scripts, explicit configs).
+2. **Bounded candidates**: When multiple entry points or commands are plausible, generate a bounded set of scored candidates. Bounded ambiguity is resolved through explicit decision providers or maintainer overrides (`.octo.yaml`), never by hallucinating unsupported commands.
+3. **Deterministic planning**: Repository evidence and decisions must compile into a repeatable, topological execution plan.
+4. **Machine-readable core**: Every capability must be accessible to AI coding agents via strongly typed JSON (`--json`) and native Model Context Protocol (MCP) tools (`octo mcp`).
+5. **Hermetic testing**: All unit tests must execute in milliseconds without external network calls or running daemon dependencies.
+
+---
+
+## The Contributor Recipe: Adding a New Ecosystem
+
+To add support for a new language, framework, or runtime, contributors work against small, isolated interfaces without modifying core graph traversal or planning algorithms.
+
+### Step 1: Register Project Signals & Detectors
+In `internal/intelligence/detector.go`, register your ecosystem manifest:
+```go
+// Register file marker and detection function
+RegisterProjectSignal(SignalDefinition{
+    File:     "pubspec.yaml",
+    Language: "Dart",
+    Detect:   detectDartProject,
+})
+```
+
+### Step 2: Implement Candidate Provider
+In `internal/intelligence/candidates.go` (or an ecosystem-specific file), implement `CandidateProvider`:
+```go
+type DartExecutionCandidateProvider struct{}
+
+func (DartExecutionCandidateProvider) Name() string { return "dart" }
+func (DartExecutionCandidateProvider) Supports(comp Component) bool {
+    return strings.EqualFold(comp.Language, "dart")
+}
+func (DartExecutionCandidateProvider) Candidates(ctx context.Context, root string, comp Component) ([]ExecutionCandidate, error) {
+    // Return bounded, confidence-scored execution candidates backed by evidence
+}
+```
+Register it via:
+```go
+RegisterCandidateProvider(DartExecutionCandidateProvider{})
+```
+
+### Step 3: Implement Verification (if custom protocol needed)
+If the ecosystem requires specific health checking (e.g. custom HTTP endpoint, socket probe):
+```go
+RegisterVerificationProvider(&CustomVerificationProvider{})
+```
+
+### Step 4: Write Hermetic Regression Tests
+Add table-driven unit tests in `internal/intelligence/` using `t.TempDir()`. Ensure tests run in milliseconds with 0 external network dependencies.
+
+---
+
+## Good First Issues
+
+If you're making your first open-source contribution to Octo, look for:
+- **Ecosystem Manifest Refinements**: Improving version parsing or lockfile attribution for existing languages.
+- **Port Discovery Patterns**: Adding explicit port regex patterns for popular frameworks.
+- **Explainability Tracing**: Adding clearer reason descriptions to `BuildDecisionTrace`.
+- **CLI & Diagnostic Polish**: Improving error messages in `octo doctor` or `octo explain`.
+- **Regression Tests**: Submitting test cases based on popular open-source repositories to `regression_repos_test.go`.
+
+---
 
 ## Development Setup
 
-### 1. Fork the repository
-
-Click **Fork** on GitHub and clone your fork:
-
+### 1. Fork and Clone
 ```bash
 git clone https://github.com/<your-username>/octo-cli.git
 cd octo-cli
 ```
 
-### 2. Just run it !
-
-No need to worry for Go installation Octo will handle it smoothly:
-
+### 2. Build and Test
+Octo requires Go 1.24+ and compiles with standard Go toolchains:
 ```bash
-octo run
-```
+# Run all tests
+go test -count=1 ./...
 
-Or after building:
-
-```bash
+# Build local binary
 go build -o octo ./cmd
-./octo init
 ```
-
-## Branching Strategy
-
-Use clear branch names:
-
-```
-feat/add-python-detection
-
-fix/node-runtime-version-bug
-
-docs/update-readme
-
-refactor/detection-engine
-```
-
-Format:
-
-```
-<type>/<short-description>
-```
-
-**Types:**
-
-* feat
-* fix
-* docs
-* refactor
-* test
-* chore
-
-## Contribution Areas
-
-### 1. Language Detection
-
-Improve detection logic in:
-
-* Runtime detection
-* Version inference
-* Framework recognition
-* Package manager detection
-
-Keep detection:
-
-* Fast
-* Deterministic
-* Non-invasive
-
-No guessing. Detection should be explainable.
 
 ---
 
-### 2. Framework Support
+## Branching & Commit Discipline
 
-If adding support for a new framework:
+### Branch Naming
+- `feat/<feature-name>` (e.g. `feat/elixir-phoenix-detection`)
+- `fix/<bug-name>` (e.g. `fix/port-parsing-regex`)
+- `docs/<description>` (e.g. `docs/update-architecture`)
+- `test/<description>` (e.g. `test/add-monorepo-regression`)
 
-* Add detection rules
-* Add proper run command generation
-* Add test cases
-* Update README table
+### Conventional Commits
+Use semantic, descriptive commit messages:
+```
+feat(intelligence): add candidate provider for Phoenix framework
+fix(ports): avoid conflicting with reserved compose ports
+docs(architecture): document extension provider registries
+test(intelligence): add regression suite for Next.js app router
+```
 
 ---
-
-### 3. Runtime Support
-
-If improving Docker / Nix / Shell execution:
-
-* Keep configs minimal
-* Avoid hardcoded assumptions
-* Ensure reproducibility
-
-## Testing
-
-Before submitting a PR:
-
-```bash
-go test ./...
-```
-
-If adding detection logic:
-
-* Add unit tests
-* Add example project samples if needed
-
-PRs without tests may be delayed.
-
-## Reporting Issues
-
-When opening an issue, include:
-
-* OS (macOS/Linux/Windows)
-* Language/framework
-* Sample project structure
-* Expected behavior
-* Actual behavior
-* Logs (if any)
-
-Clear issues get fixed faster.
-
-## Commit Message Guidelines
-
-Use clear, meaningful commit messages:
-
-```
-feat: add support for FastAPI detection
-fix: resolve node version parsing bug
-docs: update installation instructions
-refactor: simplify runtime resolver logic
-```
-
-Keep it short. Be specific.
 
 ## Pull Request Guidelines
 
-Before opening a PR:
-
-* Make sure tests pass
-* Rebase with latest `main`
-* Keep PR focused on one change
-* Update docs if needed
-
-PR template should include:
-
-* What changed
-* Why it changed
-* How to test
-* Screenshots (if relevant)
-
-## Code Standards
-
-* Follow Go idioms
-* Keep functions small and readable
-* Avoid unnecessary abstractions
-* Favor clarity over cleverness
-* No breaking changes without discussion
+Before submitting your pull request:
+1. Ensure all tests pass: `go test -count=1 ./...`.
+2. Confirm the binary builds without errors: `go build -o /dev/null ./cmd`.
+3. Fill out the PR template (`.github/pull_request_template.md`), explaining what changed and the evidence supporting it.
+4. Keep pull requests focused on a single logical change.
 
 ---
 
-## Adding New Language Support (Checklist)
+## Release Discipline & Semantic Versioning
 
-If adding a new language:
-
-* [ ] Add language detection logic
-* [ ] Add version detection
-* [ ] Add run command template
-* [ ] Add tests
-* [ ] Update README supported languages table
-* [ ] Ensure `octo init` generates valid `.octo.yaml`
-
-## Design Philosophy
-
-Octo CLI follows:
-
-* Zero configuration first
-* Smart defaults
-* Predictable behavior
-* Local-first execution
-* Developer productivity > complexity
-
-If your change adds complexity, justify it clearly.
+Octo adheres to strict Semantic Versioning (`vMAJOR.MINOR.PATCH`):
+- **MAJOR**: Breaking changes to CLI schemas, MCP tool inputs/outputs, or core contracts.
+- **MINOR**: New capabilities, new language/ecosystem support, new MCP tools/resources.
+- **PATCH**: Bug fixes, performance improvements, and non-breaking detection refinements.
 
 ---
 
 ## Code of Conduct
 
-Be respectful.
-
-Constructive criticism only.
-No ego-driven discussions.
-Focus on improving the tool.
-
----
-
-## First Contribution?
-
-Good starting areas:
-
-* Improve error messages
-* Add tests
-* Fix documentation typos
-* Improve CLI help descriptions
-* Add support for a small framework
-
----
-
-## License
-
-By contributing, you agree that your contributions will be licensed under the MIT License.
-
----
-
-If you're building tools for developers, you're building leverage.
-
-Let's make local deployment effortless.
+Be welcoming, constructive, and respectful. Focus on technical clarity, evidence-based solutions, and collaborative progress.
