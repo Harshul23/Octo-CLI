@@ -705,18 +705,25 @@ For the full behavioral contract, see [spec/v1/specification.md](spec/v1/specifi
 
 ## Installation
 
-### From source
+### Via Homebrew (macOS / Linux)
 
 ```bash
-git clone https://github.com/Harshul23/Octo-CLI.git
-cd Octo-CLI
-./scripts/install.sh
+brew tap Harshul23/homebrew-tap
+brew install octo-cli
 ```
 
 ### Using Go
 
 ```bash
 go install github.com/harshul/octo-cli/cmd@latest
+```
+
+### From source
+
+```bash
+git clone https://github.com/Harshul23/Octo-CLI.git
+cd Octo-CLI
+go build -o bin/octo ./cmd
 ```
 
 ## Quick start
