@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/harshul/octo-cli/internal/benchmark"
 	"github.com/harshul/octo-cli/internal/intelligence"
 )
 
@@ -123,6 +124,23 @@ func DefaultTools() []Tool {
 				},
 			},
 		},
+		{
+			Name:        "octo_benchmark",
+			Description: "Evaluate and benchmark autonomous AI agent execution metrics (pass@1, hallucination rate, token savings, verified readiness) for a repository or canonical archetype suite.",
+			InputSchema: ToolInputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"path": {
+						Type:        "string",
+						Description: "Path to the repository directory (defaults to current working directory).",
+					},
+					"suite": {
+						Type:        "boolean",
+						Description: "Whether to run the canonical SWE-bench archetype benchmark suite across multiple repository fixtures.",
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -144,6 +162,8 @@ func ExecuteTool(ctx context.Context, name string, args map[string]interface{}) 
 		return handleEnv(ctx, args)
 	case "octo_preview":
 		return handlePreview(ctx, args)
+	case "octo_benchmark":
+		return handleBenchmark(ctx, args)
 	default:
 		return CallToolResult{
 			IsError: true,
@@ -459,6 +479,47 @@ func handlePreview(ctx context.Context, args map[string]interface{}) (CallToolRe
 	data, err := json.MarshalIndent(preview, "", "  ")
 	if err != nil {
 		return toolError(fmt.Sprintf("failed to serialize machine preview: %v", err)), nil
+	}
+
+	return CallToolResult{
+		Content: []ContentItem{{
+			Type: "text",
+			Text: string(data),
+		}},
+	}, nil
+}
+
+func handleBenchmark(ctx context.Context, args map[string]interface{}) (CallToolResult, error) {
+	if suite, ok := args["suite"].(bool); ok && suite {
+		report, err := benchmark.RunBuiltinSuite(ctx)
+		if err != nil {
+			return toolError(fmt.Sprintf("benchmark suite failed: %v", err)), nil
+		}
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return toolError(fmt.Sprintf("failed to serialize benchmark suite report: %v", err)), nil
+		}
+		return CallToolResult{
+			Content: []ContentItem{{
+				Type: "text",
+				Text: string(data),
+			}},
+		}, nil
+	}
+
+	target, err := resolvePath(args)
+	if err != nil {
+		return toolError(err.Error()), nil
+	}
+
+	result, err := benchmark.EvaluateRepository(ctx, target, "")
+	if err != nil {
+		return toolError(fmt.Sprintf("benchmark evaluation failed: %v", err)), nil
+	}
+
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return toolError(fmt.Sprintf("failed to serialize benchmark result: %v", err)), nil
 	}
 
 	return CallToolResult{
