@@ -3,7 +3,10 @@ package intelligence
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestExecutePlanReportRecordsSuccessfulSteps(t *testing.T) {
@@ -194,6 +197,9 @@ func (p *mockRunningProcess) Stop() error {
 	p.stopped = true
 	return nil
 }
+func (p *mockRunningProcess) GracefulStop(_ time.Duration) error {
+	return p.Stop()
+}
 func (p *mockRunningProcess) Pid() int { return p.pid }
 
 func TestExecutePlanReportDetachedMode(t *testing.T) {
@@ -255,6 +261,46 @@ func TestExecutePlanReportTeardownOnPartialFailure(t *testing.T) {
 	}
 	if adapter.startedProcess == nil || !adapter.startedProcess.stopped {
 		t.Fatal("expected previously started background process to be stopped during teardown")
+	}
+}
+
+func TestTeardownExecutionCleanWrapUp(t *testing.T) {
+	tmp := t.TempDir()
+	octoDir := filepath.Join(tmp, ".octo")
+	if err := os.MkdirAll(octoDir, 0755); err != nil {
+		t.Fatalf("failed to create .octo dir: %v", err)
+	}
+	procFile := filepath.Join(octoDir, "processes.json")
+	if err := os.WriteFile(procFile, []byte(`{"demo": [1234]}`), 0644); err != nil {
+		t.Fatalf("failed to write process file: %v", err)
+	}
+
+	proc1 := &mockRunningProcess{pid: 1001}
+	proc2 := &mockRunningProcess{pid: 1002}
+	running := []RunningProcess{proc1, proc2}
+
+	model := ProjectModel{
+		Name: "demo",
+		Root: tmp,
+	}
+	plan := ExecutionPlan{ProjectName: "demo", Root: tmp}
+
+	summary := TeardownExecution(model, plan, running, ExecutionOptions{})
+
+	if !proc1.stopped {
+		t.Fatal("expected proc1 to be stopped")
+	}
+	if !proc2.stopped {
+		t.Fatal("expected proc2 to be stopped")
+	}
+	if summary.ProcessesStopped != 2 {
+		t.Fatalf("expected 2 processes stopped, got %d", summary.ProcessesStopped)
+	}
+	if !summary.StateCleaned {
+		t.Fatal("expected StateCleaned to be true")
+	}
+	if _, err := os.Stat(procFile); !os.IsNotExist(err) {
+		t.Fatal("expected .octo/processes.json to be deleted")
 	}
 }
 

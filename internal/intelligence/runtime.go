@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -27,6 +28,7 @@ type RuntimeAdapter interface {
 type RunningProcess interface {
 	Wait() error
 	Stop() error
+	GracefulStop(timeout time.Duration) error
 	Pid() int
 }
 
@@ -248,12 +250,31 @@ func (p *shellProcess) Wait() error {
 }
 
 func (p *shellProcess) Stop() error {
+	return p.GracefulStop(2 * time.Second)
+}
+
+func (p *shellProcess) GracefulStop(timeout time.Duration) error {
 	if p.cmd.Process == nil {
 		return nil
 	}
 	if runtime.GOOS != "windows" && p.cmd.Process.Pid > 0 {
-		_ = syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
-		return nil
+		pgid := p.cmd.Process.Pid
+		// Attempt clean termination via SIGTERM to process group
+		_ = syscall.Kill(-pgid, syscall.SIGTERM)
+
+		done := make(chan error, 1)
+		go func() {
+			done <- p.cmd.Wait()
+		}()
+
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(timeout):
+			// Force terminate if process did not exit within timeout
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+			return nil
+		}
 	}
 	return p.cmd.Process.Kill()
 }
