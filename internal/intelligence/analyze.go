@@ -16,7 +16,12 @@ func Analyze(path string) (ProjectModel, error) {
   root, err := filepath.Abs(path)
   if err != nil { return ProjectModel{}, err }
 
-  m := ProjectModel{Name: info.Name, Root: root, Language: info.Language, RuntimeVersion: info.Version,
+  runtimeVersion := info.RuntimeVersion
+  if runtimeVersion == "" && info.Language != "Node" {
+    runtimeVersion = info.Version
+  }
+
+  m := ProjectModel{Name: info.Name, Root: root, Language: info.Language, RuntimeVersion: runtimeVersion,
     PackageManager: info.PackageManager, RunCommand: info.RunCommand, SetupCommand: info.SetupCommand,
     Monorepo: info.IsMonorepo, Port: info.Port, Confidence: 0.20}
 
