@@ -21,9 +21,10 @@ import (
 
 // runCmd represents the run command
 var runCmd = &cobra.Command{
-	Use:   "run [path]",
-	Short: "Understand and run the repository locally",
-	Args:  cobra.MaximumNArgs(1),
+	Use:           "run [path]",
+	Short:         "Understand and run the repository locally",
+	Args:          cobra.MaximumNArgs(1),
+	SilenceUsage:  true,
 	Long: `The run command analyzes the repository, builds an execution plan,
 resolves the required environment, executes the plan, and verifies the
 result.

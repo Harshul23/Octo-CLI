@@ -13,6 +13,7 @@ type DetectedProject struct {
 	Name string
 	Language string
 	Version string
+	RuntimeVersion string
 	RunCommand string
 	Port int
 	PackageManager string
@@ -241,11 +242,17 @@ func detectNodeProject(root string) (DetectedProject, error) {
 		Engines map[string]string `json:"engines"`
 	}
 	if err := json.Unmarshal(data, &pkg); err != nil { return DetectedProject{}, err }
-	version := pkg.Version
-	if nodeVer := detectNodeRuntimeVersion(root, pkg.Engines); nodeVer != "" {
-		version = nodeVer
+	runtimeVer := detectNodeRuntimeVersion(root, pkg.Engines)
+	ver := pkg.Version
+	if runtimeVer != "" {
+		ver = runtimeVer
 	}
-	return DetectedProject{Name: firstNonEmpty(pkg.Name, filepath.Base(root)), Version: version, PackageManager: detectNodePackageManager(root)}, nil
+	return DetectedProject{
+		Name:           firstNonEmpty(pkg.Name, filepath.Base(root)),
+		Version:        ver,
+		RuntimeVersion: runtimeVer,
+		PackageManager: detectNodePackageManager(root),
+	}, nil
 }
 
 func detectNodeRuntimeVersion(root string, engines map[string]string) string {
