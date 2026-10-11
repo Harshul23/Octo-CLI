@@ -6,9 +6,9 @@ We actively maintain and provide security updates for the latest minor release l
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 1.2.x   | :white_check_mark: |
 | 1.1.x   | :white_check_mark: |
-| 1.0.x   | :x:                |
-| < 1.0   | :x:                |
+| < 1.1   | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -17,7 +17,7 @@ The Octo CLI project takes security vulnerabilities seriously. We appreciate you
 ### Reporting Guidelines
 
 - **Do NOT report suspected security vulnerabilities through public GitHub issues, pull requests, or public discussions.**
-- Please report vulnerabilities privately using [GitHub Private Vulnerability Reporting](https://github.com/Harshul23/Octo-CLI/security/advisories/new).
+- Please report vulnerabilities privately using [GitHub Private Vulnerability Reporting](https://github.com/Octo-sh/Octo-CLI/security/advisories/new).
 - Alternatively, you can email security reports directly to `vishuseervi825@gmail.com` with the subject line `[SECURITY] Octo CLI Vulnerability Report`.
 
 ### What to Include in Your Report

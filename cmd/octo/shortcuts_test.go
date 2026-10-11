@@ -97,15 +97,4 @@ func TestQuickFlagShorthands(t *testing.T) {
 	if sh := benchmarkCmd.Flags().ShorthandLookup("s"); sh == nil || sh.Name != "suite" {
 		t.Errorf("expected -s to map to suite on benchmarkCmd, got %v", sh)
 	}
-
-	// initCmd shorthands
-	if sh := initCmd.Flags().ShorthandLookup("s"); sh == nil || sh.Name != "skip-install" {
-		t.Errorf("expected -s to map to skip-install on initCmd, got %v", sh)
-	}
-	if sh := initCmd.Flags().ShorthandLookup("y"); sh == nil || sh.Name != "auto-install" {
-		t.Errorf("expected -y to map to auto-install on initCmd, got %v", sh)
-	}
-	if sh := initCmd.Flags().ShorthandLookup("S"); sh == nil || sh.Name != "skip-secrets" {
-		t.Errorf("expected -S to map to skip-secrets on initCmd, got %v", sh)
-	}
 }

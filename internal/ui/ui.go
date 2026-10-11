@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Harshul23/Octo-CLI/internal/intelligence"
-	"github.com/Harshul23/Octo-CLI/internal/doctor"
+	"github.com/Octo-sh/Octo-CLI/internal/intelligence"
+	"github.com/Octo-sh/Octo-CLI/internal/doctor"
 )
 
 type Spinner struct {

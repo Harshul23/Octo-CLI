@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/Harshul23/Octo-CLI/internal/intelligence"
+	"github.com/Octo-sh/Octo-CLI/internal/intelligence"
 )
 
 func TestComponentSelectorModelView(t *testing.T) {
