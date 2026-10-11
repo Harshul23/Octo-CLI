@@ -77,11 +77,11 @@ func renderSuiteReport(cmd *cobra.Command, report benchmark.BenchmarkSuiteReport
 	fmt.Fprintln(out, strings.Repeat("═", 72))
 	fmt.Fprintf(out, "Total Test Archetypes:  %d\n", report.TotalCases)
 	fmt.Fprintf(out, "Octo Pass@1 Rate:       %s\n", ui.SuccessStyle.Render(fmt.Sprintf("%.1f%%", report.OctoPassRate)))
-	fmt.Fprintf(out, "Baseline Pass Rate:     %s\n", ui.WarningStyle.Render(fmt.Sprintf("%.1f%%", report.BaselinePassRate)))
-	fmt.Fprintf(out, "Avg Context Reduction:  %s\n", ui.SuccessStyle.Render(fmt.Sprintf("%.1f%%", report.AvgTokenSavingsPct)))
+	fmt.Fprintf(out, "Baseline Pass Rate:     %s (estimated)\n", ui.WarningStyle.Render(fmt.Sprintf("%.1f%%", report.BaselinePassRate)))
+	fmt.Fprintf(out, "Avg Context Reduction:  %s (estimated)\n", ui.SuccessStyle.Render(fmt.Sprintf("%.1f%%", report.AvgTokenSavingsPct)))
 	fmt.Fprintf(out, "Avg Engine Latency:     %d ms\n", report.AvgLatencyMs)
 	if report.ZeroHallucinationConfirmed {
-		fmt.Fprintf(out, "Zero Hallucinations:    %s\n", ui.SuccessStyle.Render("Confirmed (0.0% error rate across all targets)"))
+		fmt.Fprintf(out, "Zero Hallucinations:    %s\n", ui.SuccessStyle.Render("0.0% estimated error rate across verified targets"))
 	}
 	fmt.Fprintln(out, strings.Repeat("─", 72))
 
@@ -91,7 +91,7 @@ func renderSuiteReport(cmd *cobra.Command, report benchmark.BenchmarkSuiteReport
 		if !res.OctoScore.OneShotSuccess {
 			status = ui.ErrorStyle.Render("✗ FAIL")
 		}
-		fmt.Fprintf(out, "  %s %-32s | %s | %4.1f%% tokens saved | %s\n",
+		fmt.Fprintf(out, "  %s %-32s | %s | %4.1f%% tokens saved (est.) | %s\n",
 			status,
 			res.Archetype,
 			fmt.Sprintf("%2dms", res.OctoScore.LatencyMs),
@@ -112,8 +112,8 @@ func renderSingleResult(cmd *cobra.Command, res benchmark.BenchmarkResult) {
 	}
 	fmt.Fprintln(out, strings.Repeat("─", 65))
 
-	fmt.Fprintln(out, "\n🤖 Comparison with Raw LLM Shell Baseline:")
-	fmt.Fprintf(out, "  %-24s %-20s %-20s\n", "Metric", "Octo (Deterministic)", "Raw Agent Shell")
+	fmt.Fprintln(out, "\n🤖 Comparison with Raw LLM Shell Baseline (Simulated Baseline Estimates):")
+	fmt.Fprintf(out, "  %-24s %-20s %-20s\n", "Metric", "Octo (Deterministic)", "Raw Agent (Est.)")
 	fmt.Fprintln(out, "  "+strings.Repeat("-", 60))
 
 	octoPass := "PASS"
@@ -126,20 +126,20 @@ func renderSingleResult(cmd *cobra.Command, res benchmark.BenchmarkResult) {
 	}
 	fmt.Fprintf(out, "  %-24s %-20s %-20s\n", "Pass@1 Success", ui.SuccessStyle.Render(octoPass), ui.WarningStyle.Render(basePass))
 	fmt.Fprintf(out, "  %-24s %-20s %-20s\n", "Hallucination Rate",
-		ui.SuccessStyle.Render(fmt.Sprintf("%.1f%%", res.OctoScore.HallucinationRate*100)),
-		ui.ErrorStyle.Render(fmt.Sprintf("%.1f%%", res.BaselineScore.HallucinationRate*100)))
+		ui.SuccessStyle.Render(fmt.Sprintf("%.1f%% (est.)", res.OctoScore.HallucinationRate*100)),
+		ui.ErrorStyle.Render(fmt.Sprintf("%.1f%% (est.)", res.BaselineScore.HallucinationRate*100)))
 	fmt.Fprintf(out, "  %-24s %-20s %-20s\n", "Context Tokens",
-		fmt.Sprintf("~%d tokens", res.OctoScore.EstimatedTokens),
-		fmt.Sprintf("~%d tokens", res.BaselineScore.EstimatedTokens))
+		fmt.Sprintf("~%d tokens (est.)", res.OctoScore.EstimatedTokens),
+		fmt.Sprintf("~%d tokens (est.)", res.BaselineScore.EstimatedTokens))
 	fmt.Fprintf(out, "  %-24s %-20s %-20s\n", "Verification Method",
 		"Deterministic TCP/HTTP", "Blind Backgrounding (&)")
 	fmt.Fprintf(out, "  %-24s %-20s %-20s\n", "Planning Latency",
 		fmt.Sprintf("%d ms", res.OctoScore.LatencyMs),
 		fmt.Sprintf("%d ms", res.BaselineScore.LatencyMs))
 
-	fmt.Fprintln(out, "\n💡 Key Advantages:")
-	fmt.Fprintf(out, "  • Context Token Reduction: %s\n", ui.SuccessStyle.Render(fmt.Sprintf("%.1f%%", res.Comparison.TokenReductionPct)))
-	fmt.Fprintf(out, "  • Speedup Multiplier:      %s\n", ui.Accent.Render(fmt.Sprintf("%.1fx", res.Comparison.LatencySpeedupX)))
+	fmt.Fprintln(out, "\n💡 Key Advantages (vs Estimated Baseline):")
+	fmt.Fprintf(out, "  • Context Token Reduction: %s (estimated)\n", ui.SuccessStyle.Render(fmt.Sprintf("%.1f%%", res.Comparison.TokenReductionPct)))
+	fmt.Fprintf(out, "  • Speedup Multiplier:      %s (estimated)\n", ui.Accent.Render(fmt.Sprintf("%.1fx", res.Comparison.LatencySpeedupX)))
 	fmt.Fprintf(out, "  • Safety Advantage:        %s\n", ui.InfoStyle.Render(res.Comparison.SafetyAdvantage))
 	fmt.Fprintln(out)
 }

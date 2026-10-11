@@ -88,8 +88,8 @@ func TestBenchmarkCommandSuiteJSON(t *testing.T) {
 		t.Fatalf("failed to parse benchmark suite JSON: %v\nOutput: %s", err, buf.String())
 	}
 
-	if report.TotalCases < 8 {
-		t.Fatalf("expected >= 8 test cases, got %d", report.TotalCases)
+	if report.TotalCases < 5 {
+		t.Fatalf("expected >= 5 test cases, got %d", report.TotalCases)
 	}
 	if report.OctoPassRate != 100.0 {
 		t.Fatalf("expected 100.0%% pass rate, got %v", report.OctoPassRate)

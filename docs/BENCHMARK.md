@@ -8,13 +8,15 @@ The **Octo Benchmark Suite** (`octo benchmark` / `octo eval`) provides rigorous,
 
 Autonomous AI coding agents (Claude Code, Cursor, Devin, GitHub Copilot Workspace, SWE-bench runners) face severe failure modes when attempting to execute unfamiliar codebases via raw shell commands (`bash` / `sh`):
 
-| Failure Mode | Raw Shell Baseline (Unassisted LLM) | Octo Execution Engine |
+| Failure Mode | Raw Shell Baseline (Estimated Model) | Octo Execution Engine (Live Measured) |
 | :--- | :--- | :--- |
-| **Command Hallucination** | Generates non-existent scripts (e.g. `npm run dev:server`, `python app.py`) with 15–55% failure rate | **0.0% Hallucinations**: 100% evidence-backed candidates derived deterministically |
-| **Context Token Burn** | Burns 1,800–4,000+ tokens across multi-turn trial-and-error shell sessions | **>65–80% Token Reduction**: Compact, structured plans consumable in a single turn |
+| **Command Hallucination** | Generates non-existent scripts (e.g. `npm run dev:server`, `python app.py`) with 15–55% estimated failure rate | **0.0% Hallucinations (Est.)**: Evidence-backed candidates derived deterministically |
+| **Context Token Burn** | Burns 1,800–4,000+ tokens across multi-turn trial-and-error shell sessions | **>65–80% Token Reduction (Est.)**: Compact, structured plans consumable in a single turn |
 | **Backgrounding & Readiness** | Blind backgrounding with `&` or `nohup`, lacking health verification | **Deterministic Probes**: TCP port listening and HTTP endpoint readiness verification |
 | **Port Collisions** | Crashes on occupied ports (`EADDRINUSE`) | **Dynamic Port Shifts**: Probes availability and rewrites configs automatically |
 | **Multi-Service Ordering** | Boots backend before database or cache container is healthy | **Topology DAG**: Orders backing services before application entrypoints |
+
+> **Note**: While Octo execution, planning latency, and readiness verification are measured live against real processes, comparisons against unassisted LLM agent baselines are simulated models based on empirical SWE-bench trial-and-error patterns.
 
 ---
 
@@ -26,10 +28,10 @@ The benchmark suite tracks six critical dimensions:
 Whether the runtime successfully derives an executable plan and achieves a running, verified state on the first attempt without human intervention or failure-loop retries.
 
 ### 2. `Hallucination Rate`
-The ratio of invented or invalid commands executed. Octo guarantees **0.0% hallucination rate** through its strict *Evidence before inference* design contract.
+The ratio of invented or invalid commands executed. Octo targets an estimated **0.0% hallucination rate** through its strict *Evidence before inference* design contract.
 
 ### 3. `Context Token Savings (%)`
-The percentage reduction in LLM context tokens consumed when utilizing Octo's compact tool calls versus reading verbose, unformatted shell standard output/error traces.
+The percentage reduction in LLM context tokens consumed when utilizing Octo's compact tool calls versus reading verbose, unformatted shell standard output/error traces (estimated baseline model).
 
 $$\text{Token Savings} = \frac{\text{Baseline Tokens} - \text{Octo Tokens}}{\text{Baseline Tokens}} \times 100\%$$
 
@@ -48,13 +50,13 @@ Quantifies avoidance of common developer collisions, such as port shifts and mul
 
 Octo tests its execution engine against 8 canonical archetypes hermetically in milliseconds:
 
-1. **Next.js 14 App Router (Node.js)**: Modern frontend with pnpm/npm and Tailwind CSS.
-2. **FastAPI + Poetry (Python)**: Async backend with Poetry dependency locking.
-3. **Go Workspace + Compose**: Multi-module Go service with Postgres and Redis infrastructure.
-4. **Rust Cargo Workspace (Axum)**: Multi-crate workspace with compiled binary targets.
-5. **Spring Boot 3 (Java)**: Gradle-based enterprise service with JVM runtime requirements.
-6. **Phoenix 1.7 LiveView (Elixir)**: BEAM framework with Mix and live reload socket endpoints.
-7. **Laravel 11 Artisan (PHP)**: Composer-managed PHP framework with Artisan CLI runtime.
+1. **Node.js / Express Web Service**: HTTP server with custom port environment variables, start scripts, and socket verification.
+2. **Go Microservice (`net/http`)**: Standard library HTTP microservice with dynamic `$PORT` listener.
+3. **Python API Service (`http.server`)**: Native HTTP handler with socket port readiness binding.
+4. **Node.js Background Worker**: Long-running background daemon with socket listener.
+5. **Command-Line Utility (Go)**: Non-server CLI utility completing cleanly with zero daemon wait.
+6. **Python Background Worker**: Python worker daemon with graceful signal shutdown handlers.
+7. **Rust Workspace (Cargo)**: Rust service with `src/main.rs` binary target (gracefully skipped if Cargo is not installed).
 8. **Strategy Override (`.octo.yaml`)**: Custom developer specifications overriding auto-detection.
 
 ---

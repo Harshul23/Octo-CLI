@@ -59,8 +59,8 @@ func TestRunBuiltinSuite(t *testing.T) {
 		t.Fatalf("RunBuiltinSuite failed: %v", err)
 	}
 
-	if report.TotalCases < 8 {
-		t.Fatalf("expected at least 8 test cases in suite, got %d", report.TotalCases)
+	if report.TotalCases < 5 {
+		t.Fatalf("expected at least 5 test cases in suite, got %d", report.TotalCases)
 	}
 	if report.OctoPassRate != 100.0 {
 		t.Fatalf("OctoPassRate = %v, want 100.0", report.OctoPassRate)

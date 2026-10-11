@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -155,13 +156,15 @@ func RunBuiltinSuite(ctx context.Context) (BenchmarkSuiteReport, error) {
 	defer os.RemoveAll(tempRoot)
 
 	fixtures := []struct {
-		name      string
-		archetype string
-		setup     func(dir string) error
+		name         string
+		archetype    string
+		requiredTool string
+		setup        func(dir string) error
 	}{
 		{
-			name:      "node-web-service",
-			archetype: "Node.js / Express Web Service",
+			name:         "node-web-service",
+			archetype:    "Node.js / Express Web Service",
+			requiredTool: "node",
 			setup: func(dir string) error {
 				port := getFreePort()
 				_ = os.WriteFile(filepath.Join(dir, "package.json"), []byte(fmt.Sprintf(`{"name":"web","scripts":{"start":"node server.js"}}`)), 0644)
@@ -175,8 +178,9 @@ process.on('SIGINT', () => process.exit(0));`, port)
 			},
 		},
 		{
-			name:      "go-microservice",
-			archetype: "Go Microservice (net/http)",
+			name:         "go-microservice",
+			archetype:    "Go Microservice (net/http)",
+			requiredTool: "go",
 			setup: func(dir string) error {
 				port := getFreePort()
 				_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/api\ngo 1.22\n"), 0644)
@@ -196,8 +200,9 @@ func main() {
 			},
 		},
 		{
-			name:      "python-api-service",
-			archetype: "Python API Service",
+			name:         "python-api-service",
+			archetype:    "Python API Service",
+			requiredTool: "python3",
 			setup: func(dir string) error {
 				port := getFreePort()
 				_ = os.MkdirAll(filepath.Join(dir, "app"), 0755)
@@ -226,8 +231,9 @@ verification:
 			},
 		},
 		{
-			name:      "node-api-worker",
-			archetype: "Node.js Background Worker",
+			name:         "node-api-worker",
+			archetype:    "Node.js Background Worker",
+			requiredTool: "node",
 			setup: func(dir string) error {
 				port := getFreePort()
 				_ = os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"worker","scripts":{"start":"node worker.js"}}`), 0644)
@@ -241,16 +247,18 @@ process.on('SIGINT', () => process.exit(0));`, port)
 			},
 		},
 		{
-			name:      "cli-utility",
-			archetype: "Command-Line Utility (Go)",
+			name:         "cli-utility",
+			archetype:    "Command-Line Utility (Go)",
+			requiredTool: "go",
 			setup: func(dir string) error {
 				_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/cli\ngo 1.22\n"), 0644)
 				return os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nimport \"os\"\nfunc main() { os.Exit(0) }\n"), 0644)
 			},
 		},
 		{
-			name:      "python-worker-service",
-			archetype: "Python Background Worker",
+			name:         "python-worker-service",
+			archetype:    "Python Background Worker",
+			requiredTool: "python3",
 			setup: func(dir string) error {
 				port := getFreePort()
 				workerPy := fmt.Sprintf(`import http.server, os, socketserver, signal, sys
@@ -278,8 +286,9 @@ verification:
 			},
 		},
 		{
-			name:      "rust-cargo-service",
-			archetype: "Rust Workspace (Cargo)",
+			name:         "rust-cargo-service",
+			archetype:    "Rust Workspace (Cargo)",
+			requiredTool: "cargo",
 			setup: func(dir string) error {
 				_ = os.MkdirAll(filepath.Join(dir, "src"), 0755)
 				_ = os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[package]\nname = \"service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"), 0644)
@@ -287,8 +296,9 @@ verification:
 			},
 		},
 		{
-			name:      "custom-override-repo",
-			archetype: "Strategy Override (.octo.yaml)",
+			name:         "custom-override-repo",
+			archetype:    "Strategy Override (.octo.yaml)",
+			requiredTool: "node",
 			setup: func(dir string) error {
 				port := getFreePort()
 				customJS := fmt.Sprintf(`const http = require('http');
@@ -330,6 +340,13 @@ verification:
 	totalLatency := int64(0)
 
 	for _, f := range fixtures {
+		if f.requiredTool != "" {
+			if _, err := exec.LookPath(f.requiredTool); err != nil {
+				// Toolchain not available on host environment, skip gracefully
+				continue
+			}
+		}
+
 		dir := filepath.Join(tempRoot, f.name)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return report, err
@@ -355,11 +372,12 @@ verification:
 		totalLatency += res.OctoScore.LatencyMs
 	}
 
-	if len(fixtures) > 0 {
-		report.OctoPassRate = (float64(octoPassCount) / float64(len(fixtures))) * 100.0
-		report.BaselinePassRate = (float64(baselinePassCount) / float64(len(fixtures))) * 100.0
-		report.AvgTokenSavingsPct = totalSavings / float64(len(fixtures))
-		report.AvgLatencyMs = totalLatency / int64(len(fixtures))
+	report.TotalCases = len(report.Results)
+	if report.TotalCases > 0 {
+		report.OctoPassRate = (float64(octoPassCount) / float64(report.TotalCases)) * 100.0
+		report.BaselinePassRate = (float64(baselinePassCount) / float64(report.TotalCases)) * 100.0
+		report.AvgTokenSavingsPct = totalSavings / float64(report.TotalCases)
+		report.AvgLatencyMs = totalLatency / int64(report.TotalCases)
 	}
 
 	return report, nil
