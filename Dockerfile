@@ -12,7 +12,7 @@ RUN go mod download
 COPY . .
 
 # Build the Octo binary (statically linked for portability)
-RUN CGO_ENABLED=0 GOOS=linux go build -o octo ./cmd
+RUN CGO_ENABLED=0 GOOS=linux go build -o octo ./cmd/octo
 
 # Stage 2: Final lightweight image
 FROM alpine:3.19
