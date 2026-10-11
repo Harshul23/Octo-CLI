@@ -76,6 +76,11 @@ func (InteractiveDecisionProvider) Decide(ctx context.Context, request intellige
 	}, nil
 }
 
+// InteractiveTerminal reports whether stdin and stdout are connected to a terminal.
+func InteractiveTerminal() bool {
+	return interactiveTerminal()
+}
+
 func interactiveTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }

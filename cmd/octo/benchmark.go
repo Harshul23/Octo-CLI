@@ -12,7 +12,7 @@ import (
 
 var benchmarkCmd = &cobra.Command{
 	Use:     "benchmark [path]",
-	Aliases: []string{"eval"},
+	Aliases: []string{"bench", "eval"},
 	Short:   "Benchmark autonomous execution reliability and token efficiency against raw shell baselines",
 	Long: `Benchmark autonomous agent execution against raw shell interaction.
 Measures Pass@1 reliability, hallucination rate, token consumption, and readiness verification.`,
@@ -145,7 +145,7 @@ func renderSingleResult(cmd *cobra.Command, res benchmark.BenchmarkResult) {
 }
 
 func init() {
-	benchmarkCmd.Flags().Bool("suite", false, "Run the canonical SWE-bench archetype benchmark suite")
-	benchmarkCmd.Flags().Bool("json", false, "Output benchmark results as JSON")
+	benchmarkCmd.Flags().BoolP("suite", "s", false, "Run the canonical SWE-bench archetype benchmark suite")
+	benchmarkCmd.Flags().BoolP("json", "j", false, "Output benchmark results as JSON")
 	rootCmd.AddCommand(benchmarkCmd)
 }

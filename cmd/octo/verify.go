@@ -10,9 +10,10 @@ import (
 )
 
 var verifyCmd = &cobra.Command{
-	Use:   "verify [path]",
-	Short: "Verify expected runtime state and lockfile integrity",
-	Args:  cobra.MaximumNArgs(1),
+	Use:     "verify [path]",
+	Aliases: []string{"v", "check"},
+	Short:   "Verify expected runtime state and lockfile integrity",
+	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path := "."
 		if len(args) == 1 {
@@ -102,6 +103,6 @@ var verifyCmd = &cobra.Command{
 }
 
 func init() {
-	verifyCmd.Flags().Bool("json", false, "Output verification results as JSON")
+	verifyCmd.Flags().BoolP("json", "j", false, "Output verification results as JSON")
 	rootCmd.AddCommand(verifyCmd)
 }

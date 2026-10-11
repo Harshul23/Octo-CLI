@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,13 +10,23 @@ import (
 
 func TestEvaluateRepository(t *testing.T) {
 	root := t.TempDir()
-	packageJSON := `{
+	port := getFreePort()
+	packageJSON := fmt.Sprintf(`{
   "name": "benchmark-demo",
   "scripts": {
-    "start": "node index.js -p 3000"
+    "start": "node index.js -p %d"
   }
-}`
+}`, port)
+	serverJS := fmt.Sprintf(`const http = require('http');
+const port = process.env.PORT || %d;
+const server = http.createServer((req, res) => { res.writeHead(200); res.end('OK'); });
+server.listen(port, () => {});
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));`, port)
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(packageJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "index.js"), []byte(serverJS), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -27,6 +38,7 @@ func TestEvaluateRepository(t *testing.T) {
 	if result.Repository != filepath.Base(root) {
 		t.Fatalf("Repository = %q, want %q", result.Repository, filepath.Base(root))
 	}
+	t.Logf("OctoScore: %+v", result.OctoScore)
 	if !result.OctoScore.OneShotSuccess {
 		t.Fatal("expected Octo OneShotSuccess to be true")
 	}

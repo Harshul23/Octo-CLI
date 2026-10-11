@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -102,6 +103,16 @@ func ApplyRepositoryOverrides(model *ProjectModel, override *RepositoryOverride,
 	}
 
 	// 1. Component Overrides
+	if len(override.Components) == 1 && len(model.Components) == 1 && model.Components[0].Path == "." {
+		// Single-component repository where override named the component
+		for compName := range override.Components {
+			model.Components[0].Name = compName
+		}
+	} else if len(override.Components) > 0 && len(model.Components) == 1 && model.Components[0].Path == "." && model.Components[0].RunCommand == "" {
+		// Replace unrunnable placeholder with declared override components
+		model.Components = nil
+	}
+
 	for compName, compOverride := range override.Components {
 		cmd := compOverride.RunCommand
 		if cmd == "" {
@@ -215,7 +226,9 @@ func ApplyRepositoryOverrides(model *ProjectModel, override *RepositoryOverride,
 	// 3. Custom Verification Overrides
 	for i, v := range override.Verification {
 		kind := VerificationKind(v.Kind)
-		if kind == "" {
+		if strings.EqualFold(v.Kind, "tcp") || strings.EqualFold(v.Kind, "port") {
+			kind = VerificationPort
+		} else if kind == "" {
 			if v.Path != "" {
 				kind = VerificationHTTP
 			} else {

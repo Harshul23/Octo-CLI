@@ -36,9 +36,9 @@ func init() {
 	initCmd.Flags().StringP("output", "o", ".octo.yaml", "Output file path for the configuration")
 	initCmd.Flags().BoolP("force", "f", false, "Overwrite existing .octo.yaml file")
 	initCmd.Flags().BoolP("interactive", "i", false, "Run in interactive mode with prompts")
-	initCmd.Flags().Bool("skip-install", false, "Skip dependency installation prompts")
-	initCmd.Flags().Bool("auto-install", false, "Automatically install dependencies without prompting")
-	initCmd.Flags().Bool("skip-secrets", false, "Skip secrets/environment variable setup")
+	initCmd.Flags().BoolP("skip-install", "s", false, "Skip dependency installation prompts")
+	initCmd.Flags().BoolP("auto-install", "y", false, "Automatically install dependencies without prompting")
+	initCmd.Flags().BoolP("skip-secrets", "S", false, "Skip secrets/environment variable setup")
 	initCmd.Flags().StringP("env", "e", "development", "Target environment (development, production) - affects script selection")
 }
 

@@ -15,6 +15,7 @@ type VerificationKind string
 
 const (
 	VerificationPort   VerificationKind = "port"
+	VerificationTCP    VerificationKind = "tcp"
 	VerificationHealth VerificationKind = "health"
 	VerificationHTTP   VerificationKind = "http"
 )
@@ -56,7 +57,9 @@ func NewVerificationRegistry() *VerificationRegistry {
 	r := &VerificationRegistry{
 		providers: make(map[VerificationKind]VerificationProvider),
 	}
-	r.Register(&PortVerificationProvider{})
+	portProvider := &PortVerificationProvider{}
+	r.Register(portProvider)
+	r.providers[VerificationTCP] = portProvider
 	r.Register(&HealthVerificationProvider{})
 	r.Register(&HTTPVerificationProvider{})
 	return r
@@ -229,11 +232,19 @@ func verifyPort(ctx context.Context, host string, port int, timeout time.Duratio
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	dialer := net.Dialer{Timeout: timeout}
-	conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", host, port))
-	if err != nil {
-		return fmt.Errorf("TCP port %d is not reachable: %w", port, err)
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		dialer := net.Dialer{Timeout: 250 * time.Millisecond}
+		conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", host, port))
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		lastErr = err
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return fmt.Errorf("TCP port %d is not reachable: %w", port, lastErr)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	_ = conn.Close()
-	return nil
 }

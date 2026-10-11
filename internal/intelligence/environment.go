@@ -38,15 +38,33 @@ func (e ResolvedEnvironment) ForStep(step ExecutionStep) ResolvedEnvironment {
 	return ResolvedEnvironment{Values: values}
 }
 
+// MissingRequiredEnvError is returned when required environment variables are missing.
+type MissingRequiredEnvError struct {
+	Missing []string
+}
+
+func (e *MissingRequiredEnvError) Error() string {
+	return fmt.Sprintf("missing required environment variables: %v", e.Missing)
+}
+
+// ResolveEnvironmentOptions controls validation behavior during environment resolution.
+type ResolveEnvironmentOptions struct {
+	SkipRequiredCheck bool
+}
+
 // ResolveEnvironment resolves required and optional variables for a project.
 // Precedence is: existing process environment > .env.local > .env.
 // Only variables declared in the ProjectModel are returned.
 func ResolveEnvironment(root string, model EnvironmentModel) (ResolvedEnvironment, error) {
-	return resolveEnvironment(root, model, nil)
+	return resolveEnvironment(root, model, nil, ResolveEnvironmentOptions{})
 }
 
 func ResolveProjectEnvironment(root string, project ProjectModel) (ResolvedEnvironment, error) {
-	env, err := resolveEnvironment(root, project.Environment, project.Components)
+	return ResolveProjectEnvironmentWithOptions(root, project, ResolveEnvironmentOptions{})
+}
+
+func ResolveProjectEnvironmentWithOptions(root string, project ProjectModel, opts ResolveEnvironmentOptions) (ResolvedEnvironment, error) {
+	env, err := resolveEnvironment(root, project.Environment, project.Components, opts)
 	if err != nil {
 		return env, err
 	}
@@ -67,7 +85,7 @@ func ResolveProjectEnvironment(root string, project ProjectModel) (ResolvedEnvir
 	return env, nil
 }
 
-func resolveEnvironment(root string, model EnvironmentModel, components []Component) (ResolvedEnvironment, error) {
+func resolveEnvironment(root string, model EnvironmentModel, components []Component, opts ResolveEnvironmentOptions) (ResolvedEnvironment, error) {
 	values := make(map[string]string)
 	for _, path := range []string{filepath.Join(root, ".env"), filepath.Join(root, ".env.local")} {
 		fileValues, err := readEnvFile(path)
@@ -161,9 +179,9 @@ func resolveEnvironment(root string, model EnvironmentModel, components []Compon
 		}
 	}
 
-	if len(missing) > 0 {
+	if len(missing) > 0 && !opts.SkipRequiredCheck {
 		sort.Strings(missing)
-		return ResolvedEnvironment{}, fmt.Errorf("missing required environment variables: %v", missing)
+		return ResolvedEnvironment{}, &MissingRequiredEnvError{Missing: missing}
 	}
 
 	return ResolvedEnvironment{Values: resolved, ScopedValues: scoped}, nil

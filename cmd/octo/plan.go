@@ -10,9 +10,10 @@ import (
 )
 
 var planCmd = &cobra.Command{
-	Use:   "plan [path]",
-	Short: "Show the deterministic execution plan for a repository",
-	Args:  cobra.MaximumNArgs(1),
+	Use:     "plan [path]",
+	Aliases: []string{"p"},
+	Short:   "Show the deterministic execution plan for a repository",
+	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path := "."
 		if len(args) == 1 {
@@ -78,6 +79,6 @@ func findStep(plan intelligence.ExecutionPlan, id string) intelligence.Execution
 }
 
 func init() {
-	planCmd.Flags().Bool("json", false, "Output the ExecutionPlan as JSON")
+	planCmd.Flags().BoolP("json", "j", false, "Output the ExecutionPlan as JSON")
 	rootCmd.AddCommand(planCmd)
 }

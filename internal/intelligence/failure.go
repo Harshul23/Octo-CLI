@@ -64,6 +64,7 @@ const (
 	FailureClassMissingDependency FailureClassification = "missing_dependency"
 	FailureClassCompilationSyntax FailureClassification = "compilation_syntax"
 	FailureClassProcessCrash      FailureClassification = "process_crash"
+	FailureClassMissingArguments  FailureClassification = "missing_arguments"
 	FailureClassTimeout           FailureClassification = "timeout"
 	FailureClassUnknown           FailureClassification = "unknown"
 )
@@ -128,7 +129,15 @@ func ClassifyExecutionFailure(reason string, err error) FailureClassification {
 		return FailureClassTimeout
 	}
 
-	// 5. Process crashes & abrupt exits
+	// 5. Missing CLI arguments
+	if strings.Contains(lower, "required arguments were not provided") ||
+		strings.Contains(lower, "the following required arguments were not provided") ||
+		strings.Contains(lower, "missing required argument") ||
+		(strings.Contains(lower, "usage:") && strings.Contains(lower, "argument")) {
+		return FailureClassMissingArguments
+	}
+
+	// 6. Process crashes & abrupt exits
 	if strings.Contains(lower, "exit status") ||
 		strings.Contains(lower, "segmentation fault") ||
 		strings.Contains(lower, "sigsegv") ||

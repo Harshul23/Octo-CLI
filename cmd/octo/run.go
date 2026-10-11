@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -22,8 +23,21 @@ import (
 // runCmd represents the run command
 var runCmd = &cobra.Command{
 	Use:           "run [path]",
+	Aliases:       []string{"r", "start"},
 	Short:         "Understand and run the repository locally",
-	Args:          cobra.MaximumNArgs(1),
+	Args: func(cmd *cobra.Command, args []string) error {
+		dashAt := cmd.ArgsLenAtDash()
+		if dashAt == -1 {
+			if len(args) > 1 {
+				return fmt.Errorf("accepts at most 1 path argument. To pass arguments to the application, use: octo run [path] -- [args...]")
+			}
+			return nil
+		}
+		if dashAt > 1 {
+			return fmt.Errorf("accepts at most 1 path argument before '--'")
+		}
+		return nil
+	},
 	SilenceUsage:  true,
 	Long: `The run command analyzes the repository, builds an execution plan,
 resolves the required environment, executes the plan, and verifies the
@@ -42,12 +56,14 @@ func init() {
 	runCmd.Flags().BoolP("watch", "w", false, "Watch for file changes and restart")
 	runCmd.Flags().BoolP("detach", "d", false, "Run in detached mode (background)")
 	runCmd.Flags().IntP("port", "p", 0, "Override the port to run on (0 = use config default)")
-	runCmd.Flags().Bool("no-port-shift", false, "Disable automatic port shifting on conflicts")
-	runCmd.Flags().Bool("skip-env-check", false, "Skip environment variable validation")
-	runCmd.Flags().Bool("no-tui", false, "Disable TUI dashboard (use plain scrolling output)")
+	runCmd.Flags().BoolP("no-port-shift", "N", false, "Disable automatic port shifting on conflicts")
+	runCmd.Flags().BoolP("skip-env-check", "k", false, "Skip environment variable validation")
+	runCmd.Flags().Bool("skip-env", false, "Alias for --skip-env-check")
+	runCmd.Flags().BoolP("no-tui", "T", false, "Disable TUI dashboard (use plain scrolling output)")
 	runCmd.Flags().String("engine", "intelligence", "Execution engine: intelligence or legacy")
 	runCmd.Flags().BoolP("sandbox", "s", false, "Execute application inside an ephemeral, isolated container sandbox")
-	runCmd.Flags().Bool("json", false, "Output the ExecutionReport as JSON")
+	runCmd.Flags().BoolP("select", "i", false, "Interactively select which components and services to run")
+	runCmd.Flags().BoolP("json", "j", false, "Output the ExecutionReport as JSON")
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -74,6 +90,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	port, _ := cmd.Flags().GetInt("port")
 	noPortShift, _ := cmd.Flags().GetBool("no-port-shift")
 	skipEnvCheck, _ := cmd.Flags().GetBool("skip-env-check")
+	if !skipEnvCheck {
+		skipEnvCheck, _ = cmd.Flags().GetBool("skip-env")
+	}
 	noTUI, _ := cmd.Flags().GetBool("no-tui")
 	
 	// Dashboard is enabled by default unless --no-tui is specified or running in detached mode
@@ -212,7 +231,14 @@ func maskEnvValue(value string) string {
 
 func runWithIntelligence(cmd *cobra.Command, args []string) error {
 	target := "."
-	if len(args) == 1 {
+	var passthroughArgs []string
+	dashAt := cmd.ArgsLenAtDash()
+	if dashAt != -1 {
+		if dashAt == 1 {
+			target = args[0]
+		}
+		passthroughArgs = args[dashAt:]
+	} else if len(args) == 1 {
 		target = args[0]
 	}
 	cwd, err := filepath.Abs(target)
@@ -258,6 +284,45 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 	}
 
 	noTUI, _ := cmd.Flags().GetBool("no-tui")
+	selectComponents, _ := cmd.Flags().GetBool("select")
+	if (selectComponents || (len(model.Components)+len(model.Services) > 1)) && !noTUI && !jsonOutput && !detach && ui.InteractiveTerminal() {
+		selectedComponents, selectedServices, autoIncluded, cancelled, err := ui.RunComponentSelector(model)
+		if err != nil {
+			return err
+		}
+		if cancelled {
+			return fmt.Errorf("execution cancelled by user")
+		}
+
+		compSet := make(map[string]bool)
+		for _, c := range selectedComponents {
+			compSet[c] = true
+		}
+		var filteredComponents []intelligence.Component
+		for _, c := range model.Components {
+			if compSet[c.Name] {
+				filteredComponents = append(filteredComponents, c)
+			}
+		}
+		model.Components = filteredComponents
+
+		svcSet := make(map[string]bool)
+		for _, s := range selectedServices {
+			svcSet[s] = true
+		}
+		var filteredServices []intelligence.Service
+		for _, s := range model.Services {
+			if svcSet[s.Name] {
+				filteredServices = append(filteredServices, s)
+			}
+		}
+		model.Services = filteredServices
+
+		if len(autoIncluded) > 0 {
+			fmt.Println(ui.InfoLine(fmt.Sprintf("Auto-included upstream dependencies: %s", strings.Join(autoIncluded, ", "))))
+		}
+	}
+
 	var decisionProvider intelligence.DecisionProvider = intelligence.DeterministicDecisionProvider{}
 	if !noTUI && !jsonOutput {
 		decisionProvider = ui.InteractiveDecisionProvider{}
@@ -273,9 +338,47 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		printExecutionOverview(model, plan)
 	}
 
-	env, err := intelligence.ResolveProjectEnvironment(cwd, model)
+	skipEnvCheck, _ := cmd.Flags().GetBool("skip-env-check")
+	if !skipEnvCheck {
+		skipEnvCheck, _ = cmd.Flags().GetBool("skip-env")
+	}
+	envOpts := intelligence.ResolveEnvironmentOptions{SkipRequiredCheck: skipEnvCheck}
+	env, err := intelligence.ResolveProjectEnvironmentWithOptions(cwd, model, envOpts)
 	if err != nil {
-		return fmt.Errorf("environment resolution failed: %w", err)
+		var missingErr *intelligence.MissingRequiredEnvError
+		if errors.As(err, &missingErr) {
+			if !jsonOutput && ui.InteractiveTerminal() {
+				tpl := intelligence.GenerateEnvTemplate(cwd, model)
+				res, promptErr := ui.PromptMissingEnvironment(cwd, missingErr.Missing, tpl)
+				if promptErr != nil {
+					return promptErr
+				}
+				if !res.ShouldContinue {
+					return nil
+				}
+				if res.Skipped {
+					env, err = intelligence.ResolveProjectEnvironmentWithOptions(cwd, model, intelligence.ResolveEnvironmentOptions{SkipRequiredCheck: true})
+					if err != nil {
+						return fmt.Errorf("environment resolution failed: %w", err)
+					}
+				} else if len(res.EnteredValues) > 0 {
+					env, err = intelligence.ResolveProjectEnvironmentWithOptions(cwd, model, intelligence.ResolveEnvironmentOptions{SkipRequiredCheck: true})
+					if err != nil {
+						return fmt.Errorf("environment resolution failed: %w", err)
+					}
+					if env.Values == nil {
+						env.Values = make(map[string]string)
+					}
+					for k, v := range res.EnteredValues {
+						env.Values[k] = v
+					}
+				}
+			} else {
+				return fmt.Errorf("%w. Pass --skip-env-check (or -k) to bypass or run 'octo env template' to generate a template", err)
+			}
+		} else {
+			return fmt.Errorf("environment resolution failed: %w", err)
+		}
 	}
 
 	resolver := intelligence.NewRuntimeResolverWithOptions(intelligence.RuntimeResolverOptions{
@@ -284,7 +387,7 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 	})
 
 	if detach {
-		opts := intelligence.ExecutionOptions{Detach: true, Silent: jsonOutput, Sandbox: sandbox}
+		opts := intelligence.ExecutionOptions{Detach: true, Silent: jsonOutput, Sandbox: sandbox, Args: passthroughArgs}
 		report := intelligence.ExecutePlanReportWithOptions(cmd.Context(), model, plan, resolver, env, opts)
 		if jsonOutput {
 			data, err := json.MarshalIndent(report, "", "  ")
@@ -373,7 +476,7 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 				}
 			}(model)
 
-			report := intelligence.ExecutePlanReportWithOptions(watchExecCtx, model, plan, resolver, env, intelligence.ExecutionOptions{Sandbox: sandbox})
+			report := intelligence.ExecutePlanReportWithOptions(watchExecCtx, model, plan, resolver, env, intelligence.ExecutionOptions{Sandbox: sandbox, Args: passthroughArgs})
 			if !jsonOutput {
 				printExecutionReport(report)
 			}
@@ -422,7 +525,7 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, resolver, env, intelligence.ExecutionOptions{Silent: jsonOutput, Sandbox: sandbox})
+	report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, resolver, env, intelligence.ExecutionOptions{Silent: jsonOutput, Sandbox: sandbox, Args: passthroughArgs})
 	if jsonOutput {
 		data, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {

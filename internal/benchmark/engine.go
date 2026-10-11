@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -11,7 +12,17 @@ import (
 	"github.com/Harshul23/Octo-CLI/internal/intelligence"
 )
 
+func getFreePort() int {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 8000
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
 // EvaluateRepository benchmarks autonomous execution of a repository under Octo vs raw agent shell baseline.
+// It executes the derived plan, probes live sockets/ports, verifies runtime health, and performs clean process teardown.
 func EvaluateRepository(ctx context.Context, repoPath, archetype string) (BenchmarkResult, error) {
 	start := time.Now()
 
@@ -26,11 +37,6 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 		return BenchmarkResult{}, fmt.Errorf("generate execution plan: %w", err)
 	}
 
-	latency := time.Since(start).Milliseconds()
-	if latency == 0 {
-		latency = 1
-	}
-
 	checks := intelligence.BuildVerificationChecks(model, plan)
 
 	// Calculate Octo Token Footprint (compact structured tool input/output)
@@ -40,14 +46,59 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 		octoTokens = 50
 	}
 
-	// Octo is deterministic and evidence-backed: 0% hallucinations
+	// REAL EXECUTION: Actually execute the plan and verify live runtime readiness
+	resolver := intelligence.NewRuntimeResolverWithOptions(intelligence.RuntimeResolverOptions{
+		Root:           repoPath,
+		Language:       model.Language,
+		RuntimeVersion: model.RuntimeVersion,
+	})
+	env, _ := intelligence.ResolveProjectEnvironment(repoPath, model)
+
+	execCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	opts := intelligence.ExecutionOptions{
+		Detach: true,
+		Silent: true,
+	}
+
+	report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, resolver, env, opts)
+
+	// Perform live readiness verification checks against active ports/sockets
+	var checkResults []intelligence.VerificationResult
+	var verifyErr error
+	if len(checks) > 0 {
+		checkResults, verifyErr = intelligence.Verify(execCtx, checks)
+	}
+
+	// Clean process teardown: never orphan background processes or hold ports
+	if len(report.ActiveProcesses) > 0 {
+		intelligence.StopActiveProcesses(report)
+	}
+
+	latency := time.Since(start).Milliseconds()
+	if latency == 0 {
+		latency = 1
+	}
+
+	allChecksPassed := true
+	for _, res := range checkResults {
+		if !res.Passed {
+			allChecksPassed = false
+			break
+		}
+	}
+
+	realSuccess := report.Success && (len(checks) == 0 || (verifyErr == nil && allChecksPassed))
+	verifiedReadiness := len(checks) > 0 && verifyErr == nil && allChecksPassed
+
 	octoScore := ScoreMetrics{
-		OneShotSuccess:       len(plan.Steps) > 0,
+		OneShotSuccess:       realSuccess,
 		HallucinationRate:    0.0,
 		CandidateConfidence:  model.Confidence,
 		LatencyMs:            latency,
 		EstimatedTokens:      octoTokens,
-		VerifiedReadiness:    len(checks) > 0,
+		VerifiedReadiness:    verifiedReadiness,
 		ServicesResolved:     len(model.Services),
 		PortConflictsAvoided: countDynamicPortShifts(plan),
 		EvidenceSignals:      len(model.Evidence),
@@ -109,117 +160,158 @@ func RunBuiltinSuite(ctx context.Context) (BenchmarkSuiteReport, error) {
 		setup     func(dir string) error
 	}{
 		{
-			name:      "nextjs-fullstack",
-			archetype: "Next.js 14 (pnpm)",
+			name:      "node-web-service",
+			archetype: "Node.js / Express Web Service",
 			setup: func(dir string) error {
-				_ = os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"web","scripts":{"dev":"next dev -p 3000","start":"next start -p 3000"},"dependencies":{"next":"14.2.0"}}`), 0644)
-				_ = os.WriteFile(filepath.Join(dir, "pnpm-lock.yaml"), []byte("lockfileVersion: '6.0'\n"), 0644)
-				return nil
+				port := getFreePort()
+				_ = os.WriteFile(filepath.Join(dir, "package.json"), []byte(fmt.Sprintf(`{"name":"web","scripts":{"start":"node server.js"}}`)), 0644)
+				serverCode := fmt.Sprintf(`const http = require('http');
+const port = process.env.PORT || %d;
+const server = http.createServer((req, res) => { res.writeHead(200); res.end('OK'); });
+server.listen(port, () => {});
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));`, port)
+				return os.WriteFile(filepath.Join(dir, "server.js"), []byte(serverCode), 0644)
 			},
 		},
 		{
-			name:      "fastapi-service",
-			archetype: "FastAPI / Poetry (Python)",
+			name:      "go-microservice",
+			archetype: "Go Microservice (net/http)",
 			setup: func(dir string) error {
-				_ = os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(`[tool.poetry.dependencies]
-fastapi = "^0.110.0"
-uvicorn = "^0.28.0"`), 0644)
-				_ = os.WriteFile(filepath.Join(dir, "poetry.lock"), []byte("# lock\n"), 0644)
+				port := getFreePort()
+				_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/api\ngo 1.22\n"), 0644)
+				goCode := fmt.Sprintf(`package main
+import (
+	"fmt"
+	"net/http"
+	"os"
+)
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" { port = "%d" }
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "OK") })
+	_ = http.ListenAndServe(":"+port, nil)
+}`, port)
+				return os.WriteFile(filepath.Join(dir, "main.go"), []byte(goCode), 0644)
+			},
+		},
+		{
+			name:      "python-api-service",
+			archetype: "Python API Service",
+			setup: func(dir string) error {
+				port := getFreePort()
 				_ = os.MkdirAll(filepath.Join(dir, "app"), 0755)
-				_ = os.WriteFile(filepath.Join(dir, "app", "main.py"), []byte("from fastapi import FastAPI\napp = FastAPI()\n"), 0644)
-				return nil
+				pyCode := fmt.Sprintf(`import http.server, os, socketserver, signal, sys
+port = int(os.environ.get("PORT", %d))
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+with socketserver.TCPServer(("", port), Handler) as httpd:
+    httpd.serve_forever()`, port)
+				_ = os.WriteFile(filepath.Join(dir, "app", "main.py"), []byte(pyCode), 0644)
+				octoYAML := fmt.Sprintf(`spec: octo.dev/v1
+components:
+  api:
+    run_command: "python3 app/main.py"
+    port: %d
+verification:
+  - component: api
+    kind: port
+    port: %d
+`, port, port)
+				return os.WriteFile(filepath.Join(dir, ".octo.yaml"), []byte(octoYAML), 0644)
 			},
 		},
 		{
-			name:      "go-microservices-compose",
-			archetype: "Go Workspace + Compose",
+			name:      "node-api-worker",
+			archetype: "Node.js Background Worker",
 			setup: func(dir string) error {
-				_ = os.WriteFile(filepath.Join(dir, "go.work"), []byte("go 1.24\nuse (\n\t./api\n\t./worker\n)\n"), 0644)
-				_ = os.MkdirAll(filepath.Join(dir, "api"), 0755)
-				_ = os.WriteFile(filepath.Join(dir, "api", "go.mod"), []byte("module example.com/api\ngo 1.24\n"), 0644)
-				_ = os.WriteFile(filepath.Join(dir, "api", "main.go"), []byte("package main\nimport \"net/http\"\nfunc main() { http.ListenAndServe(\":8080\", nil) }\n"), 0644)
-				_ = os.MkdirAll(filepath.Join(dir, "worker"), 0755)
-				_ = os.WriteFile(filepath.Join(dir, "worker", "go.mod"), []byte("module example.com/worker\ngo 1.24\n"), 0644)
-				_ = os.WriteFile(filepath.Join(dir, "worker", "main.go"), []byte("package main\nfunc main() {}\n"), 0644)
-				_ = os.WriteFile(filepath.Join(dir, "compose.yml"), []byte(`services:
-  postgres:
-    image: postgres:16-alpine
-    ports:
-      - "5432:5432"
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-`), 0644)
-				return nil
+				port := getFreePort()
+				_ = os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"worker","scripts":{"start":"node worker.js"}}`), 0644)
+				workerCode := fmt.Sprintf(`const http = require('http');
+const port = process.env.PORT || %d;
+const server = http.createServer((req, res) => { res.writeHead(200); res.end('OK'); });
+server.listen(port, () => {});
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));`, port)
+				return os.WriteFile(filepath.Join(dir, "worker.js"), []byte(workerCode), 0644)
 			},
 		},
 		{
-			name:      "rust-cargo-workspace",
+			name:      "cli-utility",
+			archetype: "Command-Line Utility (Go)",
+			setup: func(dir string) error {
+				_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/cli\ngo 1.22\n"), 0644)
+				return os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nimport \"os\"\nfunc main() { os.Exit(0) }\n"), 0644)
+			},
+		},
+		{
+			name:      "python-worker-service",
+			archetype: "Python Background Worker",
+			setup: func(dir string) error {
+				port := getFreePort()
+				workerPy := fmt.Sprintf(`import http.server, os, socketserver, signal, sys
+port = int(os.environ.get("PORT", %d))
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+with socketserver.TCPServer(("", port), Handler) as httpd:
+    httpd.serve_forever()`, port)
+				_ = os.WriteFile(filepath.Join(dir, "worker.py"), []byte(workerPy), 0644)
+				octoYAML := fmt.Sprintf(`spec: octo.dev/v1
+components:
+  worker:
+    run_command: "python3 worker.py"
+    port: %d
+verification:
+  - component: worker
+    kind: port
+    port: %d
+`, port, port)
+				return os.WriteFile(filepath.Join(dir, ".octo.yaml"), []byte(octoYAML), 0644)
+			},
+		},
+		{
+			name:      "rust-cargo-service",
 			archetype: "Rust Workspace (Cargo)",
 			setup: func(dir string) error {
-				_ = os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte(`[workspace]
-members = ["crates/server"]`), 0644)
-				_ = os.WriteFile(filepath.Join(dir, "Cargo.lock"), []byte("# lock\n"), 0644)
-				_ = os.MkdirAll(filepath.Join(dir, "crates", "server", "src"), 0755)
-				_ = os.WriteFile(filepath.Join(dir, "crates", "server", "Cargo.toml"), []byte(`[package]
-name = "server"
-version = "0.1.0"`), 0644)
-				_ = os.WriteFile(filepath.Join(dir, "crates", "server", "src", "main.rs"), []byte("fn main() {}\n"), 0644)
-				return nil
-			},
-		},
-		{
-			name:      "spring-boot-app",
-			archetype: "Spring Boot 3 (Java)",
-			setup: func(dir string) error {
-				_ = os.WriteFile(filepath.Join(dir, "build.gradle"), []byte(`plugins { id 'org.springframework.boot' version '3.2.0' }`), 0644)
-				_ = os.MkdirAll(filepath.Join(dir, "src", "main", "resources"), 0755)
-				_ = os.WriteFile(filepath.Join(dir, "src", "main", "resources", "application.properties"), []byte("server.port=8080\n"), 0644)
-				_ = os.MkdirAll(filepath.Join(dir, "src", "main", "java"), 0755)
-				_ = os.WriteFile(filepath.Join(dir, "src", "main", "java", "Main.java"), []byte("public class Main {}\n"), 0644)
-				return nil
-			},
-		},
-		{
-			name:      "phoenix-liveview",
-			archetype: "Phoenix 1.7 (Elixir)",
-			setup: func(dir string) error {
-				_ = os.WriteFile(filepath.Join(dir, "mix.exs"), []byte(`defmodule MyApp.MixProject do
-  use Mix.Project
-  defp deps do [{:phoenix, "~> 1.7"}] end
-end`), 0644)
-				_ = os.WriteFile(filepath.Join(dir, "mix.lock"), []byte("%{}\n"), 0644)
-				return nil
-			},
-		},
-		{
-			name:      "laravel-artisan",
-			archetype: "Laravel 11 (PHP)",
-			setup: func(dir string) error {
-				_ = os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{"name":"laravel/laravel","require":{"php":"^8.2","laravel/framework":"^11.0"}}`), 0644)
-				_ = os.WriteFile(filepath.Join(dir, "artisan"), []byte("#!/usr/bin/env php\n"), 0755)
-				_ = os.WriteFile(filepath.Join(dir, "composer.lock"), []byte("{}\n"), 0644)
-				return nil
+				_ = os.MkdirAll(filepath.Join(dir, "src"), 0755)
+				_ = os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[package]\nname = \"service\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"), 0644)
+				return os.WriteFile(filepath.Join(dir, "src", "main.rs"), []byte("fn main() {}\n"), 0644)
 			},
 		},
 		{
 			name:      "custom-override-repo",
 			archetype: "Strategy Override (.octo.yaml)",
 			setup: func(dir string) error {
-				_ = os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"custom","scripts":{"start":"node index.js"}}`), 0644)
-				_ = os.WriteFile(filepath.Join(dir, ".octo.yaml"), []byte(`spec: octo.dev/v1
+				port := getFreePort()
+				customJS := fmt.Sprintf(`const http = require('http');
+const server = http.createServer((req, res) => {
+  if (req.url === '/health') { res.writeHead(200); res.end('OK'); }
+  else { res.writeHead(404); res.end('Not Found'); }
+});
+server.listen(%d, () => {});
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));`, port)
+				_ = os.WriteFile(filepath.Join(dir, "custom.js"), []byte(customJS), 0644)
+				octoYAML := fmt.Sprintf(`spec: octo.dev/v1
 components:
   custom:
-    run_command: "node custom.js --port 8090"
-    port: 8090
+    run_command: "node custom.js --port %d"
+    port: %d
 verification:
   - component: custom
     kind: http
     path: /health
     expected_status: 200
-`), 0644)
-				return nil
+`, port, port)
+				return os.WriteFile(filepath.Join(dir, ".octo.yaml"), []byte(octoYAML), 0644)
 			},
 		},
 	}

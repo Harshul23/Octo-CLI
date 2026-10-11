@@ -10,9 +10,10 @@ import (
 )
 
 var envCmd = &cobra.Command{
-	Use:   "env [path]",
-	Short: "Inspect required and optional environment variables and detect missing variables",
-	Args:  cobra.MaximumNArgs(1),
+	Use:     "env [path]",
+	Aliases: []string{"e"},
+	Short:   "Inspect required and optional environment variables and detect missing variables",
+	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path := "."
 		if len(args) == 1 {
@@ -75,9 +76,10 @@ var envCmd = &cobra.Command{
 }
 
 var envTemplateCmd = &cobra.Command{
-	Use:   "template [path]",
-	Short: "Generate a safe .env template with non-secret placeholders",
-	Args:  cobra.MaximumNArgs(1),
+	Use:     "template [path]",
+	Aliases: []string{"tpl"},
+	Short:   "Generate a safe .env template with non-secret placeholders",
+	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path := "."
 		if len(args) == 1 {
@@ -96,7 +98,7 @@ var envTemplateCmd = &cobra.Command{
 }
 
 func init() {
-	envCmd.Flags().Bool("json", false, "Output environment status as JSON")
+	envCmd.Flags().BoolP("json", "j", false, "Output environment status as JSON")
 	envCmd.AddCommand(envTemplateCmd)
 	rootCmd.AddCommand(envCmd)
 }

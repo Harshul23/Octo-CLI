@@ -43,6 +43,9 @@ func NewCandidateProviderRegistry() *CandidateProviderRegistry {
 			RustExecutionCandidateProvider{},
 			PHPExecutionCandidateProvider{},
 			ElixirExecutionCandidateProvider{},
+			DotnetExecutionCandidateProvider{},
+			SwiftExecutionCandidateProvider{},
+			KotlinExecutionCandidateProvider{},
 		},
 	}
 }
@@ -630,6 +633,122 @@ func (ElixirExecutionCandidateProvider) Candidates(ctx context.Context, root str
 			Path:     component.Path,
 			Detail:   "Elixir mix standard runner",
 			Strength: 0.75,
+		}},
+	})
+
+	return candidates, nil
+}
+
+type DotnetExecutionCandidateProvider struct{}
+
+func (DotnetExecutionCandidateProvider) Name() string { return "dotnet" }
+func (DotnetExecutionCandidateProvider) Supports(component Component) bool {
+	return strings.EqualFold(component.Language, "c#") || strings.EqualFold(component.Language, "dotnet")
+}
+
+func (DotnetExecutionCandidateProvider) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
+	compDir := filepath.Join(root, filepath.FromSlash(component.Path))
+	var candidates []ExecutionCandidate
+
+	entries, _ := os.ReadDir(compDir)
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".csproj") {
+			candidates = append(candidates, ExecutionCandidate{
+				ID:         "dotnet.run.project",
+				Command:    "dotnet run --project " + entry.Name(),
+				Confidence: 0.96,
+				Evidence: []Evidence{{
+					Kind:     EvidenceManifest,
+					Path:     filepath.Join(component.Path, entry.Name()),
+					Detail:   "C# project file found: " + entry.Name(),
+					Strength: 0.96,
+				}},
+			})
+			break
+		}
+	}
+
+	candidates = append(candidates, ExecutionCandidate{
+		ID:         "dotnet.run",
+		Command:    "dotnet run",
+		Confidence: 0.90,
+		Evidence: []Evidence{{
+			Kind:     EvidenceSignalFile,
+			Path:     component.Path,
+			Detail:   ".NET CLI standard runner",
+			Strength: 0.90,
+		}},
+	})
+
+	return candidates, nil
+}
+
+type SwiftExecutionCandidateProvider struct{}
+
+func (SwiftExecutionCandidateProvider) Name() string { return "swift" }
+func (SwiftExecutionCandidateProvider) Supports(component Component) bool {
+	return strings.EqualFold(component.Language, "swift")
+}
+
+func (SwiftExecutionCandidateProvider) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
+	var candidates []ExecutionCandidate
+	candidates = append(candidates, ExecutionCandidate{
+		ID:         "swift.run",
+		Command:    "swift run",
+		Confidence: 0.95,
+		Evidence: []Evidence{{
+			Kind:     EvidenceManifest,
+			Path:     filepath.Join(component.Path, "Package.swift"),
+			Detail:   "Swift Package Manager standard run command",
+			Strength: 0.95,
+		}},
+	})
+	return candidates, nil
+}
+
+type KotlinExecutionCandidateProvider struct{}
+
+func (KotlinExecutionCandidateProvider) Name() string { return "kotlin" }
+func (KotlinExecutionCandidateProvider) Supports(component Component) bool {
+	return strings.EqualFold(component.Language, "kotlin")
+}
+
+func (KotlinExecutionCandidateProvider) Candidates(ctx context.Context, root string, component Component) ([]ExecutionCandidate, error) {
+	compDir := filepath.Join(root, filepath.FromSlash(component.Path))
+	var candidates []ExecutionCandidate
+
+	gradleCmd := "gradle"
+	if _, err := os.Stat(filepath.Join(compDir, "gradlew")); err == nil {
+		gradleCmd = "./gradlew"
+	}
+
+	buildFile := filepath.Join(compDir, "build.gradle.kts")
+	if data, err := os.ReadFile(buildFile); err == nil {
+		content := string(data)
+		if strings.Contains(content, "spring") || strings.Contains(content, "boot") {
+			candidates = append(candidates, ExecutionCandidate{
+				ID:         "kotlin.gradle.bootrun",
+				Command:    gradleCmd + " bootRun",
+				Confidence: 0.95,
+				Evidence: []Evidence{{
+					Kind:     EvidenceManifest,
+					Path:     filepath.Join(component.Path, "build.gradle.kts"),
+					Detail:   "Spring Boot plugin detected in build.gradle.kts",
+					Strength: 0.95,
+				}},
+			})
+		}
+	}
+
+	candidates = append(candidates, ExecutionCandidate{
+		ID:         "kotlin.gradle.run",
+		Command:    gradleCmd + " run",
+		Confidence: 0.85,
+		Evidence: []Evidence{{
+			Kind:     EvidenceSignalFile,
+			Path:     component.Path,
+			Detail:   "Gradle application runner for Kotlin",
+			Strength: 0.85,
 		}},
 	})
 

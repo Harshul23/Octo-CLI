@@ -70,7 +70,7 @@ If you're making your first open-source contribution to Octo, look for:
 - **Ecosystem Manifest Refinements**: Improving version parsing or lockfile attribution for existing languages.
 - **Port Discovery Patterns**: Adding explicit port regex patterns for popular frameworks.
 - **Explainability Tracing**: Adding clearer reason descriptions to `BuildDecisionTrace`.
-- **CLI & Diagnostic Polish**: Improving error messages in `octo doctor` or `octo explain`.
+- **CLI & Diagnostic Polish**: Improving error messages in `octo verify` or `octo explain`.
 - **Regression Tests**: Submitting test cases based on popular open-source repositories to `regression_repos_test.go`.
 
 ---

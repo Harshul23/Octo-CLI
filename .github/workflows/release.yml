@@ -51,7 +51,7 @@ jobs:
             mkdir -p "$BUILD_DIR"
             CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build \
               -ldflags="-s -w -X main.version=${VERSION}" \
-              -o "${BUILD_DIR}/${BIN_NAME}" ./cmd
+              -o "${BUILD_DIR}/${BIN_NAME}" ./cmd/octo
 
             cp README.md LICENSE.md "$BUILD_DIR/" 2>/dev/null || true
 

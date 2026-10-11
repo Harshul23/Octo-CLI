@@ -10,9 +10,10 @@ import (
 )
 
 var previewCmd = &cobra.Command{
-	Use:   "preview [path]",
-	Short: "Preview all machine changes, network ports, and processes before execution",
-	Args:  cobra.MaximumNArgs(1),
+	Use:     "preview [path]",
+	Aliases: []string{"prev", "dry-run"},
+	Short:   "Preview all machine changes, network ports, and processes before execution",
+	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path := "."
 		if len(args) == 1 {
@@ -108,6 +109,6 @@ var previewCmd = &cobra.Command{
 }
 
 func init() {
-	previewCmd.Flags().Bool("json", false, "Output machine preview as JSON")
+	previewCmd.Flags().BoolP("json", "j", false, "Output machine preview as JSON")
 	rootCmd.AddCommand(previewCmd)
 }

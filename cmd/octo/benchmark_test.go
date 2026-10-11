@@ -22,6 +22,15 @@ func TestBenchmarkCommandSingleRepo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(packageJSON), 0644); err != nil {
 		t.Fatal(err)
 	}
+	serverCode := `const http = require('http');
+const port = process.env.PORT || 3000;
+const server = http.createServer((req, res) => { res.writeHead(200); res.end('OK'); });
+server.listen(port, () => {});
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));`
+	if err := os.WriteFile(filepath.Join(root, "server.js"), []byte(serverCode), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	_ = benchmarkCmd.Flags().Set("suite", "false")
 	_ = benchmarkCmd.Flags().Set("json", "false")
