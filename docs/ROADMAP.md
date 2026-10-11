@@ -220,7 +220,7 @@ Make reliability and transparency product properties.
     - Phoenix 1.7 (Elixir) with Ecto
     - Laravel 11 (PHP) with Artisan
     - Monorepos with `.octo.yaml` strategy overrides
-- **Contributor documentation & architecture guides (`CONTRIBUTION.md`)**:
+- **Contributor documentation & architecture guides (`CONTRIBUTING.md`)**:
   - Step-by-step Contributor Recipe for adding new ecosystems using pluggable registries.
   - Good First Issues guide for newcomers.
   - Strict hermetic testing rules (no live network, no external daemons, millisecond execution).

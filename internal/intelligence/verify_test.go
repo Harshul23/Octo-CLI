@@ -49,3 +49,17 @@ func TestVerifyReportsUnavailablePort(t *testing.T) {
 		t.Fatal("expected verification failure")
 	}
 }
+
+func TestVerificationRegistryUnknownKindFailsClosed(t *testing.T) {
+	r := NewVerificationRegistry()
+	results, err := r.Verify(context.Background(), []VerificationCheck{{ID: "typo-check", Kind: VerificationKind("not-a-real-kind")}})
+	if err == nil {
+		t.Fatal("expected error for unknown verification kind, got nil")
+	}
+	if len(results) != 1 || results[0].Passed {
+		t.Fatalf("expected one non-passing result, got %+v", results)
+	}
+	if results[0].CheckID != "typo-check" {
+		t.Fatalf("unexpected check id %q", results[0].CheckID)
+	}
+}

@@ -89,12 +89,14 @@ func (r *VerificationRegistry) Verify(ctx context.Context, checks []Verification
 	for _, check := range checks {
 		provider, ok := r.providers[check.Kind]
 		if !ok {
-			results = append(results, VerificationResult{
+			// Fail closed: a check we cannot run must never count as verified.
+			res := VerificationResult{
 				CheckID: check.ID,
-				Passed:  true,
-				Reason:  fmt.Sprintf("verification kind %q has no registered provider, marked passed", check.Kind),
-			})
-			continue
+				Passed:  false,
+				Reason:  fmt.Sprintf("verification kind %q has no registered provider; check is unverified", check.Kind),
+			}
+			results = append(results, res)
+			return results, fmt.Errorf("verification %q failed: %s", check.ID, res.Reason)
 		}
 		res, err := provider.Verify(ctx, check)
 		results = append(results, res)

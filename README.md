@@ -156,7 +156,7 @@ go test -count=1 ./...
 
 ## Contributing
 
-Contributions are welcome! To add a new detector, candidate provider, or runtime adapter, please review [CONTRIBUTION.md](CONTRIBUTION.md) and [Architecture.md](Architecture.md) before opening a PR.
+Contributions are welcome! To add a new detector, candidate provider, or runtime adapter, please review [CONTRIBUTING.md](CONTRIBUTING.md) and [Architecture.md](Architecture.md) before opening a PR.
 
 ---
 
