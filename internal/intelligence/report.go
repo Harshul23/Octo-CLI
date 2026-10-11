@@ -462,3 +462,14 @@ func TeardownExecution(model ProjectModel, plan ExecutionPlan, running []Running
 
 	return summary
 }
+
+// StopActiveProcesses terminates all active processes tracked in an ExecutionReport.
+func StopActiveProcesses(report ExecutionReport) {
+	for _, proc := range report.ActiveProcesses {
+		if proc.PID > 0 {
+			if p, err := os.FindProcess(proc.PID); err == nil {
+				_ = p.Kill()
+			}
+		}
+	}
+}

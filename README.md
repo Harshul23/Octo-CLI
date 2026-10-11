@@ -39,7 +39,7 @@ brew tap Harshul23/homebrew-tap
 brew install octo-cli
 
 # Using Go
-go install github.com/Harshul23/Octo-CLI/cmd@latest
+go install github.com/Harshul23/Octo-CLI/cmd/octo@latest
 ```
 *(Precompiled standalone binaries for macOS Apple Silicon/Intel, Linux x86_64/ARM64, and Windows are available on the [Releases page](https://github.com/Harshul23/Octo-CLI/releases).)*
 

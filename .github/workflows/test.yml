@@ -19,7 +19,6 @@ jobs:
           go-version: "1.25.6"
 
       - name: Build Octo
-        run: go build -o octo ./cmd/
-
+        run: go build -o octo ./cmd/octo/
       - name: Run Unit Tests
         run: go test -v ./...
