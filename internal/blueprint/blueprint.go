@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/harshul/octo-cli/internal/intelligence"
+	"github.com/Harshul23/Octo-CLI/internal/intelligence"
 	"gopkg.in/yaml.v3"
 )
 

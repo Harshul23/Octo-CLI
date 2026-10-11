@@ -1,4 +1,4 @@
-module github.com/harshul/octo-cli
+module github.com/Harshul23/Octo-CLI
 
 go 1.25.6
 

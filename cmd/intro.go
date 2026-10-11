@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/harshul/octo-cli/internal/ui"
+	"github.com/Harshul23/Octo-CLI/internal/ui"
 	"github.com/spf13/cobra"
 )
 

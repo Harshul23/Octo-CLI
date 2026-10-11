@@ -9,7 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/harshul/octo-cli/internal/intelligence"
+	"github.com/Harshul23/Octo-CLI/internal/intelligence"
 	"golang.org/x/term"
 )
 

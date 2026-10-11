@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harshul/octo-cli/internal/intelligence"
+	"github.com/Harshul23/Octo-CLI/internal/intelligence"
 )
 
 func TestDecisionModelViewCircles(t *testing.T) {
