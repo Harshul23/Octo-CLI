@@ -1,769 +1,164 @@
-# Octo CLI
+<p align="center">
+  <img src="assets/octo-banner.png" alt="Octo CLI — Clone it. Run it." width="100%" />
+</p>
 
-**Make “how do I run this?” disappear.**
+<p align="center">
+  <strong>Make “how do I run this?” disappear.</strong><br>
+  Zero-configuration execution intelligence for human developers and autonomous AI agents.
+</p>
 
-Octo is an execution-intelligence CLI for software repositories. It analyzes a repository, discovers evidence about what exists and how it can run, builds a canonical project model and topology, derives evidence-backed execution candidates, creates a deterministic execution plan, executes it through runtime adapters, verifies the result, and can remember verified execution strategies.
+<p align="center">
+  <a href="https://github.com/Harshul23/Octo-CLI/releases"><img src="https://img.shields.io/github/v/release/Harshul23/Octo-CLI?style=flat-square&logo=github&logoColor=white&label=Release&labelColor=18181b&color=2563eb" alt="Release" /></a>
+  <a href="https://github.com/Harshul23/homebrew-tap"><img src="https://img.shields.io/badge/Brew-Harshul23%2Ftap-27272a?style=flat-square&logo=homebrew&logoColor=f59e0b&labelColor=18181b" alt="Homebrew" /></a>
+  <a href="cmd/mcp.go"><img src="https://img.shields.io/badge/MCP-Protocol%20Ready-7c3aed?style=flat-square&logo=anthropic&logoColor=white&labelColor=18181b" alt="MCP Ready" /></a>
+  <a href="https://github.com/Harshul23/Octo-CLI/releases"><img src="https://img.shields.io/badge/Platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-27272a?style=flat-square&logo=apple&logoColor=white&labelColor=18181b" alt="Platforms" /></a>
+  <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-MIT-10b981?style=flat-square&labelColor=18181b" alt="License" /></a>
+</p>
 
-The goal is not to build another collection of language-specific startup heuristics. The goal is to make repository execution **discoverable, explainable, deterministic, provider-neutral, and progressively self-correcting**.
+<p align="center">
+  <a href="#quick-install">Quick Install</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="#30-second-quickstart">30s Quickstart</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="#ai-agent-companion-octo-mcp">AI Agent Companion</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="#why-octo">Why Octo?</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="#supported-ecosystems--capabilities">Ecosystems</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="#documentation--architecture">Documentation</a>
+</p>
 
-## Project direction
+---
 
-The long-term direction is documented separately so contributors can understand where Octo is going and why the architecture is shaped this way.
-
-- [Vision](docs/VISION.md) — the problem Octo exists to solve and the principles that should not be compromised.
-- [Roadmap](docs/ROADMAP.md) — capability-focused priorities from reliability to a larger open-source ecosystem.
-- [Architecture](docs/ARCHITECTURE.md) — the canonical intelligence pipeline and boundaries for future work.
-
-## Core vision
-
-The problem Octo is solving is simple:
-
-> **“I cloned this repository. How the hell do I run it?”**
-
-Octo's long-term mission is:
-
-> **Make “how do I run this?” disappear.**
-
-A repository should contain enough evidence for Octo to understand its structure and derive a safe path toward execution.
-
-The core architecture is:
-
-```text
-Repository
-    ↓
-Evidence Discovery
-    ↓
-ProjectModel
-    ↓
-Topology + Execution Candidates
-    ↓
-Bounded Decision
-    ↓
-ExecutionPlan
-    ↓
-Runtime Adapters
-    ↓
-Execute
-    ↓
-Verify
-    ↓
-.octo.lock
-```
-
-The important distinction is **verified execution**.
-
-Octo should not simply ask an LLM to invent a command. It should discover what the repository actually supports, produce bounded candidates, select among those candidates, execute them, learn from failures without inventing new facts, verify success, and persist only strategies that have actually worked.
-
-## Design principles
-
-### 1. Evidence before inference
-
-Octo's intelligence layer starts from repository evidence:
-
-- manifests
-- lockfiles
-- scripts
-- configuration
-- source files
-- workspace declarations
-- Compose files
-- explicit dependencies
-- explicit health checks
-- execution failures
-
-Detectors produce facts and evidence. They should not silently turn guesses into repository truth.
-
-### 2. Candidates before decisions
-
-When multiple execution strategies are possible, ecosystem-specific providers produce a **bounded candidate set**.
-
-For example, a Go component containing multiple non-test Go files can produce:
-
-```text
-go run main.go
-go run .
-```
-
-The decision layer chooses between those candidates. It does not invent a third command.
-
-### 3. Decisions are provider-neutral
-
-Octo defines a `DecisionProvider` boundary:
-
-```go
-type DecisionProvider interface {
-    Decide(ctx context.Context, request DecisionRequest) (DecisionResult, error)
-}
-```
-
-Possible providers include:
-
-- deterministic rules
-- Jev
-- an LLM
-- a human
-
-Jev is therefore an optional decision provider, not Octo's core analyzer. Deterministic Octo logic discovers repository facts, builds candidates, and supplies bounded choices. Jev or another provider resolves only the ambiguity that remains.
-
-External intelligence is optional. The deterministic provider is the offline baseline, so Octo remains useful without Jev, an LLM, a network connection, or a paid service.
-
-A decision provider may select from supplied candidates, but it must not invent commands, runtimes, paths, dependencies, or other execution facts outside that candidate set.
-### Optional Jev provider
-
-Jev can be enabled as a bounded decision provider without becoming a runtime dependency.
+## Quick Install
 
 ```bash
-export OCTO_DECISION_PROVIDER=jev
-export OCTO_JEV_URL=http://localhost:8787/decide
-# optional:
-export OCTO_JEV_TOKEN=...
-```
-
-Octo sends Jev the decision name and the existing evidence-backed candidate set. Jev must return one of those candidates. If Jev is not configured, unavailable, returns an invalid option, or fails, Octo automatically falls back to the deterministic provider.
-
-This means the following remain true:
-
-- Octo works with no Jev installation.
-- Octo works with no network connection.
-- Jev cannot invent an execution command.
-- A Jev outage does not block repository analysis or execution.
-
-The Jev endpoint uses a small JSON contract:
-
-```json
-{
-  "name": "run_command",
-  "options": [
-    {"id": "go.main-file", "value": "go run main.go", "confidence": 0.78},
-    {"id": "go.package", "value": "go run .", "confidence": 0.96}
-  ]
-}
-```
-
-and returns:
-
-```json
-{
-  "option_id": "go.package",
-  "value": "go run .",
-  "confidence": 0.99,
-  "reason": "The complete Go package is the safer candidate."
-}
-```
-
-### 4. Topology is a first-class concept
-
-A repository is not necessarily one runnable program.
-
-Octo models:
-
-- application components
-- infrastructure services
-- explicit dependencies
-- informational network references
-- health/readiness relationships
-
-These become a canonical topology graph rather than being reconstructed independently by every subsystem.
-
-### 5. Planning is separate from execution
-
-The `ExecutionPlan` is the deterministic bridge between repository understanding and runtime execution.
-
-The plan describes:
-
-- what steps exist
-- their dependencies
-- their working directories
-- their commands
-- candidate information
-- provisioning requirements
-- environment bindings
-- ports
-- explanations
-
-Runtime adapters decide **how** a plan step is executed.
-
-### 6. Secrets never become planning data
-
-Environment requirements may be represented as names, ownership, and source locations.
-
-Resolved environment values are runtime-only.
-
-They must not be stored in:
-
-- `ProjectModel`
-- `TopologyGraph`
-- `ExecutionPlan`
-- decision traces
-- execution reports
-- `.octo.lock`
-
-### 7. Verification is part of execution intelligence
-
-A command finishing is not automatically the same thing as successful application execution.
-
-Octo derives deterministic verification checks from known facts, such as:
-
-- resolved application ports
-- explicit service health checks
-
-A strategy becomes a **verified strategy** only after the complete execution plan and deterministic verification succeed.
-
-### 8. Verified state is different from desired state
-
-Octo separates configuration intent from verified execution state.
-
-- `.octo.yaml` represents the older serialized configuration/intent path.
-- `.octo.lock` records execution strategies that Octo has actually verified.
-
-The lock is not a replacement for repository understanding. It is a cache of verified knowledge that is invalidated when execution-relevant repository state changes.
-
-## How the intelligence engine works
-
-The canonical execution path is:
-
-```text
-1. Analyze repository
-2. Build ProjectModel
-3. Load and validate verified strategies
-4. Build topology
-5. Generate execution plan
-6. Resolve runtime environment
-7. Execute plan in dependency order
-8. Verify expected runtime state
-9. Persist successful strategies
-```
-
-The current CLI uses the intelligence engine by default for `octo run`.
-
-The explicit legacy engine remains available temporarily for compatibility and feature gaps.
-
-```bash
-octo run
-```
-
-To use the older execution path explicitly:
-
-```bash
-octo run --engine legacy
-```
-
-The legacy path is transitional. New execution capabilities belong in the intelligence architecture.
-
-## Repository analysis
-
-The native intelligence detector builds a `ProjectModel` from repository evidence.
-
-The model can represent:
-
-- project identity
-- root
-- language
-- runtime version
-- framework
-- package manager
-- setup command
-- execution command
-- monorepo state
-- components
-- infrastructure services
-- environment requirements
-- topology references
-- confidence
-- supporting evidence
-
-Supported native detection currently includes repository signals for ecosystems such as:
-
-- Node
-- Go
-- Python
-- Rust
-- Java
-- Ruby
-
-Detection and execution are deliberately separate.
-
-A detector can establish that a repository is a Go project without deciding that `go run main.go` is the correct execution strategy.
-
-## Execution candidates
-
-Execution candidates are generated by `CandidateProvider` implementations.
-
-The current candidate-provider boundary is provider-neutral and extensible.
-
-For example, Go detection can produce a stronger `go run .` candidate when multiple non-test Go files are present. This matters because:
-
-```text
-go run main.go
-```
-
-may fail when `main.go` depends on symbols defined in sibling files, while:
-
-```text
-go run .
-```
-
-compiles the complete package.
-
-A failed candidate is evidence. It is not permission to invent a command.
-
-The intended feedback loop is:
-
-```text
-Candidate A
-    ↓
-Execute
-    ↓
-Failure
-    ↓
-Failure becomes evidence
-    ↓
-Candidate B from the existing candidate set
-    ↓
-Execute
-    ↓
-Success
-    ↓
-Verify
-    ↓
-Persist verified strategy
-```
-
-## Topology
-
-Octo represents repository components and infrastructure services in one graph.
-
-Node namespaces are explicit:
-
-```text
-component:<name>
-service:<name>
-```
-
-Relationship kinds currently include:
-
-- `depends_on` — execution dependency
-- `network_reference` — informational communication relationship
-
-Only `depends_on` affects execution ordering.
-
-The graph rejects:
-
-- unknown nodes
-- duplicate node identities
-- invalid references
-- unknown relationship kinds
-- dependency cycles
-
-This keeps topology facts separate from execution policy.
-
-## Multi-component repositories
-
-Octo does not flatten a monorepo into one project merely because multiple directories exist.
-
-Explicit workspace boundaries can produce separate components, each retaining its own:
-
-- path
-- runtime information
-- package manager
-- execution candidates
-- command
-- confidence
-- evidence
-
-Dependencies are only created when repository evidence supports them.
-
-For example, an explicit Node `workspace:` dependency can become a topology dependency. Merely having two folders with similar names cannot.
-
-## Infrastructure services
-
-Infrastructure is modeled separately from source-code components.
-
-Docker Compose is a supported explicit topology source.
-
-Compose discovery can preserve:
-
-- service names
-- images
-- build contexts
-- published ports
-- `depends_on`
-- health checks
-- supporting evidence
-
-Octo does not invent an application command for an infrastructure service.
-
-Instead, the runtime adapter boundary decides how a known service execution step can be executed.
-
-## Environment handling
-
-The intelligence architecture separates **environment requirements** from **environment values**.
-
-The model may know:
-
-```text
-DATABASE_URL
-required: true
-source: apps/api/...
-```
-
-It must not know the value of `DATABASE_URL`.
-
-At execution time, Octo resolves values using scoped precedence:
-
-1. process environment
-2. component `.env.local`
-3. component `.env`
-4. repository-root `.env.local`
-5. repository-root `.env`
-
-Component-local values remain scoped to the component's execution steps.
-
-Required-variable validation also respects ownership. A value defined for one component must not accidentally satisfy another component's requirement.
-
-## Network references
-
-Octo can discover informational application-to-application references from explicit static configuration.
-
-For example:
-
-```text
-api
- └── DATABASE_URL → service:postgres
-```
-
-This produces metadata about the relationship, not a secret value.
-
-Interpolated values are not guessed.
-
-A `network_reference` does not automatically become a startup dependency.
-
-## Provisioning
-
-Provisioning is an explicit planning phase.
-
-The planner can derive machine prerequisites from repository facts, such as required package managers.
-
-Provisioning checks happen before dependency installation.
-
-Planning itself should not mutate the user's machine. Any automatic installation or bootstrap behavior must be explicit and visible.
-
-## Ports
-
-Ports are execution resources.
-
-For application components, Octo can:
-
-1. inspect the requested port
-2. detect a conflict
-3. select an available TCP port
-4. record requested and resolved ports in the execution plan
-5. expose the resolved port to the component as `PORT`
-
-Infrastructure service ports declared by Compose are currently treated as strict declarations. Conflicts are reported rather than silently rewriting Compose configuration.
-
-## Runtime adapters
-
-Execution plans are runtime-neutral.
-
-A `RuntimeAdapter` maps an executable plan step to a concrete execution mechanism.
-
-The current built-in boundary includes:
-
-- **shell** — ordinary command execution
-- **compose** — Docker Compose execution
-
-Adapters are selected by capability rather than by a global language switch.
-
-This allows Octo to grow runtime support without putting runtime-specific behavior into the repository detector.
-
-## Verification
-
-Verification is a separate post-execution phase.
-
-Current deterministic checks include:
-
-- application TCP-port reachability
-- explicit service health/readiness conditions
-
-Verification results are structured and safe to serialize.
-
-Verification does not modify the execution plan.
-
-## Verified strategies and .octo.lock
-
-After successful execution and verification, Octo may persist a verified strategy in `.octo.lock`.
-
-A strategy contains:
-
-- component
-- candidate ID
-- command
-- execution-relevant repository fingerprint
-- verification timestamp
-
-Before reuse, Octo checks that:
-
-1. the candidate still exists
-2. its command is unchanged
-3. its execution-relevant fingerprint still matches
-
-Changes to execution-relevant source, manifests, scripts, lockfiles, or runtime configuration invalidate the strategy.
-
-Unrelated documentation or generated/dependency trees should not invalidate it.
-
-A stale lock entry falls back to normal discovery and candidate selection.
-
-## Explainability
-
-Octo is intended to be explainable.
-
-Evidence, candidates, topology edges, execution steps, verification results, and decision traces are structured rather than hidden inside a large heuristic function.
-
-A decision trace can explain:
-
-- what was selected
-- which bounded option was selected
-- why it was selected
-- confidence
-- supporting evidence
-- whether a candidate failed or succeeded
-
-The trace must not expose resolved environment values or command output.
-
-## Dogfooding and execution feedback
-
-Octo is intended to test its own assumptions against real repositories.
-
-One important example is Charmbracelet Gum. Octo initially selected:
-
-```text
-go run main.go
-```
-
-Gum contains multiple Go files, and `main.go` depends on symbols defined in `gum.go`. Running only the entry file therefore fails, while:
-
-```text
-go run .
-```
-
-executes the complete package successfully.
-
-The architectural lesson is not simply "prefer `go run .`". The important loop is:
-
-```text
-Candidate
-    ↓
-Execute
-    ↓
-Failure becomes evidence
-    ↓
-Another existing candidate
-    ↓
-Execute
-    ↓
-Success
-    ↓
-Verify
-    ↓
-Persist verified strategy
-```
-
-This is the intended meaning of **verified execution**: runtime outcomes improve bounded decisions without allowing Octo to invent arbitrary commands.
-
-## Current architecture boundary
-
-The repository still contains an older execution path based around:
-
-```text
-octo init
-    ↓
-.octo.yaml
-    ↓
-legacy Blueprint/Orchestrator
-```
-
-That path is being retired progressively.
-
-The intelligence path is the architectural destination:
-
-```text
-octo run
-    ↓
-intelligence.Analyze
-    ↓
-ProjectModel
-    ↓
-TopologyGraph
-    ↓
-ExecutionPlan
-    ↓
-RuntimeAdapters
-    ↓
-Verification
-    ↓
-.octo.lock
-```
-
-This distinction is important when reading the repository: some legacy files exist for compatibility, but they should not be treated as the model for new features.
-
-## Repository architecture
-
-At a high level:
-
-```text
-cmd/
- ├── CLI commands and user-facing entry points
- └── engine selection
-
-internal/intelligence/
- ├── repository detection
- ├── ProjectModel
- ├── evidence
- ├── topology
- ├── execution candidates
- ├── decision providers
- ├── planning
- ├── provisioning
- ├── environment resolution
- ├── runtime adapters
- ├── execution reports
- ├── verification
- ├── decision traces
- └── verified strategy / lock state
-
-internal/analyzer/
- └── legacy analyzer surface being retired
-
-internal/blueprint/
- └── legacy .octo.yaml blueprint representation
-
-internal/orchestrator/
- └── legacy execution path
-
-internal/ui/
- └── terminal/TUI presentation and interactive legacy flows
-
-spec/
- └── versioned Octo architecture and behavioral contract
-```
-
-The exact implementation will continue to evolve, but new intelligence capabilities should respect these boundaries.
-
-## Architecture rule of thumb
-
-When adding a new ecosystem or capability, prefer:
-
-```text
-Evidence detector
-      ↓
-Native model facts
-      ↓
-Provider / candidate adapter
-      ↓
-Bounded decision
-      ↓
-Generic planner / runtime
-```
-
-Avoid:
-
-```text
-if Go ...
-if Node ...
-if Python ...
-if Rust ...
-if Java ...
-if ...
-```
-
-The core should provide generic primitives. Ecosystem-specific knowledge should live behind detectors, candidate providers, and runtime adapters.
-
-## Status
-
-Octo is actively migrating from its original local-deployment CLI architecture toward the execution-intelligence architecture described above.
-
-The intelligence system already includes major foundations for:
-
-- native repository detection
-- evidence-backed execution candidates
-- provider-neutral decisions
-- unified topology
-- dependency-aware execution planning
-- provisioning checks
-- scoped runtime environments
-- secret-safe environment bindings
-- runtime adapters
-- deterministic verification
-- execution reports
-- decision traces
-- verified execution strategies
-
-The remaining work is primarily convergence: retiring compatibility paths, increasing ecosystem coverage, improving discovery and runtime adapters, and making verified execution increasingly robust.
-
-For the full behavioral contract, see [spec/v1/specification.md](spec/v1/specification.md).
-
-## Installation
-
-### Via Homebrew (macOS / Linux)
-
-```bash
+# macOS & Linux via Homebrew
 brew tap Harshul23/homebrew-tap
 brew install octo-cli
-```
 
-### Using Go
-
-```bash
+# Using Go
 go install github.com/harshul/octo-cli/cmd@latest
 ```
+*(Precompiled standalone binaries for macOS Apple Silicon/Intel, Linux x86_64/ARM64, and Windows are available on the [Releases page](https://github.com/Harshul23/Octo-CLI/releases).)*
 
-### From source
+---
 
-```bash
-git clone https://github.com/Harshul23/Octo-CLI.git
-cd Octo-CLI
-go build -o bin/octo ./cmd
-```
-
-## Quick start
-
-For the current intelligence path:
+## 30-Second Quickstart
 
 ```bash
 cd your-project
+
+# 1. Inspect: Discover repository facts, language, framework & package manager
+octo inspect
+
+# 2. Preview: Inspect port allocations, dependencies & machine changes before running
+octo preview
+
+# 3. Run: Execute in dependency order, verify runtime health, and teardown cleanly on Ctrl+C
 octo run
 ```
 
-Octo analyzes the repository directly, builds its execution model and plan, executes the plan, verifies the result, and records verified strategies when execution succeeds.
+---
 
-If you specifically need the transitional legacy engine:
+## AI Agent Companion (`octo mcp`)
 
-```bash
-octo run --engine legacy
+When AI coding agents (Claude Code, Cursor, Windsurf, Cline) execute code directly through raw bash commands, they waste 40%+ of their context tokens trial-and-erroring missing packages, colliding ports, and orphaning background processes.
+
+Octo includes a native **JSON-RPC 2.0 Model Context Protocol (MCP)** server over stdio. Connect Octo to your favorite AI agent to give it deterministic, zero-hallucination execution capabilities:
+
+### Add to Cursor (`.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "octo": {
+      "command": "octo",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
 
-The legacy configuration flow may require:
-
+### Add to Claude Code:
 ```bash
-octo init
+claude mcp add octo -- octo mcp
 ```
 
-That command belongs to the compatibility path and should not be interpreted as the long-term architecture.
+### Available Agent Tools:
+- `octo_inspect`: Analyzes the repository to detect language, framework, runtime version, and package manager.
+- `octo_plan`: Generates the deterministic dependency-ordered execution plan.
+- `octo_preview`: Previews machine changes, required packages, and network port reservations.
+- `octo_run_and_verify`: Autonomously executes the stack and verifies runtime health without raw shell guessing.
+- `octo_verify`: Validates live services and lockfile fingerprint integrity.
+
+---
+
+## Why Octo?
+
+| Feature | Octo CLI | Raw Shell Scripts | Docker Compose Alone | LLM Bash Agents |
+| :--- | :---: | :---: | :---: | :---: |
+| **Zero Configuration Required** | ✓ | — | — (requires compose file) | — |
+| **Automatic Port Conflict Shifting** | ✓ | — (EADDRINUSE error) | — | — |
+| **Backing Service Coordination** | ✓ (Starts DB before app) | — | Partial | — (hangs or fails) |
+| **Graceful Teardown on Ctrl+C** | ✓ (Drains process tree) | — (Leaves orphans) | Partial | — (Leaves zombie PIDs) |
+| **Zero-Hallucination AI Companion** | ✓ (via MCP) | N/A | N/A | — (hallucinates commands) |
+| **Verified Strategy Caching** | ✓ (`.octo.lock`) | — | — | — |
+
+---
+
+## Supported Ecosystems & Capabilities
+
+<p align="center">
+  <img src="https://skillicons.dev/icons?i=nodejs,nextjs,express,go,python,fastapi,rust,docker&theme=dark" alt="Supported Technologies" />
+</p>
+
+- **Languages and Frameworks**: Native evidence detectors for Node.js (Next.js, Express, Vite), Go (Gin, standard library), Python (FastAPI, Django, Flask), Rust (Cargo), Ruby, Java.
+- **Port Intelligence**: Detects listening port collisions and automatically rebinds components to free ports via dynamic environment injection (`PORT`).
+- **Infrastructure Coordination**: Discovers and boots backing services (PostgreSQL, Redis, MySQL) via Docker Compose before launching application processes.
+- **Safe Environment Scoping**: Resolves local environment precedence without ever logging or persisting secrets to planning models or lockfiles.
+- **Clean Process Lifecycle**: Traps `SIGINT`/`SIGTERM` to gracefully drain active children and kill zombie daemon PIDs.
+- **Strategy Fingerprinting (`.octo.lock`)**: Caches proven startup strategies and only invalidates when code or dependency manifests change.
+
+---
+
+## Documentation & Architecture
+
+Deep-dive documentation and formal specifications live in dedicated guides:
+
+- **[Architecture Deep-Dive](Architecture.md)** — Detailed specification of the canonical execution pipeline, bounded decision engine, topology graph, and runtime adapters.
+- **[Vision & Core Principles](docs/VISION.md)** — The foundational philosophy: *Evidence before inference, candidates before decisions*.
+- **[Specification Contract](spec/v1/specification.md)** — Formal behavioral contract, candidate schemas, and JSON models.
+- **[Benchmark Results](docs/BENCHMARK.md)** — Detection speed and execution startup benchmarks across archetypes.
+- **[Project Roadmap](docs/ROADMAP.md)** — Phased milestones, plugin ecosystems, and future adapter targets.
+- **[Community & Mentorship](docs/COMMUNITY_AND_MENTORSHIP.md)** — Guidelines for community engagement and contributor onboarding.
+
+---
+
+## Local Development & Testing
+
+```bash
+# Clone repository
+git clone https://github.com/Harshul23/Octo-CLI.git
+cd Octo-CLI
+
+# Build standalone binary
+go build -o bin/octo ./cmd
+
+# Run unit and regression test suite
+go test -count=1 ./...
+
+# Run dynamic archetype test suite across real-world repos
+./scripts/test-archetypes.sh
+```
+
+---
 
 ## Contributing
 
-Contributions are welcome. Before adding a new detector, provider, planner rule, or runtime adapter, read:
+Contributions are welcome! To add a new detector, candidate provider, or runtime adapter, please review [CONTRIBUTION.md](CONTRIBUTION.md) and [Architecture.md](Architecture.md) before opening a PR.
 
-- [Architecture.md](Architecture.md)
-- [spec/v1/specification.md](spec/v1/specification.md)
-- [CONTRIBUTING.md](CONTRIBUTING.md)
-
-The key question for every architectural change is:
-
-> **Does this add generic intelligence primitives, or does it add another hidden ecosystem-specific heuristic?**
-
-Prefer the former.
+---
 
 ## License
 
