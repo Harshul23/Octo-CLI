@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -55,7 +56,7 @@ func ClearAdditionalPaths() {
 
 // GetBinaryPaths returns common binary installation paths for various package managers
 func GetBinaryPaths() map[PackageManager]string {
-	home := os.Getenv("HOME")
+	home, _ := os.UserHomeDir()
 	return map[PackageManager]string{
 		Bun:  filepath.Join(home, ".bun", "bin"),
 		PNPM: filepath.Join(home, ".local", "share", "pnpm"),
@@ -71,7 +72,6 @@ func GetBinaryPathForManager(manager PackageManager) string {
 }
 
 // BuildEnhancedEnvironment creates an environment slice with additional paths prepended to PATH
-// This ensures newly installed binaries are immediately available
 func BuildEnhancedEnvironment() []string {
 	env := os.Environ()
 	additionalPaths := GetAdditionalPaths()
@@ -89,14 +89,13 @@ func BuildEnhancedEnvironment() []string {
 	newEnv := make([]string, 0, len(env))
 	pathFound := false
 	for _, e := range env {
-		if strings.HasPrefix(e, "PATH=") {
+		if strings.HasPrefix(strings.ToUpper(e), "PATH=") {
 			newEnv = append(newEnv, "PATH="+newPath)
 			pathFound = true
 		} else {
 			newEnv = append(newEnv, e)
 		}
 	}
-
 	if !pathFound {
 		newEnv = append(newEnv, "PATH="+newPath)
 	}
@@ -603,6 +602,7 @@ type BunInstallResult struct {
 
 // BunInstallCommand is the official Bun installation command
 const BunInstallCommand = "curl -fsSL https://bun.sh/install | bash"
+const BunInstallCommandWindows = "powershell -c \"irm bun.sh/install.ps1 | iex\""
 
 // InstallBun attempts to install Bun using the official installer
 // Returns the result of the installation attempt
@@ -610,25 +610,37 @@ func InstallBun() BunInstallResult {
 	result := BunInstallResult{}
 
 	// Run the official Bun installer
-	cmd := exec.Command("bash", "-c", "curl -fsSL https://bun.sh/install | bash")
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("powershell", "-c", "irm bun.sh/install.ps1 | iex")
+	} else {
+		cmd = exec.Command("bash", "-c", BunInstallCommand)
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	err := cmd.Run()
 	if err != nil {
 		result.Error = fmt.Errorf("failed to install bun: %w", err)
-		result.UserMessage = "❌ Failed to install Bun. Please try manually: curl -fsSL https://bun.sh/install | bash"
+		if runtime.GOOS == "windows" {
+			result.UserMessage = "❌ Failed to install Bun. Please try manually in PowerShell: irm bun.sh/install.ps1 | iex"
+		} else {
+			result.UserMessage = "❌ Failed to install Bun. Please try manually: curl -fsSL https://bun.sh/install | bash"
+		}
 		return result
 	}
 
 	// After installation, we need to reload PATH or source the shell config
-	// The bun installer typically adds bun to ~/.bun/bin
-	bunBinPath := filepath.Join(os.Getenv("HOME"), ".bun", "bin")
+	homeDir, _ := os.UserHomeDir()
+	bunBinPath := filepath.Join(homeDir, ".bun", "bin")
 	bunPath := filepath.Join(bunBinPath, "bun")
+	if runtime.GOOS == "windows" {
+		bunPath = filepath.Join(bunBinPath, "bun.exe")
+	}
 	if _, err := os.Stat(bunPath); err == nil {
 		// Add to current PATH for this session
 		currentPath := os.Getenv("PATH")
-		os.Setenv("PATH", bunBinPath+":"+currentPath)
+		os.Setenv("PATH", bunBinPath+string(os.PathListSeparator)+currentPath)
 
 		// Register the path for use by other components
 		AddBinaryPath(bunBinPath)
