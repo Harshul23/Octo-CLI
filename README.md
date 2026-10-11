@@ -11,7 +11,9 @@
   <a href="https://github.com/Octo-sh/Octo-CLI/releases"><img src="https://img.shields.io/github/v/release/Octo-sh/Octo-CLI?style=flat-square&logo=github&logoColor=white&label=Release&labelColor=18181b&color=2563eb" alt="Release" /></a>
   <a href="https://github.com/Octo-sh/homebrew-tap"><img src="https://img.shields.io/badge/Brew-Octo--sh%2Ftap-27272a?style=flat-square&logo=homebrew&logoColor=f59e0b&labelColor=18181b" alt="Homebrew" /></a>
   <a href="cmd/octo/mcp.go"><img src="https://img.shields.io/badge/MCP-Protocol%20Ready-7c3aed?style=flat-square&logo=anthropic&logoColor=white&labelColor=18181b" alt="MCP Ready" /></a>
-  <a href="https://github.com/Octo-sh/Octo-CLI/releases"><img src="https://img.shields.io/badge/Platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-27272a?style=flat-square&logo=apple&logoColor=white&labelColor=18181b" alt="Platforms" /></a>
+  <a href="https://github.com/Octo-sh/Octo-CLI/releases"><img src="https://img.shields.io/badge/macOS-27272a?style=flat-square&logo=apple&logoColor=white" alt="macOS" /></a>
+  <a href="https://github.com/Octo-sh/Octo-CLI/releases"><img src="https://img.shields.io/badge/Linux-27272a?style=flat-square&logo=linux&logoColor=white" alt="Linux" /></a>
+  <a href="https://github.com/Octo-sh/Octo-CLI/releases"><img src="https://img.shields.io/badge/Windows-27272a?style=flat-square&logo=windows&logoColor=white" alt="Windows" /></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-MIT-10b981?style=flat-square&labelColor=18181b" alt="License" /></a>
 </p>
 
@@ -36,7 +38,7 @@
 ```bash
 # macOS & Linux via Homebrew
 brew tap Octo-sh/tap
-brew install octo-cli
+brew install octo
 
 # Using Go
 go install github.com/Octo-sh/Octo-CLI/cmd/octo@latest
