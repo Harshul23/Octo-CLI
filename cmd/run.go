@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/harshul/octo-cli/internal/blueprint"
-	"github.com/harshul/octo-cli/internal/intelligence"
-	"github.com/harshul/octo-cli/internal/orchestrator"
-	"github.com/harshul/octo-cli/internal/secrets"
-	"github.com/harshul/octo-cli/internal/ui"
+	"github.com/Harshul23/Octo-CLI/internal/blueprint"
+	"github.com/Harshul23/Octo-CLI/internal/intelligence"
+	"github.com/Harshul23/Octo-CLI/internal/orchestrator"
+	"github.com/Harshul23/Octo-CLI/internal/secrets"
+	"github.com/Harshul23/Octo-CLI/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -58,11 +58,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if engine == "intelligence" {
 		return runWithIntelligence(cmd, args)
 	}
-
-	// ========================================
-	// Show intro animation
-	// ========================================
-	ui.RunIntro()
 
 	// Get current working directory
 	cwd, err := os.Getwd()

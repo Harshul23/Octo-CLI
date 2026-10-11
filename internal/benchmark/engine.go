@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/harshul/octo-cli/internal/intelligence"
+	"github.com/Harshul23/Octo-CLI/internal/intelligence"
 )
 
 // EvaluateRepository benchmarks autonomous execution of a repository under Octo vs raw agent shell baseline.

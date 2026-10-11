@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/harshul/octo-cli/internal/mcp"
+	"github.com/Harshul23/Octo-CLI/internal/mcp"
 	"github.com/spf13/cobra"
 )
 

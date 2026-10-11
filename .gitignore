@@ -4,3 +4,5 @@ bin/
 .octo/
 .DS_Store
 .agents
+.env
+.env.*

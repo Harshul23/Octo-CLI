@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/harshul/octo-cli/internal/benchmark"
-	"github.com/harshul/octo-cli/internal/ui"
+	"github.com/Harshul23/Octo-CLI/internal/benchmark"
+	"github.com/Harshul23/Octo-CLI/internal/ui"
 	"github.com/spf13/cobra"
 )
 

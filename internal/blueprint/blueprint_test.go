@@ -3,7 +3,7 @@ package blueprint
 import (
 	"testing"
 
-	"github.com/harshul/octo-cli/internal/intelligence"
+	"github.com/Harshul23/Octo-CLI/internal/intelligence"
 )
 
 func TestFromProjectModel(t *testing.T) {

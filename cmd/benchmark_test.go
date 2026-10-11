@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harshul/octo-cli/internal/benchmark"
+	"github.com/Harshul23/Octo-CLI/internal/benchmark"
 )
 
 func TestBenchmarkCommandSingleRepo(t *testing.T) {

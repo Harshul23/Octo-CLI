@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/harshul/octo-cli/internal/provisioner"
+	"github.com/Harshul23/Octo-CLI/internal/provisioner"
 )
 
 // RuntimeStatus represents the status of a runtime check

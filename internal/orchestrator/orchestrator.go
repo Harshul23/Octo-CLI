@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harshul/octo-cli/internal/blueprint"
-	"github.com/harshul/octo-cli/internal/ports"
-	"github.com/harshul/octo-cli/internal/provisioner"
-	"github.com/harshul/octo-cli/internal/secrets"
-	"github.com/harshul/octo-cli/internal/ui"
+	"github.com/Harshul23/Octo-CLI/internal/blueprint"
+	"github.com/Harshul23/Octo-CLI/internal/ports"
+	"github.com/Harshul23/Octo-CLI/internal/provisioner"
+	"github.com/Harshul23/Octo-CLI/internal/secrets"
+	"github.com/Harshul23/Octo-CLI/internal/ui"
 )
 
 // ExecutionPhase represents a phase in the boot sequence

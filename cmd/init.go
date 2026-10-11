@@ -6,12 +6,12 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/harshul/octo-cli/internal/intelligence"
-	"github.com/harshul/octo-cli/internal/blueprint"
-	"github.com/harshul/octo-cli/internal/doctor"
-	"github.com/harshul/octo-cli/internal/provisioner"
-	"github.com/harshul/octo-cli/internal/secrets"
-	"github.com/harshul/octo-cli/internal/ui"
+	"github.com/Harshul23/Octo-CLI/internal/intelligence"
+	"github.com/Harshul23/Octo-CLI/internal/blueprint"
+	"github.com/Harshul23/Octo-CLI/internal/doctor"
+	"github.com/Harshul23/Octo-CLI/internal/provisioner"
+	"github.com/Harshul23/Octo-CLI/internal/secrets"
+	"github.com/Harshul23/Octo-CLI/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -66,11 +66,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(outputPath); err == nil && !force {
 		return fmt.Errorf("configuration file already exists at %s. Use --force to overwrite", outputPath)
 	}
-
-	// ========================================
-	// Show intro animation
-	// ========================================
-	ui.RunIntro()
 
 	// Print header
 	fmt.Println()
