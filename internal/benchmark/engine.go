@@ -4,12 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/Harshul23/Octo-CLI/internal/intelligence"
 )
+
+func getFreePort() int {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 8000
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
 
 // EvaluateRepository benchmarks autonomous execution of a repository under Octo vs raw agent shell baseline.
 // It executes the derived plan, probes live sockets/ports, verifies runtime health, and performs clean process teardown.
@@ -153,13 +163,14 @@ func RunBuiltinSuite(ctx context.Context) (BenchmarkSuiteReport, error) {
 			name:      "node-web-service",
 			archetype: "Node.js / Express Web Service",
 			setup: func(dir string) error {
-				_ = os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"web","scripts":{"start":"node server.js"}}`), 0644)
-				serverCode := `const http = require('http');
-const port = process.env.PORT || 3000;
+				port := getFreePort()
+				_ = os.WriteFile(filepath.Join(dir, "package.json"), []byte(fmt.Sprintf(`{"name":"web","scripts":{"start":"node server.js"}}`)), 0644)
+				serverCode := fmt.Sprintf(`const http = require('http');
+const port = process.env.PORT || %d;
 const server = http.createServer((req, res) => { res.writeHead(200); res.end('OK'); });
 server.listen(port, () => {});
 process.on('SIGTERM', () => process.exit(0));
-process.on('SIGINT', () => process.exit(0));`
+process.on('SIGINT', () => process.exit(0));`, port)
 				return os.WriteFile(filepath.Join(dir, "server.js"), []byte(serverCode), 0644)
 			},
 		},
@@ -167,8 +178,9 @@ process.on('SIGINT', () => process.exit(0));`
 			name:      "go-microservice",
 			archetype: "Go Microservice (net/http)",
 			setup: func(dir string) error {
+				port := getFreePort()
 				_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/api\ngo 1.22\n"), 0644)
-				goCode := `package main
+				goCode := fmt.Sprintf(`package main
 import (
 	"fmt"
 	"net/http"
@@ -176,10 +188,10 @@ import (
 )
 func main() {
 	port := os.Getenv("PORT")
-	if port == "" { port = "8080" }
+	if port == "" { port = "%d" }
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "OK") })
 	_ = http.ListenAndServe(":"+port, nil)
-}`
+}`, port)
 				return os.WriteFile(filepath.Join(dir, "main.go"), []byte(goCode), 0644)
 			},
 		},
@@ -187,9 +199,10 @@ func main() {
 			name:      "python-api-service",
 			archetype: "Python API Service",
 			setup: func(dir string) error {
+				port := getFreePort()
 				_ = os.MkdirAll(filepath.Join(dir, "app"), 0755)
-				pyCode := `import http.server, os, socketserver, signal, sys
-port = int(os.environ.get("PORT", 8000))
+				pyCode := fmt.Sprintf(`import http.server, os, socketserver, signal, sys
+port = int(os.environ.get("PORT", %d))
 class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -197,18 +210,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(b"OK")
 signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
 with socketserver.TCPServer(("", port), Handler) as httpd:
-    httpd.serve_forever()`
+    httpd.serve_forever()`, port)
 				_ = os.WriteFile(filepath.Join(dir, "app", "main.py"), []byte(pyCode), 0644)
-				octoYAML := `spec: octo.dev/v1
+				octoYAML := fmt.Sprintf(`spec: octo.dev/v1
 components:
   api:
     run_command: "python3 app/main.py"
-    port: 8000
+    port: %d
 verification:
   - component: api
     kind: port
-    port: 8000
-`
+    port: %d
+`, port, port)
 				return os.WriteFile(filepath.Join(dir, ".octo.yaml"), []byte(octoYAML), 0644)
 			},
 		},
@@ -216,13 +229,14 @@ verification:
 			name:      "node-api-worker",
 			archetype: "Node.js Background Worker",
 			setup: func(dir string) error {
+				port := getFreePort()
 				_ = os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"worker","scripts":{"start":"node worker.js"}}`), 0644)
-				workerCode := `const http = require('http');
-const port = process.env.PORT || 4000;
+				workerCode := fmt.Sprintf(`const http = require('http');
+const port = process.env.PORT || %d;
 const server = http.createServer((req, res) => { res.writeHead(200); res.end('OK'); });
 server.listen(port, () => {});
 process.on('SIGTERM', () => process.exit(0));
-process.on('SIGINT', () => process.exit(0));`
+process.on('SIGINT', () => process.exit(0));`, port)
 				return os.WriteFile(filepath.Join(dir, "worker.js"), []byte(workerCode), 0644)
 			},
 		},
@@ -238,8 +252,9 @@ process.on('SIGINT', () => process.exit(0));`
 			name:      "python-worker-service",
 			archetype: "Python Background Worker",
 			setup: func(dir string) error {
-				workerPy := `import http.server, os, socketserver, signal, sys
-port = int(os.environ.get("PORT", 8050))
+				port := getFreePort()
+				workerPy := fmt.Sprintf(`import http.server, os, socketserver, signal, sys
+port = int(os.environ.get("PORT", %d))
 class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -247,18 +262,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(b"OK")
 signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
 with socketserver.TCPServer(("", port), Handler) as httpd:
-    httpd.serve_forever()`
+    httpd.serve_forever()`, port)
 				_ = os.WriteFile(filepath.Join(dir, "worker.py"), []byte(workerPy), 0644)
-				octoYAML := `spec: octo.dev/v1
+				octoYAML := fmt.Sprintf(`spec: octo.dev/v1
 components:
   worker:
     run_command: "python3 worker.py"
-    port: 8050
+    port: %d
 verification:
   - component: worker
     kind: port
-    port: 8050
-`
+    port: %d
+`, port, port)
 				return os.WriteFile(filepath.Join(dir, ".octo.yaml"), []byte(octoYAML), 0644)
 			},
 		},
@@ -275,26 +290,27 @@ verification:
 			name:      "custom-override-repo",
 			archetype: "Strategy Override (.octo.yaml)",
 			setup: func(dir string) error {
-				customJS := `const http = require('http');
+				port := getFreePort()
+				customJS := fmt.Sprintf(`const http = require('http');
 const server = http.createServer((req, res) => {
   if (req.url === '/health') { res.writeHead(200); res.end('OK'); }
   else { res.writeHead(404); res.end('Not Found'); }
 });
-server.listen(8090, () => {});
+server.listen(%d, () => {});
 process.on('SIGTERM', () => process.exit(0));
-process.on('SIGINT', () => process.exit(0));`
+process.on('SIGINT', () => process.exit(0));`, port)
 				_ = os.WriteFile(filepath.Join(dir, "custom.js"), []byte(customJS), 0644)
-				octoYAML := `spec: octo.dev/v1
+				octoYAML := fmt.Sprintf(`spec: octo.dev/v1
 components:
   custom:
-    run_command: "node custom.js --port 8090"
-    port: 8090
+    run_command: "node custom.js --port %d"
+    port: %d
 verification:
   - component: custom
     kind: http
     path: /health
     expected_status: 200
-`
+`, port, port)
 				return os.WriteFile(filepath.Join(dir, ".octo.yaml"), []byte(octoYAML), 0644)
 			},
 		},
