@@ -67,7 +67,7 @@ func DefaultTools() []Tool {
 					},
 					"sandbox": {
 						Type:        "boolean",
-						Description: "Run plan steps inside an ephemeral, isolated container sandbox (Docker or Podman) to protect the host environment.",
+						Description: "Run plan steps inside an ephemeral container (Docker or Podman) for environment isolation. Note: project environment variables are forwarded to the container and it should not be considered a hardened security boundary.",
 					},
 				},
 			},

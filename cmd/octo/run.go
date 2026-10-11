@@ -61,7 +61,7 @@ func init() {
 	runCmd.Flags().Bool("skip-env", false, "Alias for --skip-env-check")
 	runCmd.Flags().BoolP("no-tui", "T", false, "Disable TUI dashboard (use plain scrolling output)")
 	runCmd.Flags().String("engine", "intelligence", "Execution engine: intelligence or legacy")
-	runCmd.Flags().BoolP("sandbox", "s", false, "Execute application inside an ephemeral, isolated container sandbox")
+	runCmd.Flags().BoolP("sandbox", "s", false, "Execute application inside an ephemeral container (Docker/Podman) for environment isolation")
 	runCmd.Flags().BoolP("select", "i", false, "Interactively select which components and services to run")
 	runCmd.Flags().BoolP("json", "j", false, "Output the ExecutionReport as JSON")
 }

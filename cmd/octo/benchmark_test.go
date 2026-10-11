@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,8 +13,19 @@ import (
 	"github.com/Harshul23/Octo-CLI/internal/benchmark"
 )
 
+func getFreePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
 func TestBenchmarkCommandSingleRepo(t *testing.T) {
 	root := t.TempDir()
+	port := getFreePort(t)
 	packageJSON := `{
   "name": "benchmark-cli-test",
   "scripts": {
@@ -22,12 +35,12 @@ func TestBenchmarkCommandSingleRepo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(packageJSON), 0644); err != nil {
 		t.Fatal(err)
 	}
-	serverCode := `const http = require('http');
-const port = process.env.PORT || 3000;
+	serverCode := fmt.Sprintf(`const http = require('http');
+const port = process.env.PORT || %d;
 const server = http.createServer((req, res) => { res.writeHead(200); res.end('OK'); });
 server.listen(port, () => {});
 process.on('SIGTERM', () => process.exit(0));
-process.on('SIGINT', () => process.exit(0));`
+process.on('SIGINT', () => process.exit(0));`, port)
 	if err := os.WriteFile(filepath.Join(root, "server.js"), []byte(serverCode), 0644); err != nil {
 		t.Fatal(err)
 	}

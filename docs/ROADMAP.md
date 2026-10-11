@@ -168,7 +168,7 @@ Safe execution boundaries for developers and automated AI agents.
   - Full compatibility across foreground, `--detach`, and `--watch` modes.
 - **AI Agent Safe Execution via MCP**:
   - Added `"sandbox": boolean` option to the `octo_run_and_verify` MCP tool.
-  - Allows autonomous AI coding agents (Claude Code, Cursor, Devin, SWE-bench) to safely run and verify unverified code in sandboxed containers.
+  - Allows autonomous AI coding agents to run and verify code inside container environments for process isolation (note: environment variables pass through).
 - **Container process lifecycle & teardown**:
   - Detached container process tracking (`containerProcess`) with log multiplexing (`.octo/logs/<component>.log`).
   - Coordinated teardown on failure or cancellation via `docker/podman stop -t 2` and `rm -f`.

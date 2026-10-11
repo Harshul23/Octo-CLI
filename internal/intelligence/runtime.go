@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -134,12 +135,26 @@ func (ShellAdapter) Supports(step ExecutionStep) bool {
 	return step.Command != "" && !strings.HasPrefix(step.Command, "docker compose ")
 }
 
+func createShellCmdContext(ctx context.Context, command string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		return exec.CommandContext(ctx, "cmd", "/C", command)
+	}
+	return exec.CommandContext(ctx, "sh", "-c", command)
+}
+
+func createShellCmd(command string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		return exec.Command("cmd", "/C", command)
+	}
+	return exec.Command("sh", "-c", command)
+}
+
 func (ShellAdapter) Execute(ctx context.Context, step ExecutionStep, env ResolvedEnvironment) error {
 	if step.Command == "" {
 		return fmt.Errorf("step %q has no command", step.ID)
 	}
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", step.Command)
+	cmd := createShellCmdContext(ctx, step.Command)
 	if step.WorkDir != "" {
 		cmd.Dir = step.WorkDir
 	}
@@ -201,7 +216,7 @@ func (ShellAdapter) Start(ctx context.Context, step ExecutionStep, env ResolvedE
 	if step.Command == "" {
 		return nil, fmt.Errorf("step %q has no command", step.ID)
 	}
-	cmd := exec.Command("sh", "-c", step.Command)
+	cmd := createShellCmd(step.Command)
 	if step.WorkDir != "" {
 		cmd.Dir = step.WorkDir
 	}
@@ -273,7 +288,7 @@ func (ComposeAdapter) Execute(ctx context.Context, step ExecutionStep, env Resol
 	if !(ComposeAdapter{}).Supports(step) {
 		return fmt.Errorf("step %q is not a Compose step", step.ID)
 	}
-	cmd := exec.CommandContext(ctx, "sh", "-c", step.Command)
+	cmd := createShellCmdContext(ctx, step.Command)
 	if step.WorkDir != "" {
 		cmd.Dir = step.WorkDir
 	}

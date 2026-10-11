@@ -80,7 +80,7 @@ octo run       # or: octo r
 - `-T`: Shorthand for `--no-tui` (suppress dashboard for standard terminal logs).
 - `-N`: Shorthand for `--no-port-shift` (disable automatic port conflict reallocation).
 - `-i`: Interactive component selection (`octo r -i`).
-- `-s`: Ephemeral sandbox container (`octo r -s`) or archetype suite (`octo bench -s`).
+- `-s`: Ephemeral container environment (`octo r -s`) or archetype suite (`octo bench -s`). (Note: project env vars pass through).
 
 
 ---

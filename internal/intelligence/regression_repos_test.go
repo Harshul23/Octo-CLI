@@ -2,6 +2,7 @@ package intelligence
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -126,11 +127,13 @@ use (
 	}
 
 	// 1. API service
+	apiPort := freeTestPort(t)
 	_ = os.MkdirAll(filepath.Join(root, "services", "api"), 0755)
 	if err := os.WriteFile(filepath.Join(root, "services", "api", "go.mod"), []byte("module example.com/api\ngo 1.24\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "services", "api", "main.go"), []byte("package main\nimport \"net/http\"\nfunc main() { http.ListenAndServe(\":8080\", nil) }\n"), 0644); err != nil {
+	apiMain := fmt.Sprintf("package main\nimport \"net/http\"\nfunc main() { http.ListenAndServe(\":%d\", nil) }\n", apiPort)
+	if err := os.WriteFile(filepath.Join(root, "services", "api", "main.go"), []byte(apiMain), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -257,8 +260,9 @@ version = '0.0.1-SNAPSHOT'
 	if err := os.WriteFile(filepath.Join(root, "build.gradle"), []byte(buildGradle), 0644); err != nil {
 		t.Fatal(err)
 	}
+	springPort := freeTestPort(t)
 	_ = os.MkdirAll(filepath.Join(root, "src", "main", "resources"), 0755)
-	if err := os.WriteFile(filepath.Join(root, "src", "main", "resources", "application.properties"), []byte("server.port=8080\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "src", "main", "resources", "application.properties"), []byte(fmt.Sprintf("server.port=%d\n", springPort)), 0644); err != nil {
 		t.Fatal(err)
 	}
 	_ = os.MkdirAll(filepath.Join(root, "src", "main", "java", "com", "example", "demo"), 0755)
@@ -274,8 +278,8 @@ version = '0.0.1-SNAPSHOT'
 	if model.Language != "Java" {
 		t.Fatalf("Language = %q, want 'Java'", model.Language)
 	}
-	if model.Port != 8080 {
-		t.Fatalf("Port = %d, want 8080", model.Port)
+	if model.Port != springPort {
+		t.Fatalf("Port = %d, want %d", model.Port, springPort)
 	}
 }
 

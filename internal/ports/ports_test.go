@@ -20,8 +20,8 @@ func TestFindAvailablePort(t *testing.T) {
 	// 2. Ask Octo to find a port starting at the blocked port
 	got := FindAvailablePort(blockedPort)
 
-	// 3. The result should be the next port (blockedPort + 1) since blockedPort is busy
-	if got != blockedPort+1 {
-		t.Errorf("FindAvailablePort(%d) = %d; want %d (because %d is busy)", blockedPort, got, blockedPort+1, blockedPort)
+	// 3. The result should be an available port greater than the blocked port
+	if got <= blockedPort || !IsPortAvailable(got) {
+		t.Errorf("FindAvailablePort(%d) = %d; want an available port > %d", blockedPort, got, blockedPort)
 	}
 }

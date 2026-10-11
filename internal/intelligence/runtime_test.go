@@ -2,6 +2,8 @@ package intelligence
 
 import (
 	"context"
+	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -104,5 +106,24 @@ func TestResolvedEnvironmentForStepAppliesScopedValues(t *testing.T) {
 	other := env.ForStep(ExecutionStep{WorkDir: "apps/api"})
 	if other.Values["WEB_ONLY"] != "" || other.Values["SHARED"] != "root" {
 		t.Fatalf("unrelated component environment leaked: %v", other.Values)
+	}
+}
+
+func TestCreateShellCmdCrossPlatform(t *testing.T) {
+	cmd := createShellCmd("echo hello")
+	if runtime.GOOS == "windows" {
+		if filepath.Base(cmd.Path) != "cmd" && filepath.Base(cmd.Path) != "cmd.exe" {
+			t.Fatalf("expected cmd on Windows, got %q", cmd.Path)
+		}
+		if len(cmd.Args) < 3 || cmd.Args[1] != "/C" {
+			t.Fatalf("expected /C argument on Windows, got %v", cmd.Args)
+		}
+	} else {
+		if filepath.Base(cmd.Path) != "sh" {
+			t.Fatalf("expected sh on non-Windows, got %q", cmd.Path)
+		}
+		if len(cmd.Args) < 3 || cmd.Args[1] != "-c" {
+			t.Fatalf("expected -c argument on non-Windows, got %v", cmd.Args)
+		}
 	}
 }

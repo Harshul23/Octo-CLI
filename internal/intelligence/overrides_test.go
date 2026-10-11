@@ -1,6 +1,7 @@
 package intelligence
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,14 +9,15 @@ import (
 
 func TestLoadRepositoryOverride(t *testing.T) {
 	root := t.TempDir()
-	configYAML := `
+	port := freeTestPort(t)
+	configYAML := fmt.Sprintf(`
 spec: octo.dev/v1
 project:
   name: overridden-app
 components:
   web:
     run_command: "pnpm run start:custom"
-    port: 8080
+    port: %d
     env:
       NODE_ENV: production
     depends_on:
@@ -30,7 +32,7 @@ verification:
     kind: http
     path: /healthz
     expected_status: 200
-`
+`, port)
 	if err := os.WriteFile(filepath.Join(root, ".octo.yaml"), []byte(configYAML), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -52,8 +54,8 @@ verification:
 	if !ok || web.RunCommand != "pnpm run start:custom" {
 		t.Fatalf("web run_command = %q", web.RunCommand)
 	}
-	if web.Port != 8080 {
-		t.Fatalf("web port = %d, want 8080", web.Port)
+	if web.Port != port {
+		t.Fatalf("web port = %d, want %d", web.Port, port)
 	}
 	if len(override.Verification) != 1 || override.Verification[0].Path != "/healthz" {
 		t.Fatalf("unexpected verification: %+v", override.Verification)

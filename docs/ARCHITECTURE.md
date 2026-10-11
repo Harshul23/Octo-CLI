@@ -263,7 +263,7 @@ Octo introduces controlled adaptability without sacrificing determinism or intro
 
 ## Sandboxed & Containerized Runtimes
 
-Octo provides isolated execution environments through native containerization, protecting host machines and enabling autonomous agents to safely run untrusted code:
+Octo provides containerized runtime environments through native containerization, isolating dependencies and processes from the host machine:
 
 - **Containerized Runtime Adapter (`ContainerAdapter`)**:
   - Automatically selects Docker or Podman based on host toolchain availability.
@@ -275,7 +275,8 @@ Octo provides isolated execution environments through native containerization, p
 - **Topology-Bound Mounts & Isolation**:
   - Host project root is mapped into `/app` (`-v <root>:/app`) with subcomponent relative working directories (`-w /app/<workdir>`).
   - Component ports discovered and negotiated in the topology graph are forwarded to the host (`-p <port>:<port>`).
-  - Scoped component environment variables and global values pass through cleanly (`-e KEY=VAL`).
+  - Scoped component environment variables and global values pass through into the container (`-e KEY=VAL`).
+  - *Security Boundary Notice*: Because host and project environment variables are forwarded into the container for application execution, `--sandbox` provides filesystem and process lifecycle isolation, but should not currently be treated as a hardened cryptographic security boundary against untrusted secrets exfiltration.
 - **Container Lifecycle & Teardown**:
   - Long-running services run detached (`-d`) via `containerProcess`, with stdout/stderr piped to `.octo/logs/<component>.log`.
   - Failures trigger synchronous container stops (`docker/podman stop -t 2`) and removals, preventing abandoned containers from occupying host resources or ports.
