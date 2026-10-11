@@ -166,12 +166,14 @@ func ScanForEnvVars(projectPath string, language string) ([]EnvVar, error) {
 			return nil // Skip files we can't access
 		}
 
-		// Skip common non-source directories
+		// Skip common non-source and CI directories
 		if info.IsDir() {
 			name := info.Name()
-			if name == "node_modules" || name == ".git" || name == "vendor" ||
+			if name == "node_modules" || name == ".git" || name == ".github" || name == ".gitlab" ||
+				name == ".circleci" || name == "vendor" ||
 				name == "target" || name == "build" || name == "dist" ||
-				name == "__pycache__" || name == ".venv" || name == "venv" {
+				name == "__pycache__" || name == ".venv" || name == "venv" ||
+				name == "__tests__" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -180,6 +182,11 @@ func ScanForEnvVars(projectPath string, language string) ([]EnvVar, error) {
 		// Check if this file should be scanned
 		ext := filepath.Ext(path)
 		if !shouldScanFile(ext, language) {
+			return nil
+		}
+
+		// Skip test and spec files since they contain mocks and fixtures, not runtime requirements
+		if isTestFile(path) {
 			return nil
 		}
 
@@ -312,6 +319,51 @@ func shouldScanFile(ext string, language string) bool {
 				}
 			}
 		}
+	}
+
+	return false
+}
+
+// isTestFile returns true if the file is a test or spec file
+func isTestFile(path string) bool {
+	base := filepath.Base(path)
+	lower := strings.ToLower(base)
+
+	// Go test files (*_test.go)
+	if strings.HasSuffix(lower, "_test.go") {
+		return true
+	}
+
+	// JavaScript / TypeScript test and spec files
+	if strings.HasSuffix(lower, ".test.js") || strings.HasSuffix(lower, ".spec.js") ||
+		strings.HasSuffix(lower, ".test.ts") || strings.HasSuffix(lower, ".spec.ts") ||
+		strings.HasSuffix(lower, ".test.jsx") || strings.HasSuffix(lower, ".spec.jsx") ||
+		strings.HasSuffix(lower, ".test.tsx") || strings.HasSuffix(lower, ".spec.tsx") ||
+		strings.HasSuffix(lower, ".test.mjs") || strings.HasSuffix(lower, ".spec.mjs") ||
+		strings.HasSuffix(lower, ".test.cjs") || strings.HasSuffix(lower, ".spec.cjs") {
+		return true
+	}
+
+	// Python test files (test_*.py, *_test.py)
+	if strings.HasSuffix(lower, ".py") && (strings.HasPrefix(lower, "test_") || strings.HasSuffix(lower, "_test.py")) {
+		return true
+	}
+
+	// Ruby test/spec files (*_spec.rb, *_test.rb, test_*.rb)
+	if strings.HasSuffix(lower, ".rb") && (strings.HasSuffix(lower, "_spec.rb") || strings.HasSuffix(lower, "_test.rb") || strings.HasPrefix(lower, "test_")) {
+		return true
+	}
+
+	// Java / Kotlin / C# test files
+	if strings.HasSuffix(lower, "test.java") || strings.HasSuffix(lower, "tests.java") || strings.HasSuffix(lower, "testcase.java") ||
+		strings.HasSuffix(lower, "test.kt") || strings.HasSuffix(lower, "tests.kt") ||
+		strings.HasSuffix(lower, "test.cs") || strings.HasSuffix(lower, "tests.cs") {
+		return true
+	}
+
+	// Rust test files
+	if strings.HasSuffix(lower, ".rs") && (strings.HasSuffix(lower, "_test.rs") || lower == "test.rs" || lower == "tests.rs") {
+		return true
 	}
 
 	return false

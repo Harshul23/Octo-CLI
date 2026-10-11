@@ -42,6 +42,9 @@ type ProjectDetectorRegistry struct {
 // NewProjectDetectorRegistry initializes a detector registry populated with built-in ecosystem signals.
 func NewProjectDetectorRegistry() *ProjectDetectorRegistry {
 	return &ProjectDetectorRegistry{
+		detectors: []ProjectDetector{
+			DotnetProjectDetector{},
+		},
 		signals: []SignalDefinition{
 			{File: "package.json", Language: "Node", Detect: detectNodeProject},
 			{File: "go.work", Language: "Go", Detect: detectGoWorkspaceProject},
@@ -54,6 +57,9 @@ func NewProjectDetectorRegistry() *ProjectDetectorRegistry {
 			{File: "Gemfile", Language: "Ruby", Detect: detectRubyProject},
 			{File: "composer.json", Language: "PHP", Detect: detectPHPProject},
 			{File: "mix.exs", Language: "Elixir", Detect: detectElixirProject},
+			{File: "Package.swift", Language: "Swift", Detect: detectSwiftProject},
+			{File: "build.gradle.kts", Language: "Kotlin", Detect: detectKotlinProject},
+			{File: "global.json", Language: "C#", Detect: detectDotnetProject},
 		},
 	}
 }
@@ -231,6 +237,84 @@ func detectElixirProject(root string) (DetectedProject, error) {
 		SetupCommand:   "mix deps.get",
 		SetupRequired:  true,
 	}, nil
+}
+
+func detectSwiftProject(root string) (DetectedProject, error) {
+	name := filepath.Base(root)
+	return DetectedProject{
+		Name:           name,
+		Language:       "Swift",
+		PackageManager: "swift",
+		RunCommand:     "swift run",
+		SetupCommand:   "swift package resolve",
+		Port:           8080,
+	}, nil
+}
+
+func detectKotlinProject(root string) (DetectedProject, error) {
+	name := filepath.Base(root)
+	runCmd := "gradle run"
+	if _, err := os.Stat(filepath.Join(root, "gradlew")); err == nil {
+		runCmd = "./gradlew run"
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "build.gradle.kts")); err == nil {
+		content := string(data)
+		if strings.Contains(content, "spring") || strings.Contains(content, "boot") {
+			if _, err := os.Stat(filepath.Join(root, "gradlew")); err == nil {
+				runCmd = "./gradlew bootRun"
+			} else {
+				runCmd = "gradle bootRun"
+			}
+		}
+	}
+	return DetectedProject{
+		Name:           name,
+		Language:       "Kotlin",
+		PackageManager: "gradle",
+		RunCommand:     runCmd,
+		Port:           8080,
+	}, nil
+}
+
+func detectDotnetProject(root string) (DetectedProject, error) {
+	name := filepath.Base(root)
+	runCmd := "dotnet run"
+	entries, _ := os.ReadDir(root)
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".csproj") {
+			runCmd = "dotnet run --project " + entry.Name()
+			name = strings.TrimSuffix(entry.Name(), ".csproj")
+			break
+		}
+	}
+	return DetectedProject{
+		Name:           name,
+		Language:       "C#",
+		PackageManager: "dotnet",
+		RunCommand:     runCmd,
+		SetupCommand:   "dotnet restore",
+		Port:           5000,
+	}, nil
+}
+
+type DotnetProjectDetector struct{}
+
+func (DotnetProjectDetector) Detect(root string) (DetectedProject, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return DetectedProject{}, err
+	}
+	hasDotnet := false
+	for _, e := range entries {
+		if !e.IsDir() && (strings.HasSuffix(e.Name(), ".csproj") || strings.HasSuffix(e.Name(), ".sln") || e.Name() == "global.json") {
+			hasDotnet = true
+			break
+		}
+	}
+	if !hasDotnet {
+		return DetectedProject{}, errors.New("no dotnet project signal found")
+	}
+	return detectDotnetProject(root)
 }
 
 func detectNodeProject(root string) (DetectedProject, error) {

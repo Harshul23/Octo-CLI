@@ -11,9 +11,10 @@ import (
 )
 
 var graphCmd = &cobra.Command{
-	Use:   "graph [path]",
-	Short: "Show the detected repository topology graph",
-	Args:  cobra.MaximumNArgs(1),
+	Use:     "graph [path]",
+	Aliases: []string{"g", "topo"},
+	Short:   "Show the detected repository topology graph",
+	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path := "."
 		if len(args) == 1 {
@@ -89,6 +90,6 @@ var graphCmd = &cobra.Command{
 }
 
 func init() {
-	graphCmd.Flags().Bool("json", false, "Output the TopologyGraph as JSON")
+	graphCmd.Flags().BoolP("json", "j", false, "Output the TopologyGraph as JSON")
 	rootCmd.AddCommand(graphCmd)
 }

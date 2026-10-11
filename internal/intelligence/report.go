@@ -49,9 +49,40 @@ type ActiveProcess struct {
 
 // ExecutionOptions configures execution behavior.
 type ExecutionOptions struct {
-	Detach  bool `json:"detach" yaml:"detach"`
-	Silent  bool `json:"silent" yaml:"silent"`
-	Sandbox bool `json:"sandbox" yaml:"sandbox"`
+	Detach  bool     `json:"detach" yaml:"detach"`
+	Silent  bool     `json:"silent" yaml:"silent"`
+	Sandbox bool     `json:"sandbox" yaml:"sandbox"`
+	Args    []string `json:"args,omitempty" yaml:"args,omitempty"`
+}
+
+// AppendPassthroughArgs appends trailing CLI arguments to a run command.
+func AppendPassthroughArgs(command string, args []string) string {
+	if len(args) == 0 {
+		return command
+	}
+	escaped := make([]string, len(args))
+	for i, a := range args {
+		if strings.ContainsAny(a, " \t\n\"'") {
+			escaped[i] = fmt.Sprintf("%q", a)
+		} else {
+			escaped[i] = a
+		}
+	}
+	joined := strings.Join(escaped, " ")
+
+	// If command is npm/pnpm/yarn start or run, append -- if not already present
+	if (strings.HasPrefix(command, "npm run ") || strings.HasPrefix(command, "npm start") ||
+		strings.HasPrefix(command, "pnpm run ") || strings.HasPrefix(command, "pnpm start")) &&
+		!strings.Contains(command, " -- ") {
+		return command + " -- " + joined
+	}
+
+	// If command is cargo run, append -- if not already present
+	if strings.HasPrefix(command, "cargo run") && !strings.Contains(command, " -- ") {
+		return command + " -- " + joined
+	}
+
+	return command + " " + joined
 }
 
 type executionContextKey string
@@ -157,6 +188,9 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 		for _, candidate := range candidates {
 			attempt := step
 			attempt.Command = candidate.Command
+			if attempt.Phase == PhaseStart && len(opts.Args) > 0 {
+				attempt.Command = AppendPassthroughArgs(attempt.Command, opts.Args)
+			}
 			report.Decisions = append(report.Decisions, DecisionTraceEntry{
 				Name: "execution." + id, OptionID: candidate.ID, Value: candidate.Command,
 				Confidence: candidate.Confidence, Evidence: candidate.Evidence, Outcome: "selected",
@@ -195,9 +229,13 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 					result.Reason = err.Error()
 					report.Steps = append(report.Steps, result)
 					classification := ClassifyExecutionFailure(err.Error(), err)
+					detail := fmt.Sprintf("[%s] Execution candidate failed to start: %s", classification, err.Error())
+					if classification == FailureClassMissingArguments {
+						detail = fmt.Sprintf("[%s] Application appears to require arguments. Pass them using: octo run -- [args...]", classification)
+					}
 					report.Failures = append(report.Failures, ExecutionFailure{
 						StepID: id, CandidateID: candidate.ID, Classification: classification, Reason: err.Error(),
-						Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: fmt.Sprintf("[%s] Execution candidate failed to start: %s", classification, err.Error()), Strength: 1},
+						Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: detail, Strength: 1},
 					})
 					report.FailureReason = err.Error()
 					continue
@@ -247,9 +285,13 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 				}
 				report.Steps = append(report.Steps, result)
 				classification := ClassifyExecutionFailure(err.Error(), err)
+				detail := fmt.Sprintf("[%s] Execution candidate failed: %s", classification, err.Error())
+				if classification == FailureClassMissingArguments {
+					detail = fmt.Sprintf("[%s] Application appears to require arguments. Pass them using: octo run -- [args...]", classification)
+				}
 				report.Failures = append(report.Failures, ExecutionFailure{
 					StepID: id, CandidateID: candidate.ID, Classification: classification, Reason: err.Error(),
-					Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: fmt.Sprintf("[%s] Execution candidate failed: %s", classification, err.Error()), Strength: 1},
+					Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: detail, Strength: 1},
 				})
 				report.FailureReason = err.Error()
 				continue

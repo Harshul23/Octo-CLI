@@ -101,12 +101,14 @@ func TestExecutePlanReportAppliesScopedEnvironmentPerStep(t *testing.T) {
 }
 
 type recordingAdapterForReport struct {
-	seen map[string]map[string]string
+	seen     map[string]map[string]string
+	executed []ExecutionStep
 }
 
 func (a *recordingAdapterForReport) Name() string { return "recording" }
 func (a *recordingAdapterForReport) Supports(step ExecutionStep) bool { return true }
 func (a *recordingAdapterForReport) Execute(_ context.Context, step ExecutionStep, env ResolvedEnvironment) error {
+	a.executed = append(a.executed, step)
 	if a.seen == nil {
 		a.seen = make(map[string]map[string]string)
 	}
@@ -303,5 +305,94 @@ func TestTeardownExecutionCleanWrapUp(t *testing.T) {
 		t.Fatal("expected .octo/processes.json to be deleted")
 	}
 }
+
+func TestAppendPassthroughArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		command  string
+		args     []string
+		expected string
+	}{
+		{
+			name:     "no args",
+			command:  "cargo run",
+			args:     nil,
+			expected: "cargo run",
+		},
+		{
+			name:     "cargo run adds double dash",
+			command:  "cargo run",
+			args:     []string{"GET", "https://httpbin.org/get"},
+			expected: "cargo run -- GET https://httpbin.org/get",
+		},
+		{
+			name:     "cargo run preserves existing double dash",
+			command:  "cargo run -- --quiet",
+			args:     []string{"foo"},
+			expected: "cargo run -- --quiet foo",
+		},
+		{
+			name:     "npm start adds double dash",
+			command:  "npm start",
+			args:     []string{"--port", "4000"},
+			expected: "npm start -- --port 4000",
+		},
+		{
+			name:     "go run direct append",
+			command:  "go run .",
+			args:     []string{"serve", "--config", "test.json"},
+			expected: "go run . serve --config test.json",
+		},
+		{
+			name:     "escapes spaces in arguments",
+			command:  "python main.py",
+			args:     []string{"--title", "Hello World"},
+			expected: "python main.py --title \"Hello World\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := AppendPassthroughArgs(tt.command, tt.args)
+			if actual != tt.expected {
+				t.Fatalf("AppendPassthroughArgs(%q, %v) = %q; want %q", tt.command, tt.args, actual, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExecutePlanReportAppendsPassthroughArgs(t *testing.T) {
+	adapter := &recordingAdapterForReport{}
+	plan := ExecutionPlan{
+		ProjectName: "cli-app",
+		Steps: []ExecutionStep{
+			{
+				ID: "component.cli.start", Component: "cli", Phase: PhaseStart,
+				Command: "cargo run",
+			},
+		},
+	}
+
+	report := ExecutePlanReportWithOptions(
+		context.Background(),
+		ProjectModel{Name: "cli-app"},
+		plan,
+		RuntimeResolver{adapters: []RuntimeAdapter{adapter}},
+		ResolvedEnvironment{Values: map[string]string{}},
+		ExecutionOptions{Args: []string{"GET", "https://api.test"}},
+	)
+
+	if !report.Success {
+		t.Fatalf("expected success, got %v", report.FailureReason)
+	}
+	if len(adapter.executed) != 1 {
+		t.Fatalf("expected 1 executed step, got %d", len(adapter.executed))
+	}
+	wantCmd := "cargo run -- GET https://api.test"
+	if adapter.executed[0].Command != wantCmd {
+		t.Fatalf("executed command = %q, want %q", adapter.executed[0].Command, wantCmd)
+	}
+}
+
 
 

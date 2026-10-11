@@ -1,6 +1,7 @@
 package intelligence
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -187,3 +188,37 @@ func TestResolveEnvironmentScopesComponentLocalFiles(t *testing.T) {
 		t.Fatal("web-only variable leaked into api environment")
 	}
 }
+
+func TestResolveEnvironmentSkipRequiredCheck(t *testing.T) {
+	root := t.TempDir()
+	project := ProjectModel{
+		Environment: EnvironmentModel{
+			Variables: []EnvironmentVariable{
+				{Name: "MISSING_KEY", Required: true},
+			},
+		},
+	}
+
+	// Default should return MissingRequiredEnvError
+	_, err := ResolveProjectEnvironment(root, project)
+	if err == nil {
+		t.Fatal("expected error for missing required variable")
+	}
+	var missingErr *MissingRequiredEnvError
+	if !errors.As(err, &missingErr) {
+		t.Fatalf("expected error to be *MissingRequiredEnvError, got: %T", err)
+	}
+	if len(missingErr.Missing) != 1 || missingErr.Missing[0] != "MISSING_KEY" {
+		t.Fatalf("unexpected missing variables: %v", missingErr.Missing)
+	}
+
+	// With SkipRequiredCheck: true, it should succeed
+	env, err := ResolveProjectEnvironmentWithOptions(root, project, ResolveEnvironmentOptions{SkipRequiredCheck: true})
+	if err != nil {
+		t.Fatalf("unexpected error when SkipRequiredCheck is true: %v", err)
+	}
+	if env.Values["MISSING_KEY"] != "" {
+		t.Fatalf("expected MISSING_KEY to be empty, got: %s", env.Values["MISSING_KEY"])
+	}
+}
+

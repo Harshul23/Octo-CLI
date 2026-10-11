@@ -51,14 +51,37 @@ go install github.com/Harshul23/Octo-CLI/cmd@latest
 cd your-project
 
 # 1. Inspect: Discover repository facts, language, framework & package manager
-octo inspect
+octo inspect   # or: octo ins
 
 # 2. Preview: Inspect port allocations, dependencies & machine changes before running
-octo preview
+octo preview   # or: octo prev
 
 # 3. Run: Execute in dependency order, verify runtime health, and teardown cleanly on Ctrl+C
-octo run
+octo run       # or: octo r
 ```
+
+### Quick Command & Flag Shortcuts
+
+| Quick Command | Full Command | Description |
+| :--- | :--- | :--- |
+| `octo r` / `octo start` | `octo run` | Analyze, plan, run, and verify the stack |
+| `octo ins` / `octo info` | `octo inspect` | Inspect detected languages, frameworks, and signals |
+| `octo p` | `octo plan` | Show deterministic execution plan |
+| `octo prev` / `octo dry-run` | `octo preview` | Preview machine mutations, ports, and processes |
+| `octo v` / `octo check` | `octo verify` | Verify runtime health checks & `.octo.lock` integrity |
+| `octo g` / `octo topo` | `octo graph` | Render dependency topology graph |
+| `octo e` | `octo env` | Inspect environment variable status |
+| `octo e tpl` | `octo env template` | Generate safe `.env` template |
+| `octo bench` / `octo eval` | `octo benchmark` | Benchmark against raw shell baselines |
+
+**Everyday Flag Shortcuts:**
+- `-j`: Universal shorthand for `--json` across all commands (`octo r -j`, `octo ins -j`, `octo p -j`, etc.).
+- `-k` / `--skip-env`: Shorthand for `--skip-env-check` (`octo r -k`).
+- `-T`: Shorthand for `--no-tui` (suppress dashboard for standard terminal logs).
+- `-N`: Shorthand for `--no-port-shift` (disable automatic port conflict reallocation).
+- `-i`: Interactive component selection (`octo r -i`).
+- `-s`: Ephemeral sandbox container (`octo r -s`) or archetype suite (`octo bench -s`).
+
 
 ---
 
