@@ -3,7 +3,7 @@ package main
 import (
   "encoding/json"
   "fmt"
-  "github.com/Harshul23/Octo-CLI/internal/intelligence"
+  "github.com/Octo-sh/Octo-CLI/internal/intelligence"
   "github.com/spf13/cobra"
 )
 

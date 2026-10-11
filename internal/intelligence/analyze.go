@@ -6,7 +6,7 @@ import (
   "os"
   "path/filepath"
   "strings"
-    "github.com/Harshul23/Octo-CLI/internal/secrets"
+    "github.com/Octo-sh/Octo-CLI/internal/secrets"
   "sort"
 )
 

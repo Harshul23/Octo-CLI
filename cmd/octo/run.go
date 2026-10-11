@@ -12,11 +12,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Harshul23/Octo-CLI/internal/blueprint"
-	"github.com/Harshul23/Octo-CLI/internal/intelligence"
-	"github.com/Harshul23/Octo-CLI/internal/orchestrator"
-	"github.com/Harshul23/Octo-CLI/internal/secrets"
-	"github.com/Harshul23/Octo-CLI/internal/ui"
+	"github.com/Octo-sh/Octo-CLI/internal/blueprint"
+	"github.com/Octo-sh/Octo-CLI/internal/intelligence"
+	"github.com/Octo-sh/Octo-CLI/internal/orchestrator"
+	"github.com/Octo-sh/Octo-CLI/internal/secrets"
+	"github.com/Octo-sh/Octo-CLI/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -105,7 +105,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	// Check if configuration file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return fmt.Errorf("configuration file not found at %s. Run 'octo init' first", configPath)
+		return fmt.Errorf("configuration file not found at %s", configPath)
 	}
 
 	// Read the blueprint
@@ -164,7 +164,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 				
 				// Ask if user wants to continue anyway
 				if !ui.PromptContinueDespiteEnvIssues() {
-					ui.Info("Run 'octo init' to configure environment variables.")
+					ui.Info("Run 'octo env' or configure missing variables in .env.")
 					return fmt.Errorf("aborted due to environment configuration issues")
 				}
 			} else {

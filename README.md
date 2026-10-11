@@ -8,10 +8,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Harshul23/Octo-CLI/releases"><img src="https://img.shields.io/github/v/release/Harshul23/Octo-CLI?style=flat-square&logo=github&logoColor=white&label=Release&labelColor=18181b&color=2563eb" alt="Release" /></a>
-  <a href="https://github.com/Harshul23/homebrew-tap"><img src="https://img.shields.io/badge/Brew-Harshul23%2Ftap-27272a?style=flat-square&logo=homebrew&logoColor=f59e0b&labelColor=18181b" alt="Homebrew" /></a>
-  <a href="cmd/mcp.go"><img src="https://img.shields.io/badge/MCP-Protocol%20Ready-7c3aed?style=flat-square&logo=anthropic&logoColor=white&labelColor=18181b" alt="MCP Ready" /></a>
-  <a href="https://github.com/Harshul23/Octo-CLI/releases"><img src="https://img.shields.io/badge/Platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-27272a?style=flat-square&logo=apple&logoColor=white&labelColor=18181b" alt="Platforms" /></a>
+  <a href="https://github.com/Octo-sh/Octo-CLI/releases"><img src="https://img.shields.io/github/v/release/Octo-sh/Octo-CLI?style=flat-square&logo=github&logoColor=white&label=Release&labelColor=18181b&color=2563eb" alt="Release" /></a>
+  <a href="https://github.com/Octo-sh/homebrew-tap"><img src="https://img.shields.io/badge/Brew-Octo--sh%2Ftap-27272a?style=flat-square&logo=homebrew&logoColor=f59e0b&labelColor=18181b" alt="Homebrew" /></a>
+  <a href="cmd/octo/mcp.go"><img src="https://img.shields.io/badge/MCP-Protocol%20Ready-7c3aed?style=flat-square&logo=anthropic&logoColor=white&labelColor=18181b" alt="MCP Ready" /></a>
+  <a href="https://github.com/Octo-sh/Octo-CLI/releases"><img src="https://img.shields.io/badge/Platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-27272a?style=flat-square&logo=apple&logoColor=white&labelColor=18181b" alt="Platforms" /></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/License-MIT-10b981?style=flat-square&labelColor=18181b" alt="License" /></a>
 </p>
 
@@ -35,13 +35,13 @@
 
 ```bash
 # macOS & Linux via Homebrew
-brew tap Harshul23/homebrew-tap
+brew tap Octo-sh/tap
 brew install octo-cli
 
 # Using Go
-go install github.com/Harshul23/Octo-CLI/cmd/octo@latest
+go install github.com/Octo-sh/Octo-CLI/cmd/octo@latest
 ```
-*(Precompiled standalone binaries for macOS Apple Silicon/Intel, Linux x86_64/ARM64, and Windows are available on the [Releases page](https://github.com/Harshul23/Octo-CLI/releases).)*
+*(Precompiled standalone binaries for macOS Apple Silicon/Intel, Linux x86_64/ARM64, and Windows are available on the [Releases page](https://github.com/Octo-sh/Octo-CLI/releases).)*
 
 ---
 
@@ -162,11 +162,11 @@ Deep-dive documentation and formal specifications live in dedicated guides:
 
 ```bash
 # Clone repository
-git clone https://github.com/Harshul23/Octo-CLI.git
+git clone https://github.com/Octo-sh/Octo-CLI.git
 cd Octo-CLI
 
 # Build standalone binary
-go build -o bin/octo ./cmd
+go build -o bin/octo ./cmd/octo
 
 # Run unit and regression test suite
 go test -count=1 ./...

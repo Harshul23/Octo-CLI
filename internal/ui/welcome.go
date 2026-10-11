@@ -252,10 +252,10 @@ func (m WelcomeModel) renderContent() string {
 		cmd  string
 		desc string
 	}{
-		{"octo init", "Analyze project & generate .octo.yaml"},
-		{"octo run", "Run with zero-config deployment"},
+		{"octo run", "Analyze, plan, and run with zero configuration"},
+		{"octo plan", "Inspect the deterministic execution graph"},
+		{"octo env", "Detect and validate environment variables"},
 		{"octo run --watch", "Auto-restart on file changes"},
-		{"octo run --env production", "Run in production mode"},
 		{"octo run --port 3000", "Override default port"},
 		{"octo run --no-tui", "Plain scrolling output"},
 	}
@@ -270,7 +270,6 @@ func (m WelcomeModel) renderContent() string {
 
 	// 6. Quick start box
 	quickStart := welcomeDimStyle.Render("cd your-project") + " → " +
-		welcomeCommandStyle.Render("octo init") + " → " +
 		welcomeCommandStyle.Render("octo run")
 	content.WriteString(center(lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#475569")).

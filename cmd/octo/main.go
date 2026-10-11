@@ -31,7 +31,6 @@ Usage:
 
 func init() {
 	// Add subcommands
-	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(runCmd)
 }
 
