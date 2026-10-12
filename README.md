@@ -35,15 +35,47 @@
 
 ## Quick Install
 
+Choose your preferred installation method:
+
+### 1. Homebrew (macOS & Linux)
+Install prebuilt binaries without requiring Go:
 ```bash
-# macOS & Linux via Homebrew
 brew tap Octo-sh/tap
 brew install octo
+```
 
-# Using Go
+### 2. Curl Script (macOS & Linux)
+Automatic OS and architecture detection, integrity verification via SHA-256 checksums, and installation to `/usr/local/bin` (falls back to `~/.local/bin`):
+```bash
+curl -fsSL https://raw.githubusercontent.com/Octo-sh/Octo-CLI/main/install.sh | sh
+```
+
+### 3. PowerShell One-Liner (Windows)
+Automatic architecture detection, SHA-256 verification, installation to `%LOCALAPPDATA%\Programs\octo`, and PATH registration:
+```powershell
+irm https://raw.githubusercontent.com/Octo-sh/Octo-CLI/main/install.ps1 | iex
+```
+
+### 4. Scoop (Windows)
+Install via the Octo bucket or directly from the manifest URL:
+```powershell
+# Via bucket
+scoop bucket add octo https://github.com/Octo-sh/Octo-CLI
+scoop install octo
+
+# Or direct manifest URL
+scoop install https://raw.githubusercontent.com/Octo-sh/Octo-CLI/main/bucket/octo.json
+```
+
+### 5. Go Install (Any Platform with Go 1.22+)
+Build and install from source:
+```bash
 go install github.com/Octo-sh/Octo-CLI/cmd/octo@latest
 ```
-*(Precompiled standalone binaries for macOS Apple Silicon/Intel, Linux x86_64/ARM64, and Windows are available on the [Releases page](https://github.com/Octo-sh/Octo-CLI/releases).)*
+
+### 6. Manual Release Binaries
+Precompiled standalone archives and `checksums.txt` are available on the [GitHub Releases page](https://github.com/Octo-sh/Octo-CLI/releases/latest) for macOS (Apple Silicon & Intel), Linux (x86_64 & ARM64), and Windows (x64 & ARM64).
+
 
 ---
 
