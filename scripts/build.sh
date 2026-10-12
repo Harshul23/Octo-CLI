@@ -12,6 +12,6 @@ echo "Building Octo CLI v${VERSION}..."
 
 # Build for current platform
 go build -ldflags "-X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${GIT_COMMIT}" \
-    -o bin/octo ./cmd
+    -o bin/octo ./cmd/octo
 
 echo "Build complete: bin/octo"

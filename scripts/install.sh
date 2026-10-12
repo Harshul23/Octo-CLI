@@ -10,12 +10,14 @@ set -e
 # Install to /usr/local/bin (requires sudo on most systems)
 INSTALL_DIR=${INSTALL_DIR:-"/usr/local/bin"}
 
-echo "Installing Octo CLI to ${INSTALL_DIR}..."
-
-if [ -w "$INSTALL_DIR" ]; then
-    cp bin/octo "$INSTALL_DIR/octo"
-else
-    sudo cp bin/octo "$INSTALL_DIR/octo"
+if [ "$INSTALL_DIR" = "/usr/local/bin" ] && [ ! -w "$INSTALL_DIR" ]; then
+    INSTALL_DIR="${HOME}/.local/bin"
 fi
+
+mkdir -p "$INSTALL_DIR"
+
+echo "Installing Octo CLI to ${INSTALL_DIR}..."
+cp bin/octo "$INSTALL_DIR/octo"
+chmod +x "$INSTALL_DIR/octo"
 
 echo "Installation complete! Run 'octo --help' to get started."

@@ -26,7 +26,7 @@ jobs:
 
       - name: Build and Package Multi-Arch Binaries
         run: |
-          TAG_NAME="${GITHUB_REF_NAME:-v1.1.0}"
+          TAG_NAME="${GITHUB_REF_NAME:-v1.2.2}"
           VERSION="${TAG_NAME#v}"
           DIST_DIR="dist"
           mkdir -p "$DIST_DIR"
@@ -37,6 +37,7 @@ jobs:
             "linux/amd64/octo"
             "linux/arm64/octo"
             "windows/amd64/octo.exe"
+            "windows/arm64/octo.exe"
           )
 
           for PLATFORM in "${PLATFORMS[@]}"; do
@@ -66,7 +67,7 @@ jobs:
 
           echo "==> Generating checksums.txt..."
           cd "$DIST_DIR"
-          sha256sum * > checksums.txt
+          sha256sum octo_* > checksums.txt
           cat checksums.txt
 
       - name: Create GitHub Release & Upload Assets
