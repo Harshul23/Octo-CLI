@@ -387,7 +387,7 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 						report.FailureReason = err.Error()
 						continue
 					}
-				} else {
+				} else if attempt.LongRunning {
 					if err := verifyProcessLiveness(ctx, process, 200*time.Millisecond); err != nil {
 						_ = process.Stop()
 						_ = process.Wait()
@@ -408,18 +408,42 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 						report.FailureReason = err.Error()
 						continue
 					}
+				} else {
+					// One-shot portless executable: if it already completed, check if it exited cleanly with code 0.
+					if la, ok := process.(interface{ IsAlive() bool }); ok && !la.IsAlive() {
+						if err := process.Wait(); err != nil {
+							result.Status = StepFailed
+							result.Reason = err.Error()
+							for i := len(report.Decisions) - 1; i >= 0; i-- {
+								if report.Decisions[i].Name == "execution."+id && report.Decisions[i].OptionID == candidate.ID {
+									report.Decisions[i].Outcome = "failed"
+									break
+								}
+							}
+							report.Steps = append(report.Steps, result)
+							classification := ClassifyExecutionFailure("Execution failed: "+err.Error(), err)
+							report.Failures = append(report.Failures, ExecutionFailure{
+								StepID: id, CandidateID: candidate.ID, Classification: classification, Reason: err.Error(),
+								Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: fmt.Sprintf("[%s] Execution failed: %s", classification, err.Error()), Strength: 1},
+							})
+							report.FailureReason = err.Error()
+							continue
+						}
+					}
 				}
-				running = append(running, process)
-				pid := 0
-				if p, ok := process.(interface{ Pid() int }); ok {
-					pid = p.Pid()
+				if la, ok := process.(interface{ IsAlive() bool }); !ok || la.IsAlive() {
+					running = append(running, process)
+					pid := 0
+					if p, ok := process.(interface{ Pid() int }); ok {
+						pid = p.Pid()
+					}
+					report.ActiveProcesses = append(report.ActiveProcesses, ActiveProcess{
+						StepID:    id,
+						Component: attempt.Component,
+						PID:       pid,
+						Port:      port,
+					})
 				}
-				report.ActiveProcesses = append(report.ActiveProcesses, ActiveProcess{
-					StepID:    id,
-					Component: attempt.Component,
-					PID:       pid,
-					Port:      port,
-				})
 			} else if err := adapter.Execute(ctx, attempt, stepEnv); err != nil {
 				result.Status = StepFailed
 				result.Reason = err.Error()
