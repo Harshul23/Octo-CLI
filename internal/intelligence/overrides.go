@@ -148,6 +148,7 @@ func ApplyRepositoryOverrides(model *ProjectModel, override *RepositoryOverride,
 			comp := &model.Components[foundIdx]
 			if cmd != "" {
 				candidate := ExecutionCandidate{
+					Kind:       "application",
 					ID:         fmt.Sprintf("override.%s.run", compName),
 					Command:    cmd,
 					Confidence: 1.0,
@@ -155,6 +156,8 @@ func ApplyRepositoryOverrides(model *ProjectModel, override *RepositoryOverride,
 				}
 				comp.ExecutionCandidates = append([]ExecutionCandidate{candidate}, comp.ExecutionCandidates...)
 				comp.RunCommand = cmd
+				comp.Role = "application"
+				comp.NonRunnableReason = ""
 				comp.Confidence = 1.0
 			}
 			if port > 0 {
@@ -167,8 +170,13 @@ func ApplyRepositoryOverrides(model *ProjectModel, override *RepositoryOverride,
 			comp.Evidence = append(comp.Evidence, overrideEvidence)
 		} else {
 			// New declared component from override
+			role := "application"
+			if cmd == "" {
+				role = "library"
+			}
 			newComp := Component{
 				Name:        compName,
+				Role:        role,
 				Path:        ".",
 				RunCommand:  cmd,
 				Port:        port,
@@ -179,6 +187,7 @@ func ApplyRepositoryOverrides(model *ProjectModel, override *RepositoryOverride,
 			}
 			if cmd != "" {
 				newComp.ExecutionCandidates = []ExecutionCandidate{{
+					Kind:       "application",
 					ID:         fmt.Sprintf("override.%s.run", compName),
 					Command:    cmd,
 					Confidence: 1.0,

@@ -40,27 +40,46 @@ func Analyze(path string) (ProjectModel, error) {
       Detail:"Detected framework: "+m.Framework, Strength:0.90})
   }
   m.Confidence = confidence(m.Evidence, false)
-  components, workspaceEvidence, discovered, err := discoverWorkspaceComponents(root, info)
-  if err != nil { return ProjectModel{}, err }
-  m.Evidence = append(m.Evidence, workspaceEvidence...)
-  if discovered {
-    m.Components = components
-    m.Monorepo = true
-  } else {
-    m.Components = []Component{{Name:m.Name, Path:".", Language:m.Language, Framework:m.Framework,
-      PackageManager:m.PackageManager, RunCommand:m.RunCommand, Port:m.Port, Confidence:m.Confidence, Evidence:m.Evidence}}
-  }
-  envVars, err := discoverEnvironment(root, info.Language)
-  if err != nil { return ProjectModel{}, err }
-  m.Environment = envVars
-
   services, composeEvidence, composeFound, err := discoverComposeServices(root)
   if err != nil { return ProjectModel{}, err }
   if composeFound {
     m.Services = services
     m.Evidence = append(m.Evidence, composeEvidence...)
+  }
+
+  components, workspaceEvidence, diagnostics, isMonorepo, err := discoverAllComponents(root, info, m.Services)
+  if err != nil { return ProjectModel{}, err }
+  m.Evidence = append(m.Evidence, workspaceEvidence...)
+  m.Diagnostics = diagnostics
+  m.Components = components
+  m.Monorepo = isMonorepo
+
+  if composeFound {
     linkComponentComposeServices(m.Components, m.Services)
   }
+
+  if m.Language == "Unknown" || m.Language == "" {
+    if len(m.Components) > 0 {
+      firstLang := m.Components[0].Language
+      allSame := true
+      for _, c := range m.Components {
+        if c.Language != firstLang {
+          allSame = false
+          break
+        }
+      }
+      if allSame && firstLang != "" && firstLang != "Unknown" {
+        m.Language = firstLang
+      } else {
+        m.Language = "Mixed"
+      }
+    }
+  }
+
+  envVars, err := discoverEnvironment(root, info.Language)
+  if err != nil { return ProjectModel{}, err }
+  m.Environment = envVars
+
   if err := discoverComponentNetworkReferences(root, m.Components, m.Services); err != nil {
     return ProjectModel{}, err
   }
@@ -76,9 +95,12 @@ func Analyze(path string) (ProjectModel, error) {
     m.Components[i].ExecutionCandidates = candidates
     primary := primaryExecutionCandidates(candidates)
     if len(primary) == 0 {
+      m.Components[i].Role = "library"
+      m.Components[i].NonRunnableReason = "workspace library without executable entry point"
       m.Components[i].RunCommand = ""
       continue
     }
+    m.Components[i].Role = "application"
     selected, err := SelectExecutionCandidateWithProvider(context.Background(), candidates, decisionProvider)
     if err != nil {
       return ProjectModel{}, err
@@ -104,6 +126,10 @@ func Analyze(path string) (ProjectModel, error) {
       m.RunCommand = selected.Command
       m.Confidence = confidence(m.Evidence, true)
     }
+  }
+
+  if m.RunCommand == "" && len(m.Components) == 1 && m.Components[0].RunCommand != "" {
+    m.RunCommand = m.Components[0].RunCommand
   }
 
   override, overridePath, err := LoadRepositoryOverride(root)

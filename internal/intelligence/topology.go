@@ -110,6 +110,9 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 		for _, reference := range component.References {
 			target, err := topologyDependencyID(reference.Target, ids)
 			if err != nil {
+				if reference.Kind == RelationshipNetworkReference && strings.Contains(err.Error(), "unknown dependency") {
+					continue
+				}
 				return TopologyGraph{}, fmt.Errorf("component %q: %w", component.Name, err)
 			}
 			if !reference.Kind.IsKnown() {
@@ -134,6 +137,9 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 			if _, ok := ids[target]; !ok {
 				resolved, err := topologyDependencyID(reference.Target, ids)
 				if err != nil {
+					if reference.Kind == RelationshipNetworkReference && strings.Contains(err.Error(), "unknown dependency") {
+						continue
+					}
 					return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)
 				}
 				target = resolved
@@ -185,6 +191,9 @@ func topologyID(kind NodeKind, name string) string {
 }
 
 func topologyDependencyID(name string, ids map[string]struct{}) (string, error) {
+	if _, ok := ids[name]; ok {
+		return name, nil
+	}
 	componentID := topologyID(NodeComponent, name)
 	serviceID := topologyID(NodeService, name)
 	_, hasComponent := ids[componentID]

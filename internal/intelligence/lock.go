@@ -331,7 +331,46 @@ func ExecutionFingerprint(root string, component Component, candidate ExecutionC
 		h.Write(data)
 		h.Write([]byte{0})
 	}
+	if componentRoot != root {
+		var rootFiles []string
+		entries, err := os.ReadDir(root)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if isRootWorkspaceExecutionFile(name) {
+					rootFiles = append(rootFiles, name)
+				}
+			}
+		}
+		sort.Strings(rootFiles)
+		for _, name := range rootFiles {
+			full := filepath.Join(root, name)
+			data, err := os.ReadFile(full)
+			if err == nil {
+				h.Write([]byte("root:" + name))
+				h.Write([]byte{0})
+				h.Write(data)
+				h.Write([]byte{0})
+			}
+		}
+	}
+
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func isRootWorkspaceExecutionFile(name string) bool {
+	switch name {
+	case "package.json", "package-lock.json", "pnpm-workspace.yaml", "pnpm-lock.yaml",
+		"yarn.lock", "bun.lock", "bun.lockb", "go.work", "go.work.sum",
+		"Cargo.toml", "Cargo.lock", "docker-compose.yml", "docker-compose.yaml",
+		"compose.yml", "compose.yaml", "turbo.json", "nx.json", "lerna.json", "rush.json":
+		return true
+	default:
+		return false
+	}
 }
 
 func ignoredExecutionDir(name string) bool {

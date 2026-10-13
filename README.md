@@ -192,22 +192,110 @@ Deep-dive documentation and formal specifications live in dedicated guides:
 
 ---
 
-## Local Development & Testing
+## Monorepo Support & Target Selection
+
+Octo supports multi-target repositories (Node workspaces, `pnpm`, Go `go.work`, Cargo workspaces, and heuristic multi-service directory layouts) and root Docker Compose infrastructure services:
+
+### Selection Examples
+```bash
+# Interactive selection (TUI with scrolling and confirmation screen)
+octo run
+
+# Launch all runnable targets simultaneously
+octo run --all
+
+# Launch a specific application alone
+octo run --only component:web
+
+# Launch an API and automatically include its explicitly declared database dependency
+octo run --only component:api
+
+# Launch multiple specific targets
+octo run --only component:web --only service:postgres
+```
+
+### Supported Scope & Important Boundaries
+- **Supported Discovery**: Declared Node workspaces (`apps/*`, `packages/*`), `pnpm-workspace.yaml`, Go `go.work`, and Cargo workspaces. Automatic fallback directory scan for sibling components when no root manifest exists.
+- **Compose Services**: Root `compose.yaml` / `docker-compose.yml` services are mapped into the topology graph. Static network references in component `.env` files (e.g. `DATABASE_URL=postgres://...`) or explicit declarations in `.octo.yaml` are automatically resolved.
+- **Library Safety**: Shared workspace libraries without runnable entry points (e.g., packages with only build/typecheck scripts) are built during `PhaseSetup` when depended on, but are *never launched as daemons*.
+- **Resource Discipline**: On `Ctrl+C`, Octo stops owned processes and containers, leaving created database volumes untouched.
+- **Boundaries**: *Octo does not claim all monorepos or databases work out of the box*. Proprietary build graphs (e.g. custom Bazel/Buck rules, complex Turborepo/Nx pipeline hooks, Yarn Berry PnP) or distributed multi-cluster databases require explicit manifest or `.octo.yaml` configuration.
+
+### Non-Interactive & AI Agent Rules
+In non-interactive environments (`--json`, CI runners without a TTY, or MCP calls from Claude Code, Cursor, Windsurf):
+- Octo **never prompts or hangs**.
+- When multiple runnable targets exist and neither `--only` nor `--all` is specified, Octo returns a non-zero exit code with a structured error listing available targets and flags.
+
+---
+
+## Testing & Verification
+
+### CI Commands
+Tests are divided into offline unit/smoke suites and opt-in host integration suites:
 
 ```bash
-# Clone repository
-git clone https://github.com/Octo-sh/Octo-CLI.git
-cd Octo-CLI
-
-# Build standalone binary
-go build -o bin/octo ./cmd/octo
-
-# Run unit and regression test suite
+# 1. Offline Test Suite (Runs on all CI platforms & offline macOS/Linux without Docker)
 go test -count=1 ./...
+go test -race ./...
 
-# Run dynamic archetype test suite across real-world repos
-./scripts/test-archetypes.sh
+# 2. Opt-in Real Node/Docker Integration Suite (Requires local Docker daemon and Node runtime)
+OCTO_INTEGRATION_TESTS=1 go test -v -count=1 ./internal/intelligence -run TestSmokeFixtureRealIntegrationOptIn
 ```
+
+### Manual Mac Smoke-Test Checklist
+Follow this checklist to manually verify a monorepo workspace on macOS:
+
+- [ ] **1. Build Local Binary**:
+  ```bash
+  go build -o bin/octo ./cmd/octo
+  ```
+- [ ] **2. Inspect Targets & Evidence**:
+  ```bash
+  ./bin/octo inspect path/to/monorepo
+  ```
+  *Verify*: Lists runnable components, non-runnable libraries, and backing Compose services.
+- [ ] **3. Non-Interactive Guard**:
+  ```bash
+  ./bin/octo run path/to/monorepo --json
+  ```
+  *Verify*: Exits immediately without prompting or hanging; returns JSON error listing targets.
+- [ ] **4. Select Web Alone**:
+  ```bash
+  ./bin/octo run path/to/monorepo --only component:web
+  ```
+  *Verify*: Starts `web` alone on port 3000 without starting independent sibling components or services.
+- [ ] **5. Select API with Database Dependency**:
+  ```bash
+  ./bin/octo run path/to/monorepo --only component:api
+  ```
+  *Verify*: Automatically includes declared dependencies (e.g., `service:postgres`) before launching `api`.
+- [ ] **6. Select All Runnable Targets**:
+  ```bash
+  ./bin/octo run path/to/monorepo --all
+  ```
+  *Verify*: Starts all runnable components and services; builds shared libraries in setup phase; never starts libraries.
+- [ ] **7. Verified Startup & Ctrl+C Persistence**:
+  *Verify*: Stop with `Ctrl+C` after startup verification. Child processes and Compose services stop cleanly, database volumes are preserved, and `.octo.lock` is saved on disk.
+- [ ] **8. Re-run Strategy Reuse**:
+  ```bash
+  ./bin/octo run path/to/monorepo --all
+  ```
+  *Verify*: Reuses matching strategies from `.octo.lock` without re-evaluating from scratch.
+- [ ] **9. Cache Invalidation**:
+  *Verify*: Edit a component source file or root `package.json`; re-running detects the changed fingerprint and invalidates only affected strategies.
+- [ ] **10. Watch Mode Selection Retention**:
+  ```bash
+  ./bin/octo run path/to/monorepo --watch --only component:web
+  ```
+  *Verify*: Retains `--only component:web` selection across file-change reloads.
+- [ ] **11. Interactive Picker & Scrolling**:
+  Run `./bin/octo run path/to/monorepo` in a terminal window:
+  - Arrow keys / `j` / `k` navigate items.
+  - `Space` toggles individual selections; `a` toggles all.
+  - Resize terminal height to test scrolling boundaries (`▲`, `▼`).
+  - Press `Enter` to view the review & confirmation screen (displays requested targets and forced dependencies with reasons).
+  - Press `Ctrl+C` to abort cleanly before anything is launched.
+
 
 ---
 

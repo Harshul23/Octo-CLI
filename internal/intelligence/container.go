@@ -268,6 +268,13 @@ func (p *containerProcess) Pid() int {
 	return 0
 }
 
+func (p *containerProcess) IsAlive() bool {
+	if p.cmd == nil || p.cmd.Process == nil {
+		return false
+	}
+	return true
+}
+
 // ResolveContainerImage determines the base container image based on language and version.
 func ResolveContainerImage(language, runtimeVersion string) string {
 	lang := strings.ToLower(language)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/Octo-sh/Octo-CLI/internal/benchmark"
 	"github.com/Octo-sh/Octo-CLI/internal/intelligence"
@@ -48,6 +49,17 @@ func DefaultTools() []Tool {
 						Type:        "string",
 						Description: "Path to the repository directory (defaults to current working directory).",
 					},
+					"only": {
+						Type:        "array",
+						Description: "Optional list of target selectors to execute (e.g. ['component:web', 'service:postgres']).",
+						Items: &Property{
+							Type: "string",
+						},
+					},
+					"all": {
+						Type:        "boolean",
+						Description: "Run all detected runnable targets without selection.",
+					},
 				},
 			},
 		},
@@ -68,6 +80,17 @@ func DefaultTools() []Tool {
 					"sandbox": {
 						Type:        "boolean",
 						Description: "Run plan steps inside an ephemeral container (Docker or Podman) for environment isolation. Note: project environment variables are forwarded to the container and it should not be considered a hardened security boundary.",
+					},
+					"only": {
+						Type:        "array",
+						Description: "Optional list of target selectors to execute (e.g. ['component:web', 'service:postgres']).",
+						Items: &Property{
+							Type: "string",
+						},
+					},
+					"all": {
+						Type:        "boolean",
+						Description: "Run all detected runnable targets without selection.",
 					},
 				},
 			},
@@ -199,6 +222,40 @@ func handleInspect(ctx context.Context, args map[string]interface{}) (CallToolRe
 	}, nil
 }
 
+func parseSelectionOptions(args map[string]interface{}) (intelligence.SelectionOptions, error) {
+	opts := intelligence.SelectionOptions{}
+	if allVal, ok := args["all"].(bool); ok {
+		opts.All = allVal
+	}
+
+	if onlyVal, ok := args["only"]; ok && onlyVal != nil {
+		switch v := onlyVal.(type) {
+		case []string:
+			opts.Only = v
+		case []interface{}:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					opts.Only = append(opts.Only, s)
+				} else {
+					return opts, fmt.Errorf("invalid 'only' selector: expected string, got %T", item)
+				}
+			}
+		case string:
+			if strings.TrimSpace(v) != "" {
+				opts.Only = []string{strings.TrimSpace(v)}
+			}
+		default:
+			return opts, fmt.Errorf("invalid 'only' argument: expected array of strings, got %T", onlyVal)
+		}
+	}
+
+	if len(opts.Only) > 0 && opts.All {
+		return opts, fmt.Errorf("cannot combine 'only' and 'all'; choose either specific targets or 'all'")
+	}
+
+	return opts, nil
+}
+
 func handlePlan(ctx context.Context, args map[string]interface{}) (CallToolResult, error) {
 	target, err := resolvePath(args)
 	if err != nil {
@@ -209,6 +266,17 @@ func handlePlan(ctx context.Context, args map[string]interface{}) (CallToolResul
 	if err != nil {
 		return toolError(fmt.Sprintf("analysis failed: %v", err)), nil
 	}
+
+	selOpts, err := parseSelectionOptions(args)
+	if err != nil {
+		return toolError(err.Error()), nil
+	}
+
+	selection, err := intelligence.ResolveSelection(model, selOpts)
+	if err != nil {
+		return toolError(err.Error()), nil
+	}
+	model = selection.FilteredModel
 
 	planner := intelligence.DeterministicPlanner{}
 	plan, err := planner.Plan(ctx, model)
@@ -251,6 +319,17 @@ func handleRunAndVerify(ctx context.Context, args map[string]interface{}) (CallT
 	}
 
 	_, _ = intelligence.ApplyVerifiedStrategies(target, &model, lock)
+
+	selOpts, err := parseSelectionOptions(args)
+	if err != nil {
+		return toolError(err.Error()), nil
+	}
+
+	selection, err := intelligence.ResolveSelection(model, selOpts)
+	if err != nil {
+		return toolError(err.Error()), nil
+	}
+	model = selection.FilteredModel
 
 	planner := intelligence.DeterministicPlanner{}
 	plan, err := planner.Plan(ctx, model)

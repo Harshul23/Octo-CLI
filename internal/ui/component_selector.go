@@ -11,141 +11,131 @@ import (
 )
 
 var (
-	glowTitleStyle = lipgloss.NewStyle().
+	glowBadgeStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#00F5FF")).
-			Background(lipgloss.Color("#180B2E")).
-			Padding(0, 2).
-			MarginBottom(1)
+			Foreground(lipgloss.Color("#000000")).
+			Background(lipgloss.Color("#FF5F87")). // Glow pink badge
+			Padding(0, 1)
+
+	glowConfirmBadge = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#000000")).
+			Background(lipgloss.Color("#00FF88")).
+			Padding(0, 1)
 
 	glowSubtitleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#B388FF")).
-				MarginBottom(1)
+			Foreground(lipgloss.Color("#767676"))
 
-	glowBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7928CA")).
-			Padding(1, 2).
-			MarginBottom(1)
+	glowBarActive = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF5F87")).
+			SetString(" │ ")
 
-	glowCursorStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#00F5FF"))
+	glowBarInactive = lipgloss.NewStyle().
+			SetString("   ")
 
 	glowCheckOn = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#00FF88"))
 
 	glowCheckOff = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#666666"))
+			Foreground(lipgloss.Color("#555555"))
 
-	glowNameActive = lipgloss.NewStyle().
+	glowTitleActive = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFFFFF"))
+			Foreground(lipgloss.Color("#FF5F87"))
 
-	glowNameInactive = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#CCCCCC"))
-
-	glowBadgeStyle = lipgloss.NewStyle().
+	glowTitleInactive = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#6200EA")).
-			Padding(0, 1)
+			Foreground(lipgloss.Color("#E6EDF3"))
 
-	glowServiceBadge = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("#001F3F")).
-				Background(lipgloss.Color("#00F5FF")).
-				Padding(0, 1)
+	glowDetailActive = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#C678DD"))
 
-	glowDetailStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#777777"))
+	glowDetailInactive = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#626262"))
+
+	glowTagActive = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF87AF"))
+
+	glowTagInactive = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#767676"))
 
 	glowPortStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFB703"))
+			Foreground(lipgloss.Color("#E5C07B"))
+
+	glowSectionStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#E6EDF3"))
+
+	glowForcedHeader = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#E5C07B"))
 
 	glowHelpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#666666")).
-			MarginTop(1)
+			Foreground(lipgloss.Color("#626262"))
 )
 
 type SelectableItem struct {
-	ID        string
+	ID        intelligence.TargetID
 	Name      string
 	IsService bool
 	Badge     string
 	Path      string
+	Runtime   string
+	Command   string
 	PortInfo  string
 	DependsOn []string
 	Selected  bool
 }
 
+type selectorState int
+
+const (
+	stateSelecting selectorState = iota
+	stateConfirming
+)
+
 type componentSelectorModel struct {
-	items     []SelectableItem
-	cursor    int
-	confirmed bool
-	cancelled bool
-	width     int
-	height    int
+	model        intelligence.ProjectModel
+	items        []SelectableItem
+	cursor       int
+	scrollOffset int
+	state        selectorState
+	confirmed    bool
+	cancelled    bool
+	width        int
+	height       int
+	resolved     intelligence.ResolvedSelection
+	resolveErr   error
 }
 
 func newComponentSelectorModel(model intelligence.ProjectModel) componentSelectorModel {
-	var items []SelectableItem
+	runnable := intelligence.RunnableTargets(model)
+	items := make([]SelectableItem, 0, len(runnable))
 
-	// Add components
-	for _, comp := range model.Components {
-		badgeParts := []string{}
-		if comp.Language != "" {
-			badgeParts = append(badgeParts, strings.ToUpper(comp.Language))
-		}
-		if comp.Framework != "" {
-			badgeParts = append(badgeParts, strings.ToUpper(comp.Framework))
-		}
-		badge := strings.Join(badgeParts, " / ")
-		if badge == "" {
-			badge = "COMPONENT"
-		}
-
-		portStr := ""
-		if comp.Port > 0 {
-			portStr = fmt.Sprintf("→ port %d", comp.Port)
-		}
-
+	for _, t := range runnable {
 		items = append(items, SelectableItem{
-			ID:        "comp:" + comp.Name,
-			Name:      comp.Name,
-			IsService: false,
-			Badge:     badge,
-			Path:      comp.Path,
-			PortInfo:  portStr,
-			DependsOn: comp.DependsOn,
-			Selected:  true, // Default selected
-		})
-	}
-
-	// Add compose services
-	for _, svc := range model.Services {
-		portStr := ""
-		if len(svc.Ports) > 0 {
-			portStr = "→ " + strings.Join(svc.Ports, ", ")
-		}
-		items = append(items, SelectableItem{
-			ID:        "svc:" + svc.Name,
-			Name:      svc.Name,
-			IsService: true,
-			Badge:     "SERVICE / DOCKER",
-			Path:      svc.Image,
-			PortInfo:  portStr,
-			DependsOn: svc.DependsOn,
+			ID:        t.ID,
+			Name:      t.Name,
+			IsService: t.Kind == intelligence.TargetKindService,
+			Badge:     t.Runtime,
+			Path:      t.Path,
+			Runtime:   t.Runtime,
+			Command:   t.Command,
+			PortInfo:  t.PortInfo,
+			DependsOn: t.DependsOn,
 			Selected:  true, // Default selected
 		})
 	}
 
 	return componentSelectorModel{
-		items:  items,
-		cursor: 0,
-		width:  80,
-		height: 24,
+		model:        model,
+		items:        items,
+		cursor:       0,
+		scrollOffset: 0,
+		state:        stateSelecting,
+		width:        80,
+		height:       24,
 	}
 }
 
@@ -153,177 +143,301 @@ func (m componentSelectorModel) Init() tea.Cmd {
 	return nil
 }
 
+func (m *componentSelectorModel) updateScroll() {
+	itemHeight := 3
+	availableLines := m.height - 8
+	maxVisible := availableLines / itemHeight
+	if maxVisible < 2 {
+		maxVisible = 2
+	}
+	if maxVisible > len(m.items) {
+		maxVisible = len(m.items)
+	}
+	if m.cursor < m.scrollOffset {
+		m.scrollOffset = m.cursor
+	} else if m.cursor >= m.scrollOffset+maxVisible {
+		m.scrollOffset = m.cursor - maxVisible + 1
+	}
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+	}
+	if maxOffset := len(m.items) - maxVisible; maxOffset > 0 && m.scrollOffset > maxOffset {
+		m.scrollOffset = maxOffset
+	}
+}
+
 func (m componentSelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.updateScroll()
+		return m, nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-		case "down", "j":
-			if m.cursor < len(m.items)-1 {
-				m.cursor++
-			}
-		case " ", "x":
-			if m.cursor >= 0 && m.cursor < len(m.items) {
-				m.items[m.cursor].Selected = !m.items[m.cursor].Selected
-			}
-		case "a":
-			// Toggle all: if any unselected, select all; else unselect all
-			hasUnselected := false
-			for _, it := range m.items {
-				if !it.Selected {
-					hasUnselected = true
-					break
+		key := msg.String()
+		switch m.state {
+		case stateSelecting:
+			switch key {
+			case "up", "k":
+				if m.cursor > 0 {
+					m.cursor--
+					m.updateScroll()
 				}
-			}
-			for i := range m.items {
-				m.items[i].Selected = hasUnselected
-			}
-		case "enter":
-			// Must have at least one selected
-			anySelected := false
-			for _, it := range m.items {
-				if it.Selected {
-					anySelected = true
-					break
+			case "down", "j":
+				if m.cursor < len(m.items)-1 {
+					m.cursor++
+					m.updateScroll()
 				}
-			}
-			if anySelected {
-				m.confirmed = true
+			case " ", "x":
+				if m.cursor >= 0 && m.cursor < len(m.items) {
+					m.items[m.cursor].Selected = !m.items[m.cursor].Selected
+				}
+			case "a":
+				hasUnselected := false
+				for _, it := range m.items {
+					if !it.Selected {
+						hasUnselected = true
+						break
+					}
+				}
+				for i := range m.items {
+					m.items[i].Selected = hasUnselected
+				}
+			case "enter":
+				var selectedIDs []intelligence.TargetID
+				for _, it := range m.items {
+					if it.Selected {
+						selectedIDs = append(selectedIDs, it.ID)
+					}
+				}
+				if len(selectedIDs) == 0 {
+					return m, nil
+				}
+				resolved, err := intelligence.ResolveSelectionTargets(m.model, selectedIDs)
+				if err != nil {
+					m.resolveErr = err
+					return m, nil
+				}
+				m.resolveErr = nil
+				m.resolved = resolved
+				m.state = stateConfirming
+				return m, nil
+			case "esc", "q", "ctrl+c":
+				m.cancelled = true
 				return m, tea.Quit
 			}
-		case "esc", "q", "ctrl+c":
-			m.cancelled = true
-			return m, tea.Quit
+
+		case stateConfirming:
+			switch key {
+			case "enter", "y", "Y":
+				m.confirmed = true
+				return m, tea.Quit
+			case "esc", "b", "B", "left", "backspace":
+				m.state = stateSelecting
+				return m, nil
+			case "ctrl+c", "q":
+				m.cancelled = true
+				return m, tea.Quit
+			}
 		}
 	}
 	return m, nil
 }
 
 func (m componentSelectorModel) View() string {
-	var b strings.Builder
+	if m.state == stateConfirming {
+		var b strings.Builder
+		b.WriteString("\n")
+		b.WriteString("  " + glowConfirmBadge.Render(" CONFIRM LAUNCH SELECTION ") + "\n\n")
+		b.WriteString("  " + glowSubtitleStyle.Render("Review requested targets and forced dependencies before starting:") + "\n\n")
 
-	title := glowTitleStyle.Render("⚡ OCTO MULTI-COMPONENT SELECTOR")
-	sub := glowSubtitleStyle.Render("Navigate and choose components & services to launch:")
-	b.WriteString(title + "\n" + sub + "\n\n")
-
-	var rows strings.Builder
-	for i, item := range m.items {
-		cursor := "  "
-		if i == m.cursor {
-			cursor = glowCursorStyle.Render("▶ ")
-		}
-
-		check := glowCheckOff.Render("[○]")
-		if item.Selected {
-			check = glowCheckOn.Render("[◉]")
-		}
-
-		badge := glowBadgeStyle.Render(item.Badge)
-		if item.IsService {
-			badge = glowServiceBadge.Render(item.Badge)
-		}
-
-		name := glowNameInactive.Render(item.Name)
-		if i == m.cursor {
-			name = glowNameActive.Render(item.Name)
-		}
-
-		details := ""
-		if item.Path != "" && item.Path != "." {
-			details = glowDetailStyle.Render(item.Path)
-		}
-		if item.PortInfo != "" {
-			if details != "" {
-				details += "  "
+		b.WriteString("  " + glowSectionStyle.Render("Requested Launches:") + "\n\n")
+		for _, req := range m.resolved.RequestedTargets {
+			details := ""
+			for _, it := range m.items {
+				if it.ID == req {
+					parts := []string{}
+					if it.Command != "" {
+						parts = append(parts, it.Command)
+					}
+					if it.PortInfo != "" {
+						parts = append(parts, it.PortInfo)
+					}
+					if len(parts) > 0 {
+						details = strings.Join(parts, "  •  ")
+					}
+					break
+				}
 			}
-			details += glowPortStyle.Render(item.PortInfo)
+			b.WriteString(glowBarActive.String() + glowTitleActive.Render(req.String()) + "\n")
+			if details != "" {
+				b.WriteString(glowBarActive.String() + glowDetailActive.Render(details) + "\n")
+			}
+			b.WriteString("\n")
 		}
 
-		row := fmt.Sprintf("%s%s %s  %s  %s", cursor, check, name, badge, details)
-		rows.WriteString(row + "\n")
+		if len(m.resolved.ForcedDependencies) > 0 {
+			b.WriteString("  " + glowForcedHeader.Render("Dependencies Forced by Choice:") + "\n\n")
+			for id, reason := range m.resolved.ForcedDependencies {
+				b.WriteString(glowBarActive.String() + glowPortStyle.Render(id.String()) + "\n")
+				b.WriteString(glowBarActive.String() + glowDetailInactive.Render(reason) + "\n\n")
+			}
+		}
+
+		b.WriteString("  " + glowHelpStyle.Render("enter confirm & start • esc back • q quit") + "\n")
+		return b.String()
 	}
 
-	b.WriteString(glowBoxStyle.Render(rows.String()))
-	b.WriteString("\n" + glowHelpStyle.Render("↑/↓: navigate • space: toggle • a: toggle all • enter: run selected • q: cancel"))
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + glowBadgeStyle.Render(" OCTO ") + " " + glowSectionStyle.Render("MULTI-TARGET SELECTOR") + "\n\n")
 
+	compCount := 0
+	svcCount := 0
+	for _, it := range m.items {
+		if it.IsService {
+			svcCount++
+		} else {
+			compCount++
+		}
+	}
+	summary := fmt.Sprintf("%d targets (%d components · %d services)", len(m.items), compCount, svcCount)
+	b.WriteString("  " + glowSubtitleStyle.Render(summary) + "\n\n")
+
+	if m.resolveErr != nil {
+		b.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FF4444")).Bold(true).Render("Error: "+m.resolveErr.Error()) + "\n\n")
+	}
+
+	itemHeight := 3
+	availableLines := m.height - 8
+	maxVisible := availableLines / itemHeight
+	if maxVisible < 2 {
+		maxVisible = 2
+	}
+	if maxVisible > len(m.items) {
+		maxVisible = len(m.items)
+	}
+
+	start := m.scrollOffset
+	end := start + maxVisible
+	if end > len(m.items) {
+		end = len(m.items)
+	}
+
+	if start > 0 {
+		b.WriteString("  " + glowDetailInactive.Render(fmt.Sprintf("▲ (+%d more above)", start)) + "\n\n")
+	}
+
+	for i := start; i < end; i++ {
+		item := m.items[i]
+		isActive := (i == m.cursor)
+
+		bar := glowBarInactive.String()
+		if isActive {
+			bar = glowBarActive.String()
+		}
+
+		check := glowCheckOff.Render("[ ]")
+		if item.Selected {
+			check = glowCheckOn.Render("[✓]")
+		}
+
+		name := glowTitleInactive.Render(item.Name)
+		tag := glowTagInactive.Render(item.Badge)
+		if isActive {
+			name = glowTitleActive.Render(item.Name)
+			tag = glowTagActive.Render(item.Badge)
+		}
+
+		port := ""
+		if item.PortInfo != "" {
+			port = glowPortStyle.Render(item.PortInfo)
+		}
+
+		// Line 1: Bar + Check + Name + Tag + Port
+		b.WriteString(fmt.Sprintf("%s%s %s  %s", bar, check, name, tag))
+		if port != "" {
+			b.WriteString("  " + port)
+		}
+		b.WriteString("\n")
+
+		// Line 2: Bar + Details (path, command, deps)
+		var detailParts []string
+		if item.Path != "" && item.Path != "." {
+			detailParts = append(detailParts, item.Path)
+		}
+		if item.Command != "" {
+			detailParts = append(detailParts, item.Command)
+		}
+		if len(item.DependsOn) > 0 {
+			detailParts = append(detailParts, "deps: "+strings.Join(item.DependsOn, ", "))
+		}
+
+		if len(detailParts) > 0 {
+			detailStr := strings.Join(detailParts, "  •  ")
+			if isActive {
+				b.WriteString(bar + "    " + glowDetailActive.Render(detailStr) + "\n")
+			} else {
+				b.WriteString(bar + "    " + glowDetailInactive.Render(detailStr) + "\n")
+			}
+		}
+
+		b.WriteString("\n")
+	}
+
+	if end < len(m.items) {
+		b.WriteString("  " + glowDetailInactive.Render(fmt.Sprintf("▼ (+%d more below)", len(m.items)-end)) + "\n\n")
+	}
+
+	b.WriteString("  " + glowHelpStyle.Render("↑/↓ navigate • space toggle • a select all • enter confirm • q quit") + "\n")
 	return b.String()
+}
+
+// RunTargetSelector launches the interactive selector and returns the resolved selection.
+func RunTargetSelector(model intelligence.ProjectModel) (selection intelligence.ResolvedSelection, cancelled bool, err error) {
+	if !isInteractiveTerminal() {
+		return intelligence.ResolvedSelection{}, false, fmt.Errorf("cannot run interactive target selector in non-interactive environment; specify --only <target> or --all.\nAvailable targets:\n%s", intelligence.FormatAvailableTargets(model))
+	}
+
+	p := tea.NewProgram(newComponentSelectorModel(model), tea.WithOutput(os.Stderr))
+	finalModel, err := p.Run()
+	if err != nil {
+		return intelligence.ResolvedSelection{}, false, fmt.Errorf("component selector failed: %w", err)
+	}
+
+	m, ok := finalModel.(componentSelectorModel)
+	if !ok || m.cancelled || !m.confirmed {
+		return intelligence.ResolvedSelection{}, true, nil
+	}
+
+	return m.resolved, false, nil
 }
 
 // RunComponentSelector launches the interactive selector and returns the chosen components and services.
 func RunComponentSelector(model intelligence.ProjectModel) (selectedComponents []string, selectedServices []string, autoIncluded []string, cancelled bool, err error) {
-	if len(model.Components)+len(model.Services) <= 1 || !InteractiveTerminal() {
-		// Single component or non-interactive: run all by default
-		for _, c := range model.Components {
-			selectedComponents = append(selectedComponents, c.Name)
-		}
-		for _, s := range model.Services {
-			selectedServices = append(selectedServices, s.Name)
-		}
-		return selectedComponents, selectedServices, nil, false, nil
+	sel, cancelled, err := RunTargetSelector(model)
+	if err != nil || cancelled {
+		return nil, nil, nil, cancelled, err
 	}
 
-	selModel := newComponentSelectorModel(model)
-	p := tea.NewProgram(
-		selModel,
-		tea.WithInput(os.Stdin),
-		tea.WithOutput(os.Stdout),
-		tea.WithAltScreen(),
-	)
-
-	finalModel, err := p.Run()
-	if err != nil {
-		return nil, nil, nil, false, err
+	for _, c := range sel.SelectedComponents {
+		selectedComponents = append(selectedComponents, c.Name)
 	}
-
-	res, ok := finalModel.(componentSelectorModel)
-	if !ok || res.cancelled {
-		return nil, nil, nil, true, nil
+	for _, s := range sel.SelectedServices {
+		selectedServices = append(selectedServices, s.Name)
 	}
-
-	selectedSet := make(map[string]bool)
-	for _, it := range res.items {
-		if it.Selected {
-			selectedSet[it.Name] = true
-			if it.IsService {
-				selectedServices = append(selectedServices, it.Name)
-			} else {
-				selectedComponents = append(selectedComponents, it.Name)
-			}
-		}
-	}
-
-	// Auto-include upstream dependencies of selected components
-	for _, comp := range model.Components {
-		if !selectedSet[comp.Name] {
-			continue
-		}
-		for _, dep := range comp.DependsOn {
-			if !selectedSet[dep] {
-				// Find whether dep is service or component
-				isSvc := false
-				for _, s := range model.Services {
-					if s.Name == dep {
-						isSvc = true
-						break
-					}
-				}
-				if isSvc {
-					selectedServices = append(selectedServices, dep)
-				} else {
-					selectedComponents = append(selectedComponents, dep)
-				}
-				selectedSet[dep] = true
-				autoIncluded = append(autoIncluded, dep)
-			}
-		}
+	for id, reason := range sel.ForcedDependencies {
+		autoIncluded = append(autoIncluded, fmt.Sprintf("%s (%s)", id.String(), reason))
 	}
 
 	return selectedComponents, selectedServices, autoIncluded, false, nil
+}
+
+func isInteractiveTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
 }

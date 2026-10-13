@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -44,6 +45,17 @@ var runCmd = &cobra.Command{
 resolves the required environment, executes the plan, and verifies the
 result.
 
+Target Selection:
+  Use --only <target> (repeatable, e.g. --only component:web --only service:postgres)
+  or --all to specify which components and services to execute.
+  --only and --all are mutually exclusive.
+
+  In non-interactive environments (--json, --no-tui, --detach, or when stdin is not
+  a TTY), repositories with multiple runnable targets require either --only or --all.
+  If neither is specified, octo run lists available targets and exits with an error
+  rather than starting everything silently or hanging for input. Single-target repositories
+  continue to run automatically without prompting.
+
 The intelligence engine is the default. Use --engine legacy only when
 you explicitly need the older .octo.yaml-based orchestrator.`,
 	RunE: runRun,
@@ -64,6 +76,8 @@ func init() {
 	runCmd.Flags().String("engine", "intelligence", "Execution engine: intelligence or legacy")
 	runCmd.Flags().BoolP("sandbox", "s", false, "Execute application inside an ephemeral container (Docker/Podman) for environment isolation")
 	runCmd.Flags().BoolP("select", "i", false, "Interactively select which components and services to run")
+	runCmd.Flags().StringArrayP("only", "o", nil, "Run only specific targets (e.g. --only component:web --only service:postgres); repeatable, mutually exclusive with --all")
+	runCmd.Flags().Bool("all", false, "Run all discovered components and services without prompting; mutually exclusive with --only")
 	runCmd.Flags().BoolP("json", "j", false, "Output the ExecutionReport as JSON")
 }
 
@@ -283,44 +297,78 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	onlyFlags, _ := cmd.Flags().GetStringArray("only")
+	allFlag, _ := cmd.Flags().GetBool("all")
 	noTUI, _ := cmd.Flags().GetBool("no-tui")
 	selectComponents, _ := cmd.Flags().GetBool("select")
-	if (selectComponents || (len(model.Components)+len(model.Services) > 1)) && !noTUI && !jsonOutput && !detach && ui.InteractiveTerminal() {
-		selectedComponents, selectedServices, autoIncluded, cancelled, err := ui.RunComponentSelector(model)
+	noPortShift, _ := cmd.Flags().GetBool("no-port-shift")
+	portOverride, _ := cmd.Flags().GetInt("port")
+
+	if selectComponents && (len(onlyFlags) > 0 || allFlag) {
+		return fmt.Errorf("cannot combine --select with --only or --all")
+	}
+	if selectComponents && (noTUI || jsonOutput || detach || !ui.InteractiveTerminal()) {
+		return fmt.Errorf("interactive component selection requires an interactive terminal and cannot be used with --detach, --json, or --no-tui")
+	}
+	if len(onlyFlags) > 0 && allFlag {
+		return fmt.Errorf("cannot combine --only and --all; choose either specific targets with --only or use --all")
+	}
+
+	var selection intelligence.ResolvedSelection
+	if len(onlyFlags) > 0 || allFlag {
+		sel, err := intelligence.ResolveSelection(model, intelligence.SelectionOptions{
+			Only: onlyFlags,
+			All:  allFlag,
+		})
 		if err != nil {
 			return err
 		}
-		if cancelled {
-			return fmt.Errorf("execution cancelled by user")
-		}
+		selection = sel
+	} else {
+		runnable := intelligence.RunnableTargets(model)
+		isInteractive := !noTUI && !jsonOutput && !detach && ui.InteractiveTerminal()
 
-		compSet := make(map[string]bool)
-		for _, c := range selectedComponents {
-			compSet[c] = true
-		}
-		var filteredComponents []intelligence.Component
-		for _, c := range model.Components {
-			if compSet[c.Name] {
-				filteredComponents = append(filteredComponents, c)
+		if len(runnable) <= 1 && !selectComponents {
+			sel, err := intelligence.ResolveSelection(model, intelligence.SelectionOptions{})
+			if err != nil {
+				return err
 			}
-		}
-		model.Components = filteredComponents
-
-		svcSet := make(map[string]bool)
-		for _, s := range selectedServices {
-			svcSet[s] = true
-		}
-		var filteredServices []intelligence.Service
-		for _, s := range model.Services {
-			if svcSet[s.Name] {
-				filteredServices = append(filteredServices, s)
+			selection = sel
+		} else if isInteractive {
+			sel, cancelled, err := ui.RunTargetSelector(model)
+			if err != nil {
+				return err
 			}
+			if cancelled {
+				return fmt.Errorf("execution cancelled by user")
+			}
+			selection = sel
+		} else {
+			return fmt.Errorf("multiple runnable targets detected; specify --only <target> or --all in non-interactive mode.\nAvailable targets:\n%s", intelligence.FormatAvailableTargets(model))
 		}
-		model.Services = filteredServices
+	}
 
-		if len(autoIncluded) > 0 {
-			fmt.Println(ui.InfoLine(fmt.Sprintf("Auto-included upstream dependencies: %s", strings.Join(autoIncluded, ", "))))
+	model = selection.FilteredModel
+	if noPortShift {
+		for i := range model.Components {
+			model.Components[i].PortStrict = true
 		}
+	}
+	if portOverride > 0 && len(model.Components) == 1 {
+		model.Components[0].Port = portOverride
+		if noPortShift {
+			model.Components[0].PortStrict = true
+		}
+	}
+	requestedIdentities := selection.RequestedTargets
+
+	if len(selection.ForcedDependencies) > 0 && !jsonOutput {
+		var depMsgs []string
+		for depID, reason := range selection.ForcedDependencies {
+			depMsgs = append(depMsgs, fmt.Sprintf("%s (%s)", depID.String(), reason))
+		}
+		sort.Strings(depMsgs)
+		fmt.Println(ui.InfoLine(fmt.Sprintf("Included dependencies: %s", strings.Join(depMsgs, ", "))))
 	}
 
 	var decisionProvider intelligence.DecisionProvider = intelligence.DeterministicDecisionProvider{}
@@ -489,6 +537,32 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		if !jsonOutput {
 			fmt.Println(ui.Muted.Render("Watching for changes... (press Ctrl+C to stop)"))
 		}
+		reanalyzeWatch := func() error {
+			newModel, err := intelligence.Analyze(cwd)
+			if err != nil {
+				if !jsonOutput {
+					fmt.Println(ui.WarningLine(fmt.Sprintf("Re-analysis warning: %v", err)))
+				}
+				return nil
+			}
+			newSelection, err := intelligence.ResolveSelectionTargets(newModel, requestedIdentities)
+			if err != nil {
+				return fmt.Errorf("watch stopped: %w", err)
+			}
+			newPlan, err := planner.Plan(execCtx, newSelection.FilteredModel)
+			if err != nil {
+				return fmt.Errorf("watch planning failed: %w", err)
+			}
+			newEnv, err := intelligence.ResolveProjectEnvironmentWithOptions(cwd, newSelection.FilteredModel, envOpts)
+			if err != nil {
+				return fmt.Errorf("watch environment resolution failed: %w", err)
+			}
+			model = newSelection.FilteredModel
+			plan = newPlan
+			env = newEnv
+			return nil
+		}
+
 		for {
 			watchExecCtx, cancelWatchExec := context.WithCancel(execCtx)
 			changeChan := make(chan struct{}, 1)
@@ -536,11 +610,8 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 					fmt.Println()
 					fmt.Println(ui.InfoLine("↻ File change detected. Restarting application..."))
 				}
-				if m, err := intelligence.Analyze(cwd); err == nil {
-					model = m
-					if p, err := planner.Plan(execCtx, model); err == nil {
-						plan = p
-					}
+				if err := reanalyzeWatch(); err != nil {
+					return err
 				}
 				continue
 			case <-execCtx.Done():
@@ -556,11 +627,8 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 				}
 				changed, _ := intelligence.WatchForChanges(execCtx, cwd, model, 500*time.Millisecond)
 				if changed {
-					if m, err := intelligence.Analyze(cwd); err == nil {
-						model = m
-						if p, err := planner.Plan(execCtx, model); err == nil {
-							plan = p
-						}
+					if err := reanalyzeWatch(); err != nil {
+						return err
 					}
 					continue
 				}

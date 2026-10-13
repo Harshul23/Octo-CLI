@@ -53,6 +53,12 @@ func (p *fakeRunningProcess) Pid() int {
 	return p.pid
 }
 
+func (p *fakeRunningProcess) IsAlive() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return !p.stopped
+}
+
 func (p *fakeRunningProcess) isStopped() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
