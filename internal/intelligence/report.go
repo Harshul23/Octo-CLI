@@ -461,7 +461,7 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 				}
 				port := portForComponent(plan.Ports, attempt.Component)
 				if port > 0 {
-					if err := verifyPort(ctx, "127.0.0.1", port, 5*time.Second); err != nil {
+					if err := verifyPortWithProcess(ctx, "127.0.0.1", port, 5*time.Second, process); err != nil {
 						_ = process.Stop()
 						_ = process.Wait()
 						result.Status = StepFailed

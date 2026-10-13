@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -229,6 +230,10 @@ func Verify(ctx context.Context, checks []VerificationCheck) ([]VerificationResu
 }
 
 func verifyPort(ctx context.Context, host string, port int, timeout time.Duration) error {
+	return verifyPortWithProcess(ctx, host, port, timeout, nil)
+}
+
+func verifyPortWithProcess(ctx context.Context, host string, port int, timeout time.Duration, process RunningProcess) error {
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
@@ -236,14 +241,23 @@ func verifyPort(ctx context.Context, host string, port int, timeout time.Duratio
 	var lastErr error
 	hosts := []string{host}
 	if host == "127.0.0.1" {
-		hosts = []string{"127.0.0.1", "localhost", "[::1]"}
+		hosts = []string{"127.0.0.1", "localhost", "::1"}
 	} else if host == "localhost" {
-		hosts = []string{"localhost", "127.0.0.1", "[::1]"}
+		hosts = []string{"localhost", "127.0.0.1", "::1"}
 	}
 	for {
+		if process != nil {
+			if la, ok := process.(interface{ IsAlive() bool }); ok && !la.IsAlive() {
+				if err := process.Wait(); err != nil {
+					return fmt.Errorf("process exited prematurely: %w", err)
+				}
+				return fmt.Errorf("process exited prematurely with code 0")
+			}
+		}
 		dialer := net.Dialer{Timeout: 250 * time.Millisecond}
 		for _, h := range hosts {
-			conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", h, port))
+			target := net.JoinHostPort(h, strconv.Itoa(port))
+			conn, err := dialer.DialContext(ctx, "tcp", target)
 			if err == nil {
 				_ = conn.Close()
 				return nil

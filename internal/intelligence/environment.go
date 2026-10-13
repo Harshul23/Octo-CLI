@@ -296,8 +296,10 @@ func index(value, sep string) int {
 }
 func splitAssignment(line string) (string, string, bool) {
 	i := index(line, "=")
-	if i < 0 { return "", "", false }
-	return trimSpace(line[:i]), trimSpace(line[i+1:]), true
+	if i <= 0 { return "", "", false }
+	name := trimSpace(line[:i])
+	if name == "" { return "", "", false }
+	return name, trimSpace(line[i+1:]), true
 }
 func splitEnv(entry string) (string, string, bool) { return splitAssignment(entry) }
 func trimQuotes(value string) string {

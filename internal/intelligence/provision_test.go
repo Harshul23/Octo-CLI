@@ -2,6 +2,7 @@ package intelligence
 
 import (
 	"context"
+	"runtime"
 	"testing"
 )
 
@@ -41,7 +42,11 @@ func TestPlannerAddsProvisioningBeforeInstall(t *testing.T) {
 			install = &plan.Steps[i]
 		}
 	}
-	if provision == nil || provision.Command != "command -v pnpm" {
+	expectedCmd := "command -v pnpm"
+	if runtime.GOOS == "windows" {
+		expectedCmd = "where pnpm"
+	}
+	if provision == nil || provision.Command != expectedCmd {
 		t.Fatalf("provision=%+v", provision)
 	}
 	if install == nil || len(install.DependsOn) != 1 || install.DependsOn[0] != provision.ID {

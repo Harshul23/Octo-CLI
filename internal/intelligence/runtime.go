@@ -68,10 +68,26 @@ func RegisterRuntimeAdapter(adapter RuntimeAdapter) {
 	defaultRuntimeAdapterRegistry.Register(adapter)
 }
 
+func UnregisterRuntimeAdapter(adapter RuntimeAdapter) {
+	defaultRuntimeAdapterRegistry.Unregister(adapter)
+}
+
 func (r *RuntimeAdapterRegistry) Register(adapter RuntimeAdapter) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.adapters = append([]RuntimeAdapter{adapter}, r.adapters...)
+}
+
+func (r *RuntimeAdapterRegistry) Unregister(adapter RuntimeAdapter) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	filtered := make([]RuntimeAdapter, 0, len(r.adapters))
+	for _, a := range r.adapters {
+		if a != adapter {
+			filtered = append(filtered, a)
+		}
+	}
+	r.adapters = filtered
 }
 
 func (r *RuntimeAdapterRegistry) Adapters() []RuntimeAdapter {

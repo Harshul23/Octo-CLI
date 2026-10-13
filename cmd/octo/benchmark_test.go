@@ -38,7 +38,7 @@ func TestBenchmarkCommandSingleRepo(t *testing.T) {
 	serverCode := fmt.Sprintf(`const http = require('http');
 const port = process.env.PORT || %d;
 const server = http.createServer((req, res) => { res.writeHead(200); res.end('OK'); });
-server.listen(port, () => {});
+server.listen(port, '0.0.0.0', () => {});
 process.on('SIGTERM', () => process.exit(0));
 process.on('SIGINT', () => process.exit(0));`, port)
 	if err := os.WriteFile(filepath.Join(root, "server.js"), []byte(serverCode), 0644); err != nil {
