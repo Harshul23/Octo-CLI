@@ -27,6 +27,12 @@ func (e ResolvedEnvironment) ForStep(step ExecutionStep) ResolvedEnvironment {
 		for name, value := range scoped {
 			values[name] = value
 		}
+	} else if step.Component != "" {
+		if scoped, ok := e.ScopedValues[step.Component]; ok {
+			for name, value := range scoped {
+				values[name] = value
+			}
+		}
 	}
 	// The caller's process environment is always authoritative.
 	for _, entry := range os.Environ() {
@@ -116,6 +122,8 @@ func resolveEnvironment(root string, model EnvironmentModel, components []Compon
 		}
 		if len(componentValues) > 0 {
 			scoped[component.Path] = componentValues
+			scoped[componentRoot] = componentValues
+			scoped[component.Name] = componentValues
 		}
 	}
 

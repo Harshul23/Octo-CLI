@@ -203,6 +203,7 @@ func (p *mockRunningProcess) GracefulStop(_ time.Duration) error {
 	return p.Stop()
 }
 func (p *mockRunningProcess) Pid() int { return p.pid }
+func (p *mockRunningProcess) IsAlive() bool { return !p.stopped }
 
 func TestExecutePlanReportDetachedMode(t *testing.T) {
 	adapter := &mockStartableAdapter{}

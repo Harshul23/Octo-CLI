@@ -78,6 +78,8 @@ type Component struct {
 	PortStrict bool `json:"port_strict,omitempty" yaml:"port_strict,omitempty"`
 	Confidence float64 `json:"confidence" yaml:"confidence"`
 	Evidence []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
+	Role string `json:"role,omitempty" yaml:"role,omitempty"`
+	NonRunnableReason string `json:"non_runnable_reason,omitempty" yaml:"non_runnable_reason,omitempty"`
 }
 
 type EnvironmentVariable struct {
@@ -117,4 +119,5 @@ type ProjectModel struct {
 	Environment EnvironmentModel `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Evidence []Evidence `json:"evidence,omitempty" yaml:"evidence,omitempty"`
 	CustomVerification []VerificationCheck `json:"custom_verification,omitempty" yaml:"custom_verification,omitempty"`
+	Diagnostics []string `json:"diagnostics,omitempty" yaml:"diagnostics,omitempty"`
 }

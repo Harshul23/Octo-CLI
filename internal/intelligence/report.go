@@ -53,6 +53,7 @@ type ExecutionOptions struct {
 	Silent            bool                               `json:"silent" yaml:"silent"`
 	Sandbox           bool                               `json:"sandbox" yaml:"sandbox"`
 	Args              []string                           `json:"args,omitempty" yaml:"args,omitempty"`
+	OwnedServices     []string                           `json:"owned_services,omitempty" yaml:"owned_services,omitempty"`
 	OnVerifiedStartup func(report ExecutionReport) error `json:"-" yaml:"-"`
 }
 
@@ -88,7 +89,10 @@ func AppendPassthroughArgs(command string, args []string) string {
 
 type executionContextKey string
 
-const silentExecutionKey executionContextKey = "octo.silent"
+const (
+	silentExecutionKey   executionContextKey = "octo.silent"
+	detachedExecutionKey executionContextKey = "octo.detach"
+)
 
 func withSilentExecution(ctx context.Context, silent bool) context.Context {
 	return context.WithValue(ctx, silentExecutionKey, silent)
@@ -96,6 +100,15 @@ func withSilentExecution(ctx context.Context, silent bool) context.Context {
 
 func isSilentExecution(ctx context.Context) bool {
 	v, ok := ctx.Value(silentExecutionKey).(bool)
+	return ok && v
+}
+
+func withDetachedExecution(ctx context.Context, detach bool) context.Context {
+	return context.WithValue(ctx, detachedExecutionKey, detach)
+}
+
+func isDetachedExecution(ctx context.Context) bool {
+	v, ok := ctx.Value(detachedExecutionKey).(bool)
 	return ok && v
 }
 
@@ -114,6 +127,7 @@ type ExecutionReport struct {
 	Failures          []ExecutionFailure    `json:"failures,omitempty" yaml:"failures,omitempty"`
 	Decisions         []DecisionTraceEntry  `json:"decisions,omitempty" yaml:"decisions,omitempty"`
 	ActiveProcesses   []ActiveProcess       `json:"active_processes,omitempty" yaml:"active_processes,omitempty"`
+	OwnedServices     []string              `json:"owned_services,omitempty" yaml:"owned_services,omitempty"`
 	TeardownPerformed bool                  `json:"teardown_performed,omitempty" yaml:"teardown_performed,omitempty"`
 	VerifiedStartup   bool                  `json:"verified_startup" yaml:"verified_startup"`
 	Success           bool                  `json:"success" yaml:"success"`
@@ -129,6 +143,7 @@ type VerifiedStartupResult struct {
 	Verification    []VerificationResult  `json:"verification,omitempty" yaml:"verification,omitempty"`
 	Decisions       []DecisionTraceEntry  `json:"decisions,omitempty" yaml:"decisions,omitempty"`
 	ActiveProcesses []ActiveProcess       `json:"active_processes,omitempty" yaml:"active_processes,omitempty"`
+	OwnedServices   []string              `json:"owned_services,omitempty" yaml:"owned_services,omitempty"`
 }
 
 // StartupResult returns an immutable snapshot of the verified startup state.
@@ -141,6 +156,8 @@ func (r ExecutionReport) StartupResult() VerifiedStartupResult {
 	copy(decisions, r.Decisions)
 	procs := make([]ActiveProcess, len(r.ActiveProcesses))
 	copy(procs, r.ActiveProcesses)
+	owned := make([]string, len(r.OwnedServices))
+	copy(owned, r.OwnedServices)
 	return VerifiedStartupResult{
 		ProjectName:     r.ProjectName,
 		Confidence:      r.Confidence,
@@ -149,6 +166,65 @@ func (r ExecutionReport) StartupResult() VerifiedStartupResult {
 		Verification:    verification,
 		Decisions:       decisions,
 		ActiveProcesses: procs,
+		OwnedServices:   owned,
+	}
+}
+
+func parseComposeUpCommand(command string) (file string, service string, ok bool) {
+	parts := strings.Fields(command)
+	if len(parts) >= 6 &&
+		(parts[0] == "docker" || parts[0] == "podman") &&
+		parts[1] == "compose" &&
+		parts[2] == "-f" {
+		filePath := parts[3]
+		for i := 4; i < len(parts)-1; i++ {
+			if parts[i] == "up" && parts[i+1] == "-d" && i+2 < len(parts) {
+				return filePath, parts[i+2], true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func isComposeServiceAlreadyRunning(composeFile, serviceName, workDir string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", composeFile, "ps", "--status", "running", "-q", serviceName)
+	if workDir != "" {
+		cmd.Dir = workDir
+	}
+	out, err := cmd.Output()
+	if err == nil && len(strings.TrimSpace(string(out))) > 0 {
+		return true
+	}
+	return false
+}
+
+func verifyProcessLiveness(ctx context.Context, process RunningProcess, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		case <-ticker.C:
+			if la, ok := process.(interface{ IsAlive() bool }); ok {
+				if !la.IsAlive() {
+					err := process.Wait()
+					if err != nil {
+						return fmt.Errorf("process exited prematurely: %w", err)
+					}
+					return fmt.Errorf("process exited prematurely with code 0")
+				}
+			}
+		}
 	}
 }
 
@@ -171,6 +247,9 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 	if opts.Silent {
 		ctx = withSilentExecution(ctx, true)
 	}
+	if opts.Detach {
+		ctx = withDetachedExecution(ctx, true)
+	}
 	report = ExecutionReport{
 		ProjectName: model.Name,
 		Confidence:  model.Confidence,
@@ -179,10 +258,16 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 		Steps:       make([]ExecutionStepResult, 0, len(plan.Steps)),
 	}
 	var running []RunningProcess
+	ownedServicesMap := make(map[string]struct{})
 	defer func() {
 		if !report.Success || ctx.Err() != nil {
-			if len(running) > 0 || len(model.Services) > 0 {
-				_ = TeardownExecution(model, plan, running, opts)
+			if len(running) > 0 || len(ownedServicesMap) > 0 {
+				teardownOpts := opts
+				teardownOpts.OwnedServices = make([]string, 0, len(ownedServicesMap))
+				for svc := range ownedServicesMap {
+					teardownOpts.OwnedServices = append(teardownOpts.OwnedServices, svc)
+				}
+				_ = TeardownExecution(model, plan, running, teardownOpts)
 				report.TeardownPerformed = true
 			}
 		}
@@ -235,6 +320,12 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 				report.FailureReason = err.Error()
 				report.Steps = append(report.Steps, ExecutionStepResult{ID: id, Status: StepFailed, CandidateID: candidate.ID, Reason: err.Error()})
 				return report
+			}
+
+			composeFile, composeSvc, isComposeStart := parseComposeUpCommand(attempt.Command)
+			wasAlreadyRunning := false
+			if isComposeStart {
+				wasAlreadyRunning = isComposeServiceAlreadyRunning(composeFile, composeSvc, attempt.WorkDir)
 			}
 
 			result := ExecutionStepResult{ID: id, Status: StepRunning, Adapter: adapter.Name(), CandidateID: candidate.ID}
@@ -296,6 +387,27 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 						report.FailureReason = err.Error()
 						continue
 					}
+				} else {
+					if err := verifyProcessLiveness(ctx, process, 200*time.Millisecond); err != nil {
+						_ = process.Stop()
+						_ = process.Wait()
+						result.Status = StepFailed
+						result.Reason = err.Error()
+						for i := len(report.Decisions) - 1; i >= 0; i-- {
+							if report.Decisions[i].Name == "execution."+id && report.Decisions[i].OptionID == candidate.ID {
+								report.Decisions[i].Outcome = "failed"
+								break
+							}
+						}
+						report.Steps = append(report.Steps, result)
+						classification := ClassifyExecutionFailure("Startup verification failed: "+err.Error(), err)
+						report.Failures = append(report.Failures, ExecutionFailure{
+							StepID: id, CandidateID: candidate.ID, Classification: classification, Reason: err.Error(),
+							Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: fmt.Sprintf("[%s] Startup verification failed: %s", classification, err.Error()), Strength: 1},
+						})
+						report.FailureReason = err.Error()
+						continue
+					}
 				}
 				running = append(running, process)
 				pid := 0
@@ -329,6 +441,10 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 				})
 				report.FailureReason = err.Error()
 				continue
+			}
+			if isComposeStart && !wasAlreadyRunning {
+				ownedServicesMap[composeSvc] = struct{}{}
+				report.OwnedServices = append(report.OwnedServices, composeSvc)
 			}
 			result.Status = StepSucceeded
 			for i := len(report.Decisions) - 1; i >= 0; i-- {
@@ -370,6 +486,7 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 		checkpointReport.Verification = append([]VerificationResult(nil), report.Verification...)
 		checkpointReport.Decisions = append([]DecisionTraceEntry(nil), report.Decisions...)
 		checkpointReport.ActiveProcesses = append([]ActiveProcess(nil), report.ActiveProcesses...)
+		checkpointReport.OwnedServices = append([]string(nil), report.OwnedServices...)
 
 		if err := opts.OnVerifiedStartup(checkpointReport); err != nil {
 			report.FailureReason = fmt.Sprintf("verified-startup hook failed: %v", err)
@@ -469,9 +586,25 @@ func executionCandidatesForStep(step ExecutionStep) []ExecutionCandidate {
 	return ordered
 }
 
-func stopComposeServices(services []Service, root string) int {
+func stopComposeServices(services []Service, root string, ownedServices []string) int {
+	if len(services) == 0 {
+		return 0
+	}
+	var ownedFilter map[string]struct{}
+	if ownedServices != nil {
+		ownedFilter = make(map[string]struct{}, len(ownedServices))
+		for _, name := range ownedServices {
+			ownedFilter[name] = struct{}{}
+		}
+	}
+
 	stopped := 0
 	for _, svc := range services {
+		if ownedFilter != nil {
+			if _, ok := ownedFilter[svc.Name]; !ok {
+				continue
+			}
+		}
 		for _, ev := range svc.Evidence {
 			if ev.Kind == EvidenceConfig && (strings.HasSuffix(ev.Path, "compose.yml") || strings.HasSuffix(ev.Path, "compose.yaml") || strings.HasSuffix(ev.Path, "docker-compose.yml") || strings.HasSuffix(ev.Path, "docker-compose.yaml")) {
 				cmd := exec.Command("docker", "compose", "-f", ev.Path, "stop", svc.Name)
@@ -507,9 +640,9 @@ func TeardownExecution(model ProjectModel, plan ExecutionPlan, running []Running
 		}
 	}
 
-	// 2. Stop backing Docker Compose services
+	// 2. Stop backing Docker Compose services owned by this execution
 	if !opts.Detach && len(model.Services) > 0 {
-		summary.ServicesStopped = stopComposeServices(model.Services, model.Root)
+		summary.ServicesStopped = stopComposeServices(model.Services, model.Root, opts.OwnedServices)
 	}
 
 	// 3. Clean up non-detached process state file

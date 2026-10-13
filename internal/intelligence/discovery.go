@@ -19,21 +19,711 @@ type workspacePackage struct {
 }
 
 func discoverWorkspaceComponents(root string, rootInfo DetectedProject) ([]Component, []Evidence, bool, error) {
-	if !rootInfo.IsMonorepo {
-		return nil, nil, false, nil
+	comps, ev, _, found, err := discoverAllComponents(root, rootInfo, nil)
+	return comps, ev, found, err
+}
+
+func discoverAllComponents(root string, rootInfo DetectedProject, services []Service) ([]Component, []Evidence, []string, bool, error) {
+	var allComponents []Component
+	var allEvidence []Evidence
+	var allDiagnostics []string
+	declaredPaths := make(map[string]struct{})
+
+	// 1. Preserve declared Node, go.work and Cargo workspace behavior
+	if hasNodeWorkspace(root) {
+		comps, ev, found, err := discoverNodeWorkspaceComponents(root, rootInfo)
+		if err == nil && found {
+			allComponents = append(allComponents, comps...)
+			allEvidence = append(allEvidence, ev...)
+			for _, c := range comps {
+				declaredPaths[filepath.Clean(c.Path)] = struct{}{}
+			}
+		}
+	}
+	if hasGoWork(root) {
+		comps, ev, found, err := discoverGoWorkspaceComponents(root, rootInfo)
+		if err == nil && found {
+			allComponents = append(allComponents, comps...)
+			allEvidence = append(allEvidence, ev...)
+			for _, c := range comps {
+				declaredPaths[filepath.Clean(c.Path)] = struct{}{}
+			}
+		}
+	}
+	if hasCargoWorkspace(root) {
+		comps, ev, found, err := discoverCargoWorkspaceComponents(root, rootInfo)
+		if err == nil && found {
+			allComponents = append(allComponents, comps...)
+			allEvidence = append(allEvidence, ev...)
+			for _, c := range comps {
+				declaredPaths[filepath.Clean(c.Path)] = struct{}{}
+			}
+		}
 	}
 
-	if rootInfo.Language == "Node" {
-		return discoverNodeWorkspaceComponents(root, rootInfo)
+	// 2. Deterministic fallback directory scan for recognized project manifests and executable entry points
+	scannedComps, scannedEv, scanDiag, err := scanFallbackComponents(root, declaredPaths)
+	if err != nil {
+		return nil, nil, nil, false, err
 	}
-	if rootInfo.Language == "Go" || hasGoWork(root) {
-		return discoverGoWorkspaceComponents(root, rootInfo)
-	}
-	if rootInfo.Language == "Rust" || hasCargoWorkspace(root) {
-		return discoverCargoWorkspaceComponents(root, rootInfo)
+	allDiagnostics = append(allDiagnostics, scanDiag...)
+	allComponents = append(allComponents, scannedComps...)
+	allEvidence = append(allEvidence, scannedEv...)
+
+	// Deduplicate overlapping declared/scanned paths
+	deduped := make([]Component, 0, len(allComponents))
+	seenPaths := make(map[string]struct{})
+	for _, c := range allComponents {
+		clean := filepath.Clean(c.Path)
+		if _, seen := seenPaths[clean]; seen {
+			continue
+		}
+		seenPaths[clean] = struct{}{}
+		deduped = append(deduped, c)
 	}
 
-	return nil, nil, false, nil
+	// 3. Handle root component: keep a real runnable root app, but do not offer root workspace orchestration scripts
+	if len(deduped) == 0 {
+		rootComp := Component{
+			Name:           rootInfo.Name,
+			Path:           ".",
+			Language:       rootInfo.Language,
+			Framework:      detectFramework(root, rootInfo.Language),
+			PackageManager: rootInfo.PackageManager,
+			RunCommand:     rootInfo.RunCommand,
+			Port:           rootInfo.Port,
+		}
+		return []Component{rootComp}, allEvidence, allDiagnostics, false, nil
+	}
+
+	if isRealRunnableRootApp(root, rootInfo, deduped) {
+		rootComp := Component{
+			Name:           rootInfo.Name,
+			Path:           ".",
+			Language:       rootInfo.Language,
+			Framework:      detectFramework(root, rootInfo.Language),
+			PackageManager: rootInfo.PackageManager,
+			RunCommand:     rootInfo.RunCommand,
+			Port:           rootInfo.Port,
+		}
+		deduped = append([]Component{rootComp}, deduped...)
+	}
+
+	// 4. Disambiguate duplicate names and ensure Component and Compose-service identities remain distinct
+	deduped = disambiguateComponentNames(deduped, services)
+
+	// 5. Deterministic sorting by repository-relative path
+	sort.Slice(deduped, func(i, j int) bool {
+		return deduped[i].Path < deduped[j].Path
+	})
+
+	isMonorepo := len(deduped) > 1 || (len(deduped) == 1 && deduped[0].Path != ".")
+	return deduped, allEvidence, allDiagnostics, isMonorepo, nil
+}
+
+func hasNodeWorkspace(root string) bool {
+	if data, err := os.ReadFile(filepath.Join(root, "package.json")); err == nil {
+		var pkg struct {
+			Workspaces interface{} `json:"workspaces"`
+		}
+		if json.Unmarshal(data, &pkg) == nil && pkg.Workspaces != nil {
+			return true
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "pnpm-workspace.yaml")); err == nil {
+		return true
+	}
+	return false
+}
+
+var (
+	maxScanDepth = 6
+	maxScanDirs  = 10000
+)
+
+func scanFallbackComponents(root string, declaredPaths map[string]struct{}) ([]Component, []Evidence, []string, error) {
+	var scanned []Component
+	var evidence []Evidence
+	var diagnostics []string
+	dirCount := 0
+	seenPaths := make(map[string]struct{})
+	rootHasManifest := hasRootProjectManifest(root)
+
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+
+		if rel == "." {
+			return nil
+		}
+
+		// Prune symlinks pointing outside the requested root
+		if entry.Type()&os.ModeSymlink != 0 {
+			target, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return nil
+			}
+			if !isPathWithinRoot(root, target) {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			// Do not follow directory symlinks inside root to avoid duplicate scans or symlink loops
+			if fileInfo, err := os.Stat(target); err == nil && fileInfo.IsDir() {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+
+		if entry.IsDir() {
+			name := entry.Name()
+			if isPrunedDir(name, path) {
+				return filepath.SkipDir
+			}
+
+			// Prune nested unrelated repositories
+			if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+				return filepath.SkipDir
+			}
+
+			// Detect and report nested Compose layouts as not yet supported
+			if hasComposeFile(path) {
+				relCompose := filepath.ToSlash(filepath.Join(rel, findComposeFile(path)))
+				diagnostics = append(diagnostics, fmt.Sprintf("nested Compose layout %q is not yet supported", relCompose))
+			}
+
+			// Resource bounds
+			depth := strings.Count(rel, "/") + 1
+			if depth > maxScanDepth {
+				diagnostics = append(diagnostics, fmt.Sprintf("directory scan depth bound (%d) reached at %q", maxScanDepth, rel))
+				return filepath.SkipDir
+			}
+			dirCount++
+			if dirCount > maxScanDirs {
+				diagnostics = append(diagnostics, fmt.Sprintf("directory scan limit (%d directories) reached", maxScanDirs))
+				return filepath.SkipAll
+			}
+
+			if _, ok := declaredPaths[rel]; ok {
+				return nil
+			}
+			if _, ok := seenPaths[rel]; ok {
+				return nil
+			}
+
+			comp, ev, recognized, err := recognizeComponent(root, rel, path, rootHasManifest)
+			if err != nil {
+				return nil
+			}
+			if recognized {
+				seenPaths[rel] = struct{}{}
+				scanned = append(scanned, comp)
+				if len(ev) > 0 {
+					evidence = append(evidence, ev...)
+				}
+			}
+		}
+
+		return nil
+	})
+
+	names := make(map[string]struct{}, len(scanned))
+	for _, c := range scanned {
+		names[c.Name] = struct{}{}
+	}
+	for i := range scanned {
+		var filtered []string
+		for _, dep := range scanned[i].DependsOn {
+			if _, ok := names[dep]; ok && dep != scanned[i].Name {
+				filtered = append(filtered, dep)
+			}
+		}
+		sort.Strings(filtered)
+		scanned[i].DependsOn = filtered
+	}
+
+	return scanned, evidence, diagnostics, err
+}
+
+func hasRootProjectManifest(root string) bool {
+	for _, f := range []string{
+		"package.json", "go.mod", "Cargo.toml", "pyproject.toml", "requirements.txt",
+		"pom.xml", "build.gradle", "build.gradle.kts", "composer.json", "mix.exs",
+		"Gemfile", "Package.swift", ".octo.yaml",
+	} {
+		if _, err := os.Stat(filepath.Join(root, f)); err == nil {
+			if f == "package.json" && isStubPackageJSON(root) {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func isSourceOrAuxiliaryDir(name string) bool {
+	switch strings.ToLower(name) {
+	case "src", "app", "cmd", "pkg", "internal", "lib", "docs", "examples", "scripts", "tools", "hack", "tests", "test", "e2e", "bin":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPathWithinRoot(root, target string) bool {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		absRoot = root
+	}
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		absTarget = target
+	}
+	rel, err := filepath.Rel(absRoot, absTarget)
+	if err != nil {
+		return false
+	}
+	return !strings.HasPrefix(rel, "..") && rel != ".."
+}
+
+func hasComposeFile(dir string) bool {
+	return findComposeFile(dir) != ""
+}
+
+func isPrunedDir(name, fullPath string) bool {
+	switch strings.ToLower(name) {
+	case ".git", "node_modules", "vendor", "fixtures", "testdata":
+		return true
+	case ".venv", "venv", "env", ".env", "virtualenv":
+		return true
+	case ".cache", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+		".turbo", ".next", ".nuxt", ".svelte-kit", ".parcel-cache",
+		"dist", "build", "out", "target", ".gradle", "bin", "obj",
+		".idea", ".vscode", ".ds_store":
+		return true
+	}
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(fullPath, "pyvenv.cfg")); err == nil {
+		return true
+	}
+	return false
+}
+
+func recognizeComponent(root, rel, dir string, rootHasManifest bool) (Component, []Evidence, bool, error) {
+	// 1. Node: package.json (non-stub)
+	if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil {
+		if !isStubPackageJSON(dir) {
+			name, deps, _ := nodePackageMetadata(dir)
+			if name == "" {
+				name = filepath.Base(dir)
+			}
+			pm := detectNodePackageManager(dir)
+			framework := detectFramework(dir, "Node")
+			ev := []Evidence{{
+				Kind:     EvidenceSignalFile,
+				Path:     filepath.ToSlash(filepath.Join(rel, "package.json")),
+				Detail:   "Component contains a package.json manifest.",
+				Strength: 0.90,
+			}}
+			if f := lockfile(dir, pm); f != "" {
+				ev = append(ev, Evidence{
+					Kind:     EvidenceLockfile,
+					Path:     filepath.ToSlash(filepath.Join(rel, f)),
+					Detail:   "Component lockfile supports its package manager.",
+					Strength: 0.95,
+				})
+			}
+			return Component{
+				Name:           name,
+				Path:           rel,
+				Language:       "Node",
+				Framework:      framework,
+				PackageManager: pm,
+				DependsOn:      deps,
+				Evidence:       ev,
+			}, ev, true, nil
+		}
+	}
+
+	// 2. Go: go.mod
+	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+		name, deps, _ := goPackageMetadata(dir)
+		if name == "" {
+			name = filepath.Base(dir)
+		}
+		ev := []Evidence{{
+			Kind:     EvidenceSignalFile,
+			Path:     filepath.ToSlash(filepath.Join(rel, "go.mod")),
+			Detail:   "Component contains a go.mod manifest.",
+			Strength: 0.90,
+		}}
+		return Component{
+			Name:           name,
+			Path:           rel,
+			Language:       "Go",
+			PackageManager: "go",
+			DependsOn:      deps,
+			Evidence:       ev,
+		}, ev, true, nil
+	}
+
+	// 3. Rust: Cargo.toml
+	if _, err := os.Stat(filepath.Join(dir, "Cargo.toml")); err == nil {
+		name, deps, runCmd, _ := cargoPackageMetadata(dir)
+		if name == "" {
+			name = filepath.Base(dir)
+		}
+		ev := []Evidence{{
+			Kind:     EvidenceSignalFile,
+			Path:     filepath.ToSlash(filepath.Join(rel, "Cargo.toml")),
+			Detail:   "Component contains a Cargo.toml manifest.",
+			Strength: 0.90,
+		}}
+		return Component{
+			Name:           name,
+			Path:           rel,
+			Language:       "Rust",
+			PackageManager: "cargo",
+			RunCommand:     runCmd,
+			DependsOn:      deps,
+			Evidence:       ev,
+		}, ev, true, nil
+	}
+
+	// 4. Python: pyproject.toml, requirements.txt, Pipfile
+	for _, f := range []string{"pyproject.toml", "requirements.txt", "Pipfile"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+			info, _ := detectPythonProject(dir)
+			name := info.Name
+			if name == "" {
+				name = filepath.Base(dir)
+			}
+			framework := detectFramework(dir, "Python")
+			ev := []Evidence{{
+				Kind:     EvidenceSignalFile,
+				Path:     filepath.ToSlash(filepath.Join(rel, f)),
+				Detail:   fmt.Sprintf("Component contains a Python %s manifest.", f),
+				Strength: 0.90,
+			}}
+			return Component{
+				Name:           name,
+				Path:           rel,
+				Language:       "Python",
+				Framework:      framework,
+				PackageManager: info.PackageManager,
+				Evidence:       ev,
+			}, ev, true, nil
+		}
+	}
+
+	// 5. Java / Kotlin: pom.xml, build.gradle, build.gradle.kts
+	for _, f := range []string{"pom.xml", "build.gradle", "build.gradle.kts"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+			lang := "Java"
+			pm := "maven"
+			if strings.HasSuffix(f, ".gradle.kts") {
+				lang = "Kotlin"
+				pm = "gradle"
+			} else if strings.HasSuffix(f, ".gradle") {
+				pm = "gradle"
+			}
+			ev := []Evidence{{
+				Kind:     EvidenceSignalFile,
+				Path:     filepath.ToSlash(filepath.Join(rel, f)),
+				Detail:   fmt.Sprintf("Component contains %s.", f),
+				Strength: 0.90,
+			}}
+			return Component{
+				Name:           filepath.Base(dir),
+				Path:           rel,
+				Language:       lang,
+				PackageManager: pm,
+				Evidence:       ev,
+			}, ev, true, nil
+		}
+	}
+
+	// 6. PHP: composer.json
+	if _, err := os.Stat(filepath.Join(dir, "composer.json")); err == nil {
+		info, _ := detectPHPProject(dir)
+		ev := []Evidence{{
+			Kind:     EvidenceSignalFile,
+			Path:     filepath.ToSlash(filepath.Join(rel, "composer.json")),
+			Detail:   "Component contains a composer.json manifest.",
+			Strength: 0.90,
+		}}
+		return Component{
+			Name:           firstNonEmpty(info.Name, filepath.Base(dir)),
+			Path:           rel,
+			Language:       "PHP",
+			PackageManager: "composer",
+			RunCommand:     info.RunCommand,
+			Port:           info.Port,
+			Evidence:       ev,
+		}, ev, true, nil
+	}
+
+	// 7. Elixir: mix.exs
+	if _, err := os.Stat(filepath.Join(dir, "mix.exs")); err == nil {
+		info, _ := detectElixirProject(dir)
+		ev := []Evidence{{
+			Kind:     EvidenceSignalFile,
+			Path:     filepath.ToSlash(filepath.Join(rel, "mix.exs")),
+			Detail:   "Component contains a mix.exs manifest.",
+			Strength: 0.90,
+		}}
+		return Component{
+			Name:           firstNonEmpty(info.Name, filepath.Base(dir)),
+			Path:           rel,
+			Language:       "Elixir",
+			PackageManager: "mix",
+			RunCommand:     info.RunCommand,
+			Port:           info.Port,
+			Evidence:       ev,
+		}, ev, true, nil
+	}
+
+	// 8. Swift: Package.swift
+	if _, err := os.Stat(filepath.Join(dir, "Package.swift")); err == nil {
+		ev := []Evidence{{
+			Kind:     EvidenceSignalFile,
+			Path:     filepath.ToSlash(filepath.Join(rel, "Package.swift")),
+			Detail:   "Component contains a Package.swift manifest.",
+			Strength: 0.90,
+		}}
+		return Component{
+			Name:           filepath.Base(dir),
+			Path:           rel,
+			Language:       "Swift",
+			PackageManager: "swift",
+			Evidence:       ev,
+		}, ev, true, nil
+	}
+
+	// 9. Ruby: Gemfile
+	if _, err := os.Stat(filepath.Join(dir, "Gemfile")); err == nil {
+		ev := []Evidence{{
+			Kind:     EvidenceSignalFile,
+			Path:     filepath.ToSlash(filepath.Join(rel, "Gemfile")),
+			Detail:   "Component contains a Gemfile manifest.",
+			Strength: 0.90,
+		}}
+		return Component{
+			Name:           filepath.Base(dir),
+			Path:           rel,
+			Language:       "Ruby",
+			PackageManager: "bundle",
+			Evidence:       ev,
+		}, ev, true, nil
+	}
+
+	// 10. .NET / C#: *.csproj
+	entries, err := os.ReadDir(dir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".csproj") {
+				name := strings.TrimSuffix(entry.Name(), ".csproj")
+				ev := []Evidence{{
+					Kind:     EvidenceSignalFile,
+					Path:     filepath.ToSlash(filepath.Join(rel, entry.Name())),
+					Detail:   fmt.Sprintf("Component contains C# project file %s.", entry.Name()),
+					Strength: 0.90,
+				}}
+				return Component{
+					Name:           name,
+					Path:           rel,
+					Language:       "C#",
+					PackageManager: "dotnet",
+					Evidence:       ev,
+				}, ev, true, nil
+			}
+		}
+	}
+
+	// 11. Standalone entry points without manifest (supported when root has no manifest)
+	if !rootHasManifest && !isSourceOrAuxiliaryDir(filepath.Base(dir)) && strings.Count(rel, "/") <= 1 {
+		if _, err := os.Stat(filepath.Join(dir, "main.go")); err == nil {
+			ev := []Evidence{{
+				Kind:     EvidenceConfig,
+				Path:     filepath.ToSlash(filepath.Join(rel, "main.go")),
+				Detail:   "Component contains a Go main package entry file.",
+				Strength: 0.85,
+			}}
+			return Component{
+				Name:           filepath.Base(dir),
+				Path:           rel,
+				Language:       "Go",
+				PackageManager: "go",
+				RunCommand:     "go run main.go",
+				Evidence:       ev,
+			}, ev, true, nil
+		}
+
+		for _, f := range []string{"main.py", "app.py", "manage.py"} {
+			if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+				ev := []Evidence{{
+					Kind:     EvidenceConfig,
+					Path:     filepath.ToSlash(filepath.Join(rel, f)),
+					Detail:   fmt.Sprintf("Component contains Python entry file %s.", f),
+					Strength: 0.85,
+				}}
+				return Component{
+					Name:           filepath.Base(dir),
+					Path:           rel,
+					Language:       "Python",
+					PackageManager: "python",
+					RunCommand:     "python " + f,
+					Evidence:       ev,
+				}, ev, true, nil
+			}
+		}
+	}
+
+	return Component{}, nil, false, nil
+}
+
+func isRealRunnableRootApp(root string, rootInfo DetectedProject, childComponents []Component) bool {
+	if len(childComponents) == 0 {
+		return true
+	}
+	for _, f := range []string{"pnpm-workspace.yaml", "nx.json", "turbo.json", "lerna.json", "rush.json", "go.work"} {
+		if _, err := os.Stat(filepath.Join(root, f)); err == nil {
+			return hasIndependentRootEntryPoint(root)
+		}
+	}
+	if cargoData, err := os.ReadFile(filepath.Join(root, "Cargo.toml")); err == nil {
+		if strings.Contains(string(cargoData), "[workspace]") {
+			return hasIndependentRootEntryPoint(root)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "package.json")); err == nil {
+		var pkg struct {
+			Workspaces interface{}       `json:"workspaces"`
+			Scripts    map[string]string `json:"scripts"`
+		}
+		if json.Unmarshal(data, &pkg) == nil {
+			if pkg.Workspaces != nil {
+				return hasIndependentRootEntryPoint(root)
+			}
+			if len(pkg.Scripts) > 0 {
+				hasIndependentScript := false
+				for sName, sCmd := range pkg.Scripts {
+					if sName != "start" && sName != "dev" && sName != "serve" {
+						continue
+					}
+					if isOrchestrationCommand(sCmd) {
+						continue
+					}
+					hasIndependentScript = true
+				}
+				if !hasIndependentScript {
+					return hasIndependentRootEntryPoint(root)
+				}
+			}
+		}
+	}
+
+	return hasIndependentRootEntryPoint(root)
+}
+
+func isOrchestrationCommand(cmd string) bool {
+	lower := strings.ToLower(cmd)
+	for _, p := range []string{
+		"turbo", "nx ", "lerna", "concurrently",
+		"pnpm -r", "pnpm --recursive",
+		"npm run", "npm -w", "npm --workspace",
+		"yarn workspaces", "wsrun",
+	} {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasIndependentRootEntryPoint(root string) bool {
+	if _, err := os.Stat(filepath.Join(root, "main.go")); err == nil {
+		return true
+	}
+	for _, f := range []string{"main.py", "app.py", "manage.py", "wsgi.py"} {
+		if _, err := os.Stat(filepath.Join(root, f)); err == nil {
+			return true
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "src", "main.rs")); err == nil {
+		return true
+	}
+	for _, f := range []string{"server.js", "server.ts", "src/server.js", "src/server.ts", "src/index.js", "src/index.ts", "index.js", "index.ts", "app.js", "app.ts"} {
+		if _, err := os.Stat(filepath.Join(root, f)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func disambiguateComponentNames(components []Component, services []Service) []Component {
+	serviceNames := make(map[string]bool, len(services))
+	for _, s := range services {
+		serviceNames[s.Name] = true
+	}
+
+	nameCounts := make(map[string]int)
+	for _, c := range components {
+		nameCounts[c.Name]++
+	}
+
+	for i := range components {
+		if nameCounts[components[i].Name] > 1 {
+			if components[i].Path != "." {
+				components[i].Name = filepath.ToSlash(components[i].Path)
+			} else {
+				components[i].Name = components[i].Name + "-root"
+			}
+		}
+	}
+
+	// Recheck nameCounts in case filepath.ToSlash(components[i].Path) had collisions
+	nameCounts = make(map[string]int)
+	for _, c := range components {
+		nameCounts[c.Name]++
+	}
+	for i := range components {
+		if nameCounts[components[i].Name] > 1 {
+			if components[i].Path != "." {
+				components[i].Name = filepath.ToSlash(components[i].Path) + "-app"
+			}
+		}
+	}
+
+	// Ensure Component and Compose-service identities remain distinct
+	for i := range components {
+		if serviceNames[components[i].Name] {
+			if components[i].Path != "." {
+				relPath := filepath.ToSlash(components[i].Path)
+				if !serviceNames[relPath] {
+					components[i].Name = relPath
+				} else {
+					components[i].Name = relPath + "-app"
+				}
+			} else {
+				components[i].Name = components[i].Name + "-app"
+			}
+		}
+	}
+
+	return components
 }
 
 func discoverNodeWorkspaceComponents(root string, rootInfo DetectedProject) ([]Component, []Evidence, bool, error) {
@@ -660,7 +1350,7 @@ func nodePackageMetadata(path string) (string, []string, error) {
 		values, _ := pkg[field].(map[string]interface{})
 		for dep, rawVersion := range values {
 			version, _ := rawVersion.(string)
-			if strings.HasPrefix(version, "workspace:") {
+			if strings.HasPrefix(version, "workspace:") || version == "*" {
 				deps = append(deps, dep)
 			}
 		}

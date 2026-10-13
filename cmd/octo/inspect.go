@@ -43,6 +43,32 @@ var inspectCmd = &cobra.Command{
 		fmt.Printf("Monorepo: %t\n", model.Monorepo)
 		fmt.Printf("Confidence: %.0f%%\n", model.Confidence*100)
 		fmt.Printf("Evidence: %d signals\n", len(model.Evidence))
+		if len(model.Components) > 0 {
+			fmt.Printf("Components: %d\n", len(model.Components))
+			for _, c := range model.Components {
+				role := "runnable"
+				if c.Role == "library" || c.RunCommand == "" {
+					reason := "build/install dependency (no executable entry point)"
+					if c.NonRunnableReason != "" {
+						reason = c.NonRunnableReason
+					}
+					role = fmt.Sprintf("library: %s", reason)
+				}
+				fmt.Printf("  - %s (%s, %s): %s\n", c.Name, c.Path, unknown(c.Language), role)
+			}
+		}
+		if len(model.Services) > 0 {
+			fmt.Printf("Services: %d\n", len(model.Services))
+			for _, s := range model.Services {
+				fmt.Printf("  - %s (image: %s)\n", s.Name, unknown(s.Image))
+			}
+		}
+		if len(model.Diagnostics) > 0 {
+			fmt.Printf("Diagnostics: %d\n", len(model.Diagnostics))
+			for _, d := range model.Diagnostics {
+				fmt.Printf("  - %s\n", d)
+			}
+		}
 		return nil
 	},
 }

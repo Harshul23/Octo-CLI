@@ -207,14 +207,26 @@ func (dr *DashboardRunner) GetCombinedWriter(index int) io.Writer {
 	return dr.multiplexer.GetCombinedWriter(index, nil)
 }
 
+// NewPrefixWriter creates an io.Writer that prefixes every newline-terminated line with the given prefix.
+func NewPrefixWriter(writer io.Writer, prefix string) io.Writer {
+	return &prefixWriter{
+		writer: writer,
+		prefix: prefix,
+	}
+}
+
 // prefixWriter adds a prefix to each line written
 type prefixWriter struct {
+	mu     sync.Mutex
 	writer io.Writer
 	prefix string
 	buffer []byte
 }
 
 func (pw *prefixWriter) Write(p []byte) (n int, err error) {
+	pw.mu.Lock()
+	defer pw.mu.Unlock()
+
 	pw.buffer = append(pw.buffer, p...)
 
 	for {

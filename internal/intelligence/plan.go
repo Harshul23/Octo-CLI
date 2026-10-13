@@ -2,7 +2,9 @@ package intelligence
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -80,6 +82,44 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 	components := append([]Component(nil), model.Components...)
 	sort.SliceStable(components, func(i, j int) bool { return components[i].Name < components[j].Name })
 
+	isNodeWorkspace := hasNodeWorkspace(model.Root)
+	var rootNodeInstallID string
+	if isNodeWorkspace {
+		hasNodeComponent := false
+		for _, c := range components {
+			if c.Language == "Node" || c.PackageManager == "npm" || c.PackageManager == "pnpm" || c.PackageManager == "yarn" || c.PackageManager == "bun" {
+				hasNodeComponent = true
+				break
+			}
+		}
+		if hasNodeComponent {
+			rootPM := detectRootNodePackageManager(model.Root)
+			rootProvisionID := "workspace.root.provision"
+			steps = append(steps, ExecutionStep{
+				ID:          rootProvisionID,
+				NodeID:      "workspace:root",
+				Phase:       PhaseProvision,
+				Command:     "command -v " + rootPM,
+				WorkDir:     model.Root,
+				Explanation: "Verify workspace package manager is available at repository root.",
+			})
+
+			rootNodeInstallID = "workspace.root.install"
+			steps = append(steps, ExecutionStep{
+				ID:          rootNodeInstallID,
+				NodeID:      "workspace:root",
+				Phase:       PhaseInstall,
+				Command:     installCommand(rootPM),
+				WorkDir:     model.Root,
+				DependsOn:   []string{rootProvisionID},
+				Explanation: "Install shared workspace dependencies once at repository root.",
+			})
+		}
+	}
+
+	sharedSetupExecuted := false
+	var sharedSetupID string
+
 	for _, component := range components {
 		if strings.TrimSpace(component.Name) == "" {
 			return ExecutionPlan{}, newFailure(FailureInvalidComponent, "", "Octo found a component without a name.", "The component metadata is incomplete.")
@@ -96,34 +136,60 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 		})
 
 		setupDepends := []string{prepareID}
-		if requirement := provisioningRequirementFor(component, provisioning); requirement != nil {
-			provisionID := prefix + ".provision"
-			steps = append(steps, ExecutionStep{
-				ID: provisionID, Component: component.Name, NodeID: nodeID, Phase: PhaseProvision,
-				Command: "command -v " + requirement.Name, WorkDir: compWorkDir,
-				DependsOn: []string{prepareID},
-				Explanation: "Verify the required package manager is available before installation.",
-			})
-			setupDepends = []string{provisionID}
-		}
-		if install := installCommand(component.PackageManager); install != "" {
-			installID := prefix + ".install"
-			steps = append(steps, ExecutionStep{
-				ID: installID, Component: component.Name, NodeID: nodeID, Phase: PhaseInstall,
-				Command: install, WorkDir: compWorkDir, DependsOn: setupDepends,
-				Explanation: "Install dependencies using the detected package manager.",
-			})
-			setupDepends = []string{installID}
+		isWorkspaceNodeComp := isNodeWorkspace && (component.Language == "Node" || component.PackageManager == "npm" || component.PackageManager == "pnpm" || component.PackageManager == "yarn" || component.PackageManager == "bun")
+
+		if isWorkspaceNodeComp && rootNodeInstallID != "" {
+			setupDepends = append(setupDepends, rootNodeInstallID)
+		} else {
+			// Independent unmarked app installs local
+			if requirement := provisioningRequirementFor(component, provisioning); requirement != nil {
+				provisionID := prefix + ".provision"
+				steps = append(steps, ExecutionStep{
+					ID: provisionID, Component: component.Name, NodeID: nodeID, Phase: PhaseProvision,
+					Command: "command -v " + requirement.Name, WorkDir: compWorkDir,
+					DependsOn: []string{prepareID},
+					Explanation: "Verify the required package manager is available before installation.",
+				})
+				setupDepends = []string{provisionID}
+			}
+			if install := installCommand(component.PackageManager); install != "" {
+				installID := prefix + ".install"
+				steps = append(steps, ExecutionStep{
+					ID: installID, Component: component.Name, NodeID: nodeID, Phase: PhaseInstall,
+					Command: install, WorkDir: compWorkDir, DependsOn: setupDepends,
+					Explanation: "Install dependencies using the detected package manager.",
+				})
+				setupDepends = []string{installID}
+			}
 		}
 
-		if strings.TrimSpace(model.SetupCommand) != "" && component.Name == model.Name {
-			setupID := prefix + ".setup"
-			steps = append(steps, ExecutionStep{
-				ID: setupID, Component: component.Name, NodeID: nodeID, Phase: PhaseSetup,
-				Command: model.SetupCommand, WorkDir: compWorkDir, DependsOn: setupDepends,
-				Explanation: "Run the repository setup command discovered by the analyzer.",
-			})
-			setupDepends = []string{setupID}
+		if strings.TrimSpace(model.SetupCommand) != "" {
+			if !sharedSetupExecuted {
+				sharedSetupID = prefix + ".setup"
+				steps = append(steps, ExecutionStep{
+					ID: sharedSetupID, Component: component.Name, NodeID: nodeID, Phase: PhaseSetup,
+					Command: model.SetupCommand, WorkDir: compWorkDir, DependsOn: setupDepends,
+					Explanation: "Run the repository setup command discovered by the analyzer.",
+				})
+				setupDepends = []string{sharedSetupID}
+				sharedSetupExecuted = true
+			} else if sharedSetupID != "" {
+				setupDepends = append(setupDepends, sharedSetupID)
+			}
+		}
+
+		if component.Role == "library" {
+			// Classified workspace library:
+			// Evidence-backed setup/build step if present, but never an invented start command
+			if buildCmd := detectComponentBuildCommand(model.Root, component); buildCmd != "" {
+				buildID := prefix + ".build"
+				steps = append(steps, ExecutionStep{
+					ID: buildID, Component: component.Name, NodeID: nodeID, Phase: PhaseSetup,
+					Command: buildCmd, WorkDir: compWorkDir, DependsOn: setupDepends,
+					Explanation: "Build workspace library dependency.",
+				})
+			}
+			continue
 		}
 
 		startCandidates := append([]ExecutionCandidate(nil), component.ExecutionCandidates...)
@@ -178,7 +244,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 		deps := make([]string, 0)
 		for _, edge := range topology.Edges {
 			if edge.From == nodeID && edge.Kind == "depends_on" {
-				deps = append(deps, startStepID(edge.To))
+				deps = append(deps, readinessStepID(edge.To, model))
 			}
 		}
 
@@ -210,8 +276,12 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 	}
 	for i := range steps {
 		if steps[i].Phase == PhaseStart {
-			if port, ok := portByComponent[steps[i].Component]; ok {
+			port, hasPort := portByComponent[steps[i].Component]
+			comp := findComponentByName(model.Components, steps[i].Component)
+			if isLongRunningComponent(comp, steps[i].Command, hasPort) {
 				steps[i].LongRunning = true
+			}
+			if hasPort {
 				if steps[i].Environment == nil {
 					steps[i].Environment = make(map[string]string)
 				}
@@ -382,7 +452,137 @@ func readinessStepID(nodeID string, model ProjectModel) string {
 			return startStepID(nodeID)[:len(startStepID(nodeID))-len(".start")] + ".health"
 		}
 	}
+	for _, comp := range model.Components {
+		if topologyID(NodeComponent, comp.Name) == nodeID {
+			if comp.Role == "library" || (comp.RunCommand == "" && len(primaryExecutionCandidates(comp.ExecutionCandidates)) == 0) {
+				return lastPreparationStepID(comp, model)
+			}
+		}
+	}
 	return startStepID(nodeID)
+}
+
+func lastPreparationStepID(comp Component, model ProjectModel) string {
+	prefix := "component." + comp.Name
+	if buildCmd := detectComponentBuildCommand(model.Root, comp); buildCmd != "" {
+		return prefix + ".build"
+	}
+	if strings.TrimSpace(model.SetupCommand) != "" && comp.Name == model.Name {
+		return prefix + ".setup"
+	}
+	if hasNodeWorkspace(model.Root) && (comp.Language == "Node" || comp.PackageManager != "") {
+		return "workspace.root.install"
+	}
+	if installCommand(comp.PackageManager) != "" {
+		return prefix + ".install"
+	}
+	return prefix + ".prepare"
+}
+
+func isLongRunningComponent(component *Component, command string, hasPort bool) bool {
+	if hasPort {
+		return true
+	}
+	if component == nil {
+		return false
+	}
+	if component.Role == "service" || component.Role == "worker" {
+		return true
+	}
+
+	cmdLower := strings.ToLower(command)
+	nameLower := strings.ToLower(component.Name)
+	pathLower := strings.ToLower(component.Path)
+
+	// Framework dev servers or watch scripts
+	if component.Framework != "" {
+		for _, devToken := range []string{"dev", "start", "serve", "server", "watch"} {
+			if strings.Contains(cmdLower, devToken) {
+				return true
+			}
+		}
+	}
+
+	// Worker / daemon / queue / long-running server tokens
+	workerTokens := []string{
+		"worker", "daemon", "queue", "celery", "sidekiq", "consumer",
+		"listen", "scheduler",
+	}
+	for _, tok := range workerTokens {
+		if strings.Contains(cmdLower, tok) || strings.Contains(nameLower, tok) || strings.Contains(pathLower, tok) {
+			return true
+		}
+	}
+
+	// Evidence from candidate IDs
+	for _, candidate := range component.ExecutionCandidates {
+		if candidate.Command == command {
+			idLower := strings.ToLower(candidate.ID)
+			for _, tok := range []string{"worker", "daemon", "queue", "server", "serve"} {
+				if strings.Contains(idLower, tok) && !strings.HasPrefix(idLower, "node.script.") {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+func findComponentByName(components []Component, name string) *Component {
+	for i := range components {
+		if components[i].Name == name {
+			return &components[i]
+		}
+	}
+	return nil
+}
+
+func detectComponentBuildCommand(root string, component Component) string {
+	compDir := componentWorkDir(root, component.Path)
+	if data, err := os.ReadFile(filepath.Join(compDir, "package.json")); err == nil {
+		var pkg struct {
+			Scripts map[string]string `json:"scripts"`
+		}
+		if json.Unmarshal(data, &pkg) == nil {
+			if _, ok := pkg.Scripts["build"]; ok {
+				pm := component.PackageManager
+				if pm == "" {
+					pm = "npm"
+				}
+				if pm == "npm" {
+					return "npm run build"
+				}
+				return pm + " build"
+			}
+		}
+	}
+	if _, err := os.Stat(filepath.Join(compDir, "Cargo.toml")); err == nil {
+		return "cargo build"
+	}
+	return ""
+}
+
+func detectRootNodePackageManager(root string) string {
+	if _, err := os.Stat(filepath.Join(root, "pnpm-lock.yaml")); err == nil {
+		return "pnpm"
+	}
+	if _, err := os.Stat(filepath.Join(root, "pnpm-workspace.yaml")); err == nil {
+		return "pnpm"
+	}
+	if _, err := os.Stat(filepath.Join(root, "yarn.lock")); err == nil {
+		return "yarn"
+	}
+	if _, err := os.Stat(filepath.Join(root, "bun.lock")); err == nil {
+		return "bun"
+	}
+	if _, err := os.Stat(filepath.Join(root, "bun.lockb")); err == nil {
+		return "bun"
+	}
+	if _, err := os.Stat(filepath.Join(root, "package-lock.json")); err == nil {
+		return "npm"
+	}
+	return "npm"
 }
 
 

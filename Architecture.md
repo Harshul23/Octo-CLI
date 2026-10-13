@@ -2080,3 +2080,79 @@ And the simplest statement of the product vision is:
 > **Make “how do I run this?” disappear.**
 
 Everything added to Octo should be evaluated against those two statements.
+
+---
+
+# 47. Monorepo Execution Scope, Target Selection & Non-Interactive Rules
+
+## 47.1 Supported Scope & Boundaries
+
+Octo provides deterministic monorepo discovery, target selection, and execution coordination for multi-component repositories.
+
+### What is supported:
+- **Declared Workspaces**:
+  - Node.js: `package.json` workspaces (`workspaces: ["apps/*", "packages/*"]`) and `pnpm-workspace.yaml`.
+  - Go: Multi-module workspaces with `go.work`.
+  - Rust: Multi-crate workspaces via `[workspace]` members in `Cargo.toml`.
+- **Heuristic Fallback Directory Scan**:
+  - Deterministic bounded discovery for sibling components when no root workspace manifest exists.
+  - Resource bounded (depth <= 4, pruned directories: `.git`, `node_modules`, `vendor`, `.venv`, `target`, `dist`, `build`, etc., skipping nested unrelated git repos and external symlinks).
+- **Infrastructure Services via Compose**:
+  - Discovers root `docker-compose.yml`, `compose.yaml` services (e.g., PostgreSQL, Redis, MySQL).
+  - Matches static network references from component `.env` files (e.g. `DATABASE_URL=postgres://...`) or explicit declarations in `.octo.yaml`.
+  - Lifecycle: Starts backing services, awaits deterministic health checks (`pg_isready`, ping, port check), and cleanly stops owned containers on exit without ever deleting volumes automatically.
+- **Component Roles**:
+  - `application`: Executable targets with runnable entry points (scripts, dev servers, workers).
+  - `library`: Non-runnable packages that provide code or build artifacts. Libraries are planned as setup/build dependencies in `PhaseSetup`, but *never receive a start command*.
+
+### Explicit Scope Limitations:
+> [!NOTE]
+> Octo does **not** claim that all arbitrary monorepos or databases work out of the box. Highly customized build orchestrators (e.g., complex Bazel/Buck DAGs, Turborepo remote caching pipelines with custom task semantics, Yarn PnP without node_modules), multi-cluster distributed databases, or multi-file docker compose overlays require explicit configuration in `.octo.yaml` or project manifests.
+
+---
+
+## 47.2 Pure Selection Architecture & Transitive Closure
+
+Target selection is implemented as a pure intelligence-layer API (`ResolveSelection`, `ResolveSelectionTargets`) decoupled from UI, shared identically across CLI and MCP:
+
+```text
+ProjectModel (all components & services)
+                   │
+                   ▼
+       ResolveSelection(opts)
+     ├── --only component:<name> / service:<name>
+     ├── --all
+     └── Interactive Component Selector
+                   │
+                   ▼
+     DFS Transitive Closure Resolution
+     ├── Identifies explicitly requested launch targets
+     ├── Resolves dependencies (component -> component, component -> service)
+     ├── Records ForcedDependencies with actionable reasons
+     └── Filters out non-runnable libraries from launch phases
+                   │
+                   ▼
+       Filtered ProjectModel -> DeterministicPlanner -> ExecutionPlan
+```
+
+- **Repeatable `--only` Selectors**: Select one or more specific components or services (e.g. `--only component:web --only service:postgres`).
+- **`--all` Flag**: Starts all detected runnable applications and services.
+- **Mutual Exclusion**: Specifying both `--only` and `--all` produces an immediate error.
+- **Transitive Inclusion**: If component `A` declares a dependency on service `S` and library `L`, selecting `A` automatically includes `S` in the execution plan and schedules `L`'s build step in `PhaseSetup`.
+
+---
+
+## 47.3 Non-Interactive & AI Agent Rules
+
+In non-interactive environments (e.g., `--json` flag, CI runners with no TTY, or MCP tool calls from Claude Code / Cursor / Windsurf):
+1. **Never Prompt**: Octo will never block or hang waiting for user stdin.
+2. **Ambiguous Guard**: If a repository has multiple runnable targets and neither `--only` nor `--all` is supplied, Octo aborts immediately with a structured, actionable error listing all available targets and instructions on how to select them.
+3. **Structured Machine Output**: With `--json`, both the error and success outputs serialize the exact target identifiers (`component:web`, `service:postgres`) and available options.
+
+---
+
+## 47.4 Verified Startup & Strategy Lifecycle
+
+- **Verified Startup Checkpoint**: After all startup commands have launched and verified their readiness checks (HTTP probe, TCP port, or process liveness), Octo triggers an immutable checkpoint and synchronously records the strategy in `.octo.lock`.
+- **Clean Interruption**: Stopping foreground applications with `Ctrl+C` cleanly tears down owned child processes and stops created Compose services, preserving `.octo.lock` because startup verification had already completed.
+- **Safe Strategy Reuse**: Subsequent runs compare repository fingerprints (manifests, source files, root workspace files) against `.octo.lock`. Edits to component source code or root workspace files automatically invalidate the cached strategy and re-trigger deterministic candidate evaluation.

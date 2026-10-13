@@ -633,3 +633,175 @@ func TestServerUnknownMethod(t *testing.T) {
 		t.Fatalf("error code=%d, want %d", resp.Error.Code, CodeMethodNotFound)
 	}
 }
+
+func TestServerTargetSelection_PlanAndRun(t *testing.T) {
+	root := t.TempDir()
+	frontendDir := filepath.Join(root, "frontend")
+	serverDir := filepath.Join(root, "server")
+	if err := os.MkdirAll(frontendDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(serverDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(frontendDir, "package.json"), []byte(`{
+		"name": "frontend",
+		"scripts": {"dev": "vite"}
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(serverDir, "package.json"), []byte(`{
+		"name": "server",
+		"scripts": {"start": "node index.js"}
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer()
+
+	// 1. Verify schema includes only and all
+	tools := DefaultTools()
+	for _, toolName := range []string{"octo_plan", "octo_run_and_verify"} {
+		var found Tool
+		for _, t := range tools {
+			if t.Name == toolName {
+				found = t
+				break
+			}
+		}
+		if found.Name == "" {
+			t.Fatalf("tool %s not found in DefaultTools", toolName)
+		}
+		if _, ok := found.InputSchema.Properties["only"]; !ok {
+			t.Fatalf("expected 'only' property on %s", toolName)
+		}
+		if _, ok := found.InputSchema.Properties["all"]; !ok {
+			t.Fatalf("expected 'all' property on %s", toolName)
+		}
+	}
+
+	// 2. Call octo_plan without selectors on multi-target repo -> should return error listing targets
+	planNoSelectorsReq := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "octo_plan",
+			"arguments": map[string]interface{}{
+				"path": root,
+			},
+		},
+	}
+	data, _ := json.Marshal(planNoSelectorsReq)
+	in := strings.NewReader(string(data) + "\n")
+	var out bytes.Buffer
+	if err := s.Serve(context.Background(), in, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	var resp Response
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	resData, _ := json.Marshal(resp.Result)
+	var toolRes CallToolResult
+	_ = json.Unmarshal(resData, &toolRes)
+	if !toolRes.IsError {
+		t.Fatal("expected error when calling octo_plan without selectors on multi-target repo")
+	}
+	if !strings.Contains(toolRes.Content[0].Text, "multiple runnable targets detected") {
+		t.Fatalf("expected multiple runnable targets error message, got: %s", toolRes.Content[0].Text)
+	}
+	if !strings.Contains(toolRes.Content[0].Text, "component:frontend") || !strings.Contains(toolRes.Content[0].Text, "component:server") {
+		t.Fatalf("expected error to list targets, got: %s", toolRes.Content[0].Text)
+	}
+
+	// 3. Call octo_plan with both only and all -> mutual exclusion error
+	mutExReq := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "octo_plan",
+			"arguments": map[string]interface{}{
+				"path": root,
+				"only": []string{"component:frontend"},
+				"all":  true,
+			},
+		},
+	}
+	data, _ = json.Marshal(mutExReq)
+	in = strings.NewReader(string(data) + "\n")
+	out.Reset()
+	if err := s.Serve(context.Background(), in, &out); err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal(out.Bytes(), &resp)
+	resData, _ = json.Marshal(resp.Result)
+	var mutExRes CallToolResult
+	_ = json.Unmarshal(resData, &mutExRes)
+	if !mutExRes.IsError || !strings.Contains(mutExRes.Content[0].Text, "cannot combine") {
+		t.Fatalf("expected mutual exclusion error, got: %#v", mutExRes)
+	}
+
+	// 4. Call octo_plan with only=["component:frontend"] -> succeeds with frontend only
+	onlyReq := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      3,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "octo_plan",
+			"arguments": map[string]interface{}{
+				"path": root,
+				"only": []string{"component:frontend"},
+			},
+		},
+	}
+	data, _ = json.Marshal(onlyReq)
+	in = strings.NewReader(string(data) + "\n")
+	out.Reset()
+	if err := s.Serve(context.Background(), in, &out); err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal(out.Bytes(), &resp)
+	resData, _ = json.Marshal(resp.Result)
+	var onlyRes CallToolResult
+	_ = json.Unmarshal(resData, &onlyRes)
+	if onlyRes.IsError {
+		t.Fatalf("unexpected error on octo_plan with only: %s", onlyRes.Content[0].Text)
+	}
+	if !strings.Contains(onlyRes.Content[0].Text, "frontend") {
+		t.Fatalf("expected plan to contain frontend, got: %s", onlyRes.Content[0].Text)
+	}
+
+	// 5. Call octo_plan with all=true -> succeeds with both targets
+	allReq := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      4,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name": "octo_plan",
+			"arguments": map[string]interface{}{
+				"path": root,
+				"all":  true,
+			},
+		},
+	}
+	data, _ = json.Marshal(allReq)
+	in = strings.NewReader(string(data) + "\n")
+	out.Reset()
+	if err := s.Serve(context.Background(), in, &out); err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal(out.Bytes(), &resp)
+	resData, _ = json.Marshal(resp.Result)
+	var allRes CallToolResult
+	_ = json.Unmarshal(resData, &allRes)
+	if allRes.IsError {
+		t.Fatalf("unexpected error on octo_plan with all: %s", allRes.Content[0].Text)
+	}
+	if !strings.Contains(allRes.Content[0].Text, "frontend") || !strings.Contains(allRes.Content[0].Text, "server") {
+		t.Fatalf("expected plan to contain both components, got: %s", allRes.Content[0].Text)
+	}
+}

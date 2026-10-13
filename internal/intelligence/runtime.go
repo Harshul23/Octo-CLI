@@ -234,16 +234,30 @@ func (ShellAdapter) Start(ctx context.Context, step ExecutionStep, env ResolvedE
 	if logName == "" {
 		logName = "process"
 	}
+
+	var stdoutW, stderrW io.Writer
+	if isSilentExecution(ctx) || isDetachedExecution(ctx) {
+		stdoutW = io.Discard
+		stderrW = io.Discard
+	} else {
+		pfx := fmt.Sprintf("[%s] ", logName)
+		pw := &prefixWriter{writer: os.Stdout, prefix: pfx}
+		stdoutW = pw
+		stderrW = pw
+	}
+
 	logFile, err := os.OpenFile(filepath.Join(logDir, logName+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err == nil {
-		cmd.Stdout = logFile
-		cmd.Stderr = logFile
-	} else if isSilentExecution(ctx) {
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
+		if stdoutW == io.Discard {
+			cmd.Stdout = logFile
+			cmd.Stderr = logFile
+		} else {
+			cmd.Stdout = io.MultiWriter(logFile, stdoutW)
+			cmd.Stderr = io.MultiWriter(logFile, stderrW)
+		}
 	} else {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		cmd.Stdout = stdoutW
+		cmd.Stderr = stderrW
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -260,6 +274,33 @@ func (ShellAdapter) Start(ctx context.Context, step ExecutionStep, env ResolvedE
 	return proc, nil
 }
 
+type prefixWriter struct {
+	mu     sync.Mutex
+	writer io.Writer
+	prefix string
+	buffer []byte
+}
+
+func (pw *prefixWriter) Write(p []byte) (n int, err error) {
+	pw.mu.Lock()
+	defer pw.mu.Unlock()
+
+	pw.buffer = append(pw.buffer, p...)
+
+	for {
+		newlineIdx := bytes.IndexByte(pw.buffer, '\n')
+		if newlineIdx == -1 {
+			break
+		}
+		line := pw.buffer[:newlineIdx+1]
+		if _, err := pw.writer.Write(append([]byte(pw.prefix), line...)); err != nil {
+			return len(p), err
+		}
+		pw.buffer = pw.buffer[newlineIdx+1:]
+	}
+	return len(p), nil
+}
+
 type shellProcess struct {
 	cmd      *exec.Cmd
 	waitDone chan struct{}
@@ -269,6 +310,15 @@ type shellProcess struct {
 func (p *shellProcess) Wait() error {
 	<-p.waitDone
 	return p.waitErr
+}
+
+func (p *shellProcess) IsAlive() bool {
+	select {
+	case <-p.waitDone:
+		return false
+	default:
+		return true
+	}
 }
 
 func (p *shellProcess) Stop() error {
