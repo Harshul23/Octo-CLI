@@ -49,10 +49,11 @@ type ActiveProcess struct {
 
 // ExecutionOptions configures execution behavior.
 type ExecutionOptions struct {
-	Detach  bool     `json:"detach" yaml:"detach"`
-	Silent  bool     `json:"silent" yaml:"silent"`
-	Sandbox bool     `json:"sandbox" yaml:"sandbox"`
-	Args    []string `json:"args,omitempty" yaml:"args,omitempty"`
+	Detach            bool                               `json:"detach" yaml:"detach"`
+	Silent            bool                               `json:"silent" yaml:"silent"`
+	Sandbox           bool                               `json:"sandbox" yaml:"sandbox"`
+	Args              []string                           `json:"args,omitempty" yaml:"args,omitempty"`
+	OnVerifiedStartup func(report ExecutionReport) error `json:"-" yaml:"-"`
 }
 
 // AppendPassthroughArgs appends trailing CLI arguments to a run command.
@@ -105,17 +106,50 @@ func isSandboxEnv() bool {
 
 // ExecutionReport is the canonical result of an intelligence execution.
 type ExecutionReport struct {
+	ProjectName       string                `json:"project_name" yaml:"project_name"`
+	Confidence        float64               `json:"confidence" yaml:"confidence"`
+	Plan              ExecutionPlan         `json:"plan" yaml:"plan"`
+	Steps             []ExecutionStepResult `json:"steps" yaml:"steps"`
+	Verification      []VerificationResult  `json:"verification,omitempty" yaml:"verification,omitempty"`
+	Failures          []ExecutionFailure    `json:"failures,omitempty" yaml:"failures,omitempty"`
+	Decisions         []DecisionTraceEntry  `json:"decisions,omitempty" yaml:"decisions,omitempty"`
+	ActiveProcesses   []ActiveProcess       `json:"active_processes,omitempty" yaml:"active_processes,omitempty"`
+	TeardownPerformed bool                  `json:"teardown_performed,omitempty" yaml:"teardown_performed,omitempty"`
+	VerifiedStartup   bool                  `json:"verified_startup" yaml:"verified_startup"`
+	Success           bool                  `json:"success" yaml:"success"`
+	FailureReason     string                `json:"failure_reason,omitempty" yaml:"failure_reason,omitempty"`
+}
+
+// VerifiedStartupResult is an immutable snapshot of verified startup state.
+type VerifiedStartupResult struct {
 	ProjectName     string                `json:"project_name" yaml:"project_name"`
 	Confidence      float64               `json:"confidence" yaml:"confidence"`
 	Plan            ExecutionPlan         `json:"plan" yaml:"plan"`
 	Steps           []ExecutionStepResult `json:"steps" yaml:"steps"`
 	Verification    []VerificationResult  `json:"verification,omitempty" yaml:"verification,omitempty"`
-	Failures        []ExecutionFailure   `json:"failures,omitempty" yaml:"failures,omitempty"`
 	Decisions       []DecisionTraceEntry  `json:"decisions,omitempty" yaml:"decisions,omitempty"`
-	ActiveProcesses   []ActiveProcess       `json:"active_processes,omitempty" yaml:"active_processes,omitempty"`
-	TeardownPerformed bool                  `json:"teardown_performed,omitempty" yaml:"teardown_performed,omitempty"`
-	Success           bool                  `json:"success" yaml:"success"`
-	FailureReason     string                `json:"failure_reason,omitempty" yaml:"failure_reason,omitempty"`
+	ActiveProcesses []ActiveProcess       `json:"active_processes,omitempty" yaml:"active_processes,omitempty"`
+}
+
+// StartupResult returns an immutable snapshot of the verified startup state.
+func (r ExecutionReport) StartupResult() VerifiedStartupResult {
+	steps := make([]ExecutionStepResult, len(r.Steps))
+	copy(steps, r.Steps)
+	verification := make([]VerificationResult, len(r.Verification))
+	copy(verification, r.Verification)
+	decisions := make([]DecisionTraceEntry, len(r.Decisions))
+	copy(decisions, r.Decisions)
+	procs := make([]ActiveProcess, len(r.ActiveProcesses))
+	copy(procs, r.ActiveProcesses)
+	return VerifiedStartupResult{
+		ProjectName:     r.ProjectName,
+		Confidence:      r.Confidence,
+		Plan:            r.Plan,
+		Steps:           steps,
+		Verification:    verification,
+		Decisions:       decisions,
+		ActiveProcesses: procs,
+	}
 }
 
 // ExecutePlanReport executes a plan with default options and returns a serializable execution report.
@@ -140,9 +174,9 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 	report = ExecutionReport{
 		ProjectName: model.Name,
 		Confidence:  model.Confidence,
-		Plan:         plan,
-		Success:      false,
-		Steps:        make([]ExecutionStepResult, 0, len(plan.Steps)),
+		Plan:        plan,
+		Success:     false,
+		Steps:       make([]ExecutionStepResult, 0, len(plan.Steps)),
 	}
 	var running []RunningProcess
 	defer func() {
@@ -247,7 +281,7 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 						_ = process.Wait()
 						result.Status = StepFailed
 						result.Reason = err.Error()
-						for i := len(report.Decisions)-1; i >= 0; i-- {
+						for i := len(report.Decisions) - 1; i >= 0; i-- {
 							if report.Decisions[i].Name == "execution."+id && report.Decisions[i].OptionID == candidate.ID {
 								report.Decisions[i].Outcome = "failed"
 								break
@@ -277,7 +311,7 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 			} else if err := adapter.Execute(ctx, attempt, stepEnv); err != nil {
 				result.Status = StepFailed
 				result.Reason = err.Error()
-				for i := len(report.Decisions)-1; i >= 0; i-- {
+				for i := len(report.Decisions) - 1; i >= 0; i-- {
 					if report.Decisions[i].Name == "execution."+id && report.Decisions[i].OptionID == candidate.ID {
 						report.Decisions[i].Outcome = "failed"
 						break
@@ -297,7 +331,7 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 				continue
 			}
 			result.Status = StepSucceeded
-			for i := len(report.Decisions)-1; i >= 0; i-- {
+			for i := len(report.Decisions) - 1; i >= 0; i-- {
 				if report.Decisions[i].Name == "execution."+id && report.Decisions[i].OptionID == candidate.ID {
 					report.Decisions[i].Outcome = "succeeded"
 					break
@@ -318,6 +352,29 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 	if err != nil {
 		report.FailureReason = err.Error()
 		return report
+	}
+	for _, res := range verification {
+		if !res.Passed {
+			report.FailureReason = fmt.Sprintf("verification %q failed: %s", res.CheckID, res.Reason)
+			return report
+		}
+	}
+
+	// Verified-startup checkpoint:
+	// Every planned startup/setup step and all deterministic verification checks have passed.
+	report.VerifiedStartup = true
+
+	if opts.OnVerifiedStartup != nil {
+		checkpointReport := report
+		checkpointReport.Steps = append([]ExecutionStepResult(nil), report.Steps...)
+		checkpointReport.Verification = append([]VerificationResult(nil), report.Verification...)
+		checkpointReport.Decisions = append([]DecisionTraceEntry(nil), report.Decisions...)
+		checkpointReport.ActiveProcesses = append([]ActiveProcess(nil), report.ActiveProcesses...)
+
+		if err := opts.OnVerifiedStartup(checkpointReport); err != nil {
+			report.FailureReason = fmt.Sprintf("verified-startup hook failed: %v", err)
+			return report
+		}
 	}
 
 	if !opts.Detach && len(running) > 0 {
@@ -392,7 +449,9 @@ func ExecutePlan(ctx context.Context, plan ExecutionPlan, resolver RuntimeResolv
 
 func executionCandidatesForStep(step ExecutionStep) []ExecutionCandidate {
 	if len(step.Candidates) == 0 {
-		if step.Command == "" { return nil }
+		if step.Command == "" {
+			return nil
+		}
 		return []ExecutionCandidate{{ID: step.SelectedCandidate, Command: step.Command}}
 	}
 	ordered := make([]ExecutionCandidate, 0, len(step.Candidates))
@@ -402,7 +461,9 @@ func executionCandidatesForStep(step ExecutionStep) []ExecutionCandidate {
 		}
 	}
 	for _, candidate := range step.Candidates {
-		if candidate.ID == step.SelectedCandidate || (step.SelectedCandidate == "" && candidate.Command == step.Command) { continue }
+		if candidate.ID == step.SelectedCandidate || (step.SelectedCandidate == "" && candidate.Command == step.Command) {
+			continue
+		}
 		ordered = append(ordered, candidate)
 	}
 	return ordered

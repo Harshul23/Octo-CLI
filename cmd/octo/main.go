@@ -3,13 +3,14 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/spf13/cobra"
 )
 
-// Version information (can be set at build time)
+// Version information (can be set at build time via ldflags)
 var (
-	version = "1.2.2"
+	version = "dev"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -30,6 +31,13 @@ Usage:
 }
 
 func init() {
+	if version == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			version = info.Main.Version
+		}
+	}
+	rootCmd.Version = version
+
 	// Add subcommands
 	rootCmd.AddCommand(runCmd)
 }

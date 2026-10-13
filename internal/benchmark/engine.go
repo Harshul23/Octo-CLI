@@ -405,6 +405,7 @@ func inferArchetype(model intelligence.ProjectModel) string {
 
 // simulateRawAgentBaseline models an autonomous AI coding agent using raw bash tools
 // without Octo (e.g., guessing commands, missing backing compose services, blind backgrounding).
+// Note: This baseline is a model, not a measurement, and must stay labelled (est.) in all output.
 func simulateRawAgentBaseline(model intelligence.ProjectModel, plan intelligence.ExecutionPlan) ScoreMetrics {
 	// A raw agent without Octo must typically:
 	// 1. Run `ls -la` and `cat` manifests (150-300 tokens)

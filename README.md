@@ -74,7 +74,7 @@ go install github.com/Octo-sh/Octo-CLI/cmd/octo@latest
 ```
 
 ### 6. Manual Release Binaries
-Precompiled standalone archives and `checksums.txt` are available on the [GitHub Releases page](https://github.com/Octo-sh/Octo-CLI/releases/latest) for macOS (Apple Silicon & Intel), Linux (x86_64 & ARM64), and Windows (x64 & ARM64).
+Precompiled standalone archives and `checksums.txt` are available on the [GitHub Releases page](https://github.com/Octo-sh/Octo-CLI/releases/latest) for macOS (Apple Silicon & Intel), Linux (x86_64 & ARM64), and Windows (x64; ARM64 via x64 emulation, native build coming next release).
 
 
 ---
@@ -121,7 +121,7 @@ octo run       # or: octo r
 
 ## AI Agent Companion (`octo mcp`)
 
-When AI coding agents (Claude Code, Cursor, Windsurf, Cline) execute code directly through raw bash commands, they waste 40%+ of their context tokens trial-and-erroring missing packages, colliding ports, and orphaning background processes.
+When AI coding agents (Claude Code, Cursor, Windsurf, Cline) execute code directly through raw bash commands, they can burn a large share of their context tokens trial-and-erroring missing packages, colliding ports, and orphaning background processes.
 
 Octo includes a native **JSON-RPC 2.0 Model Context Protocol (MCP)** server over stdio. Connect Octo to your favorite AI agent to give it deterministic, zero-hallucination execution capabilities:
 
@@ -159,7 +159,7 @@ claude mcp add octo -- octo mcp
 | **Automatic Port Conflict Shifting** | ✓ | — (EADDRINUSE error) | — | — |
 | **Backing Service Coordination** | ✓ (Starts DB before app) | — | Partial | — (hangs or fails) |
 | **Graceful Teardown on Ctrl+C** | ✓ (Drains process tree) | — (Leaves orphans) | Partial | — (Leaves zombie PIDs) |
-| **Zero-Hallucination AI Companion** | ✓ (via MCP) | N/A | N/A | — (hallucinates commands) |
+| **Zero-Hallucination AI Companion (estimated)** | ✓ (via MCP) | N/A | N/A | — (hallucinates commands) |
 | **Verified Strategy Caching** | ✓ (`.octo.lock`) | — | — | — |
 
 ---
