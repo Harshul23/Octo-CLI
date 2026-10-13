@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -22,9 +23,9 @@ import (
 
 // runCmd represents the run command
 var runCmd = &cobra.Command{
-	Use:           "run [path]",
-	Aliases:       []string{"r", "start"},
-	Short:         "Understand and run the repository locally",
+	Use:     "run [path]",
+	Aliases: []string{"r", "start"},
+	Short:   "Understand and run the repository locally",
 	Args: func(cmd *cobra.Command, args []string) error {
 		dashAt := cmd.ArgsLenAtDash()
 		if dashAt == -1 {
@@ -38,7 +39,7 @@ var runCmd = &cobra.Command{
 		}
 		return nil
 	},
-	SilenceUsage:  true,
+	SilenceUsage: true,
 	Long: `The run command analyzes the repository, builds an execution plan,
 resolves the required environment, executes the plan, and verifies the
 result.
@@ -94,7 +95,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		skipEnvCheck, _ = cmd.Flags().GetBool("skip-env")
 	}
 	noTUI, _ := cmd.Flags().GetBool("no-tui")
-	
+
 	// Dashboard is enabled by default unless --no-tui is specified or running in detached mode
 	useDashboard := !noTUI && !detach
 
@@ -132,20 +133,20 @@ func runRun(cmd *cobra.Command, args []string) error {
 				// Show success message about what was auto-configured
 				fmt.Println()
 				fmt.Println("🔧 Auto-configuring environment...")
-				
+
 				if len(result.CreatedFiles) > 0 {
 					for _, f := range result.CreatedFiles {
 						ui.Success(fmt.Sprintf("Created %s", f))
 					}
 				}
-				
+
 				if len(result.ProvisionedVars) > 0 {
 					ui.Success(fmt.Sprintf("Set %d environment variable(s) with smart defaults:", len(result.ProvisionedVars)))
 					for name, value := range result.ProvisionedVars {
 						fmt.Printf("   • %s=%s\n", name, maskEnvValue(value))
 					}
 				}
-				
+
 				if len(result.SkippedVars) > 0 {
 					fmt.Println()
 					ui.Warn(fmt.Sprintf("%d variable(s) still need manual configuration:", len(result.SkippedVars)))
@@ -161,7 +162,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 			if !valid {
 				// Only show issues that remain AFTER auto-provisioning
 				ui.DisplayPreRunEnvValidation(issues)
-				
+
 				// Ask if user wants to continue anyway
 				if !ui.PromptContinueDespiteEnvIssues() {
 					ui.Info("Run 'octo env' or configure missing variables in .env.")
@@ -227,7 +228,6 @@ func maskEnvValue(value string) string {
 	// Mask the middle of longer values
 	return value[:4] + strings.Repeat("*", len(value)-8) + value[len(value)-4:]
 }
-
 
 func runWithIntelligence(cmd *cobra.Command, args []string) error {
 	target := "."
@@ -387,7 +387,22 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 	})
 
 	if detach {
-		opts := intelligence.ExecutionOptions{Detach: true, Silent: jsonOutput, Sandbox: sandbox, Args: passthroughArgs}
+		var lockErr error
+		opts := intelligence.ExecutionOptions{
+			Detach:  true,
+			Silent:  jsonOutput,
+			Sandbox: sandbox,
+			Args:    passthroughArgs,
+			OnVerifiedStartup: func(rep intelligence.ExecutionReport) error {
+				updatedLock, err := intelligence.RecordVerifiedStrategiesWithLock(cwd, model, plan, rep, lock)
+				if err != nil {
+					lockErr = err
+					return err
+				}
+				lock = updatedLock
+				return nil
+			},
+		}
 		report := intelligence.ExecutePlanReportWithOptions(cmd.Context(), model, plan, resolver, env, opts)
 		if jsonOutput {
 			data, err := json.MarshalIndent(report, "", "  ")
@@ -399,13 +414,14 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 			printExecutionReport(report)
 		}
 
+		if lockErr != nil {
+			return fmt.Errorf("failed to update .octo.lock: %w", lockErr)
+		}
+
 		if !report.Success {
 			return fmt.Errorf("intelligence execution failed: %s", report.FailureReason)
 		}
 
-		if err := intelligence.RecordVerifiedStrategies(cwd, model, plan, report, lock); err != nil {
-			return fmt.Errorf("failed to update .octo.lock: %w", err)
-		}
 		_ = intelligence.SaveDetachedState(cwd, report)
 
 		if !jsonOutput {
@@ -430,31 +446,43 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 	// Setup graceful signal handling for SIGINT (Ctrl+C) and SIGTERM
 	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
+	sigDone := make(chan struct{})
+	defer func() {
+		close(sigDone)
+		signal.Stop(sigChan)
+	}()
 
 	execCtx, cancelExec := context.WithCancel(cmd.Context())
 	defer cancelExec()
 
-	interrupted := false
+	var interrupted atomic.Bool
 	go func() {
-		sig, ok := <-sigChan
-		if !ok {
+		select {
+		case sig, ok := <-sigChan:
+			if !ok {
+				return
+			}
+			interrupted.Store(true)
+			if !jsonOutput {
+				fmt.Println()
+				fmt.Println(ui.WarningLine(fmt.Sprintf("Interrupt received (%s). Wrapping up tasks and shutting down cleanly...", sig)))
+			}
+			cancelExec()
+
+			// Secondary interrupt: user wants immediate emergency exit
+			select {
+			case <-sigChan:
+				if !jsonOutput {
+					fmt.Println()
+					fmt.Println(ui.ErrorLine("Second interrupt received. Exiting immediately."))
+				}
+				os.Exit(130)
+			case <-sigDone:
+				return
+			}
+		case <-sigDone:
 			return
 		}
-		interrupted = true
-		if !jsonOutput {
-			fmt.Println()
-			fmt.Println(ui.WarningLine(fmt.Sprintf("Interrupt received (%s). Wrapping up tasks and shutting down cleanly...", sig)))
-		}
-		cancelExec()
-
-		// Secondary interrupt: user wants immediate emergency exit
-		<-sigChan
-		if !jsonOutput {
-			fmt.Println()
-			fmt.Println(ui.ErrorLine("Second interrupt received. Exiting immediately."))
-		}
-		os.Exit(130)
 	}()
 
 	if watch {
@@ -476,13 +504,29 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 				}
 			}(model)
 
-			report := intelligence.ExecutePlanReportWithOptions(watchExecCtx, model, plan, resolver, env, intelligence.ExecutionOptions{Sandbox: sandbox, Args: passthroughArgs})
+			var lockErr error
+			watchOpts := intelligence.ExecutionOptions{
+				Sandbox: sandbox,
+				Args:    passthroughArgs,
+				OnVerifiedStartup: func(rep intelligence.ExecutionReport) error {
+					updatedLock, err := intelligence.RecordVerifiedStrategiesWithLock(cwd, model, plan, rep, lock)
+					if err != nil {
+						lockErr = err
+						return err
+					}
+					lock = updatedLock
+					return nil
+				},
+			}
+
+			report := intelligence.ExecutePlanReportWithOptions(watchExecCtx, model, plan, resolver, env, watchOpts)
 			if !jsonOutput {
 				printExecutionReport(report)
 			}
 
-			if report.Success {
-				_ = intelligence.RecordVerifiedStrategies(cwd, model, plan, report, lock)
+			if lockErr != nil {
+				cancelWatchExec()
+				return fmt.Errorf("failed to update .octo.lock: %w", lockErr)
 			}
 
 			select {
@@ -501,7 +545,7 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 				continue
 			case <-execCtx.Done():
 				cancelWatchExec()
-				if !jsonOutput && interrupted {
+				if !jsonOutput && interrupted.Load() {
 					fmt.Println(ui.SuccessLine("All services stopped. Wrap-up complete."))
 				}
 				return nil
@@ -525,7 +569,23 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, resolver, env, intelligence.ExecutionOptions{Silent: jsonOutput, Sandbox: sandbox, Args: passthroughArgs})
+	var lockErr error
+	foregroundOpts := intelligence.ExecutionOptions{
+		Silent:  jsonOutput,
+		Sandbox: sandbox,
+		Args:    passthroughArgs,
+		OnVerifiedStartup: func(rep intelligence.ExecutionReport) error {
+			updatedLock, err := intelligence.RecordVerifiedStrategiesWithLock(cwd, model, plan, rep, lock)
+			if err != nil {
+				lockErr = err
+				return err
+			}
+			lock = updatedLock
+			return nil
+		},
+	}
+
+	report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, resolver, env, foregroundOpts)
 	if jsonOutput {
 		data, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
@@ -536,7 +596,11 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		printExecutionReport(report)
 	}
 
-	if interrupted || execCtx.Err() != nil {
+	if lockErr != nil {
+		return fmt.Errorf("failed to update .octo.lock: %w", lockErr)
+	}
+
+	if interrupted.Load() || execCtx.Err() != nil {
 		if !jsonOutput {
 			fmt.Println(ui.SuccessLine("All services stopped. Wrap-up complete."))
 		}
@@ -547,17 +611,12 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("intelligence execution failed: %s", report.FailureReason)
 	}
 
-	if err := intelligence.RecordVerifiedStrategies(cwd, model, plan, report, lock); err != nil {
-		return fmt.Errorf("failed to update .octo.lock: %w", err)
-	}
 	if !jsonOutput {
 		fmt.Println()
 		fmt.Println(ui.SuccessStyle.Render("✓ Execution verified successfully."))
 	}
 	return nil
 }
-
-
 
 func printExecutionOverview(model intelligence.ProjectModel, plan intelligence.ExecutionPlan) {
 	fmt.Println()

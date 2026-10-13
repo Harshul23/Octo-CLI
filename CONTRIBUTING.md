@@ -131,6 +131,8 @@ Octo adheres to strict Semantic Versioning (`vMAJOR.MINOR.PATCH`):
 - **MINOR**: New capabilities, new language/ecosystem support, new MCP tools/resources.
 - **PATCH**: Bug fixes, performance improvements, and non-breaking detection refinements.
 
+The canonical Homebrew formula lives in Octo-sh/homebrew-tap and is updated by scripts/bump-tap.sh after each release.
+
 ---
 
 ## Code of Conduct

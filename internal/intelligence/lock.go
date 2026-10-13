@@ -16,11 +16,11 @@ import (
 const OctoLockSpec = "octo.dev/lock/v1"
 
 type VerifiedStrategy struct {
-	Component  string    `yaml:"component" json:"component"`
-	Candidate  string    `yaml:"candidate" json:"candidate"`
-	Command    string    `yaml:"command" json:"command"`
-	Fingerprint string   `yaml:"fingerprint" json:"fingerprint"`
-	VerifiedAt time.Time `yaml:"verified_at" json:"verified_at"`
+	Component   string    `yaml:"component" json:"component"`
+	Candidate   string    `yaml:"candidate" json:"candidate"`
+	Command     string    `yaml:"command" json:"command"`
+	Fingerprint string    `yaml:"fingerprint" json:"fingerprint"`
+	VerifiedAt  time.Time `yaml:"verified_at" json:"verified_at"`
 }
 
 type OctoLock struct {
@@ -30,8 +30,8 @@ type OctoLock struct {
 }
 
 type VerifiedStrategyApplication struct {
-	Reused       []VerifiedStrategy
-	Invalidated  []VerifiedStrategy
+	Reused      []VerifiedStrategy
+	Invalidated []VerifiedStrategy
 }
 
 func LoadOctoLock(root string) (OctoLock, error) {
@@ -59,7 +59,40 @@ func SaveOctoLock(root string, lock OctoLock) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(root, ".octo.lock"), data, 0o644)
+	targetPath := filepath.Join(root, ".octo.lock")
+
+	// Check if target file exists and is read-only
+	if fi, err := os.Stat(targetPath); err == nil {
+		if fi.Mode().Perm()&0o222 == 0 {
+			return os.ErrPermission
+		}
+	}
+
+	tmpFile, err := os.CreateTemp(root, ".octo.lock.tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	_ = os.Chmod(tmpPath, 0o644)
+	if err := os.Rename(tmpPath, targetPath); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ApplyVerifiedStrategies reuses only strategies whose candidate still exists
@@ -121,10 +154,16 @@ func ApplyVerifiedStrategies(root string, model *ProjectModel, lock OctoLock) (V
 }
 
 // RecordVerifiedStrategies persists successful execution candidates after the
-// complete execution plan and deterministic verification have passed.
+// verified startup checkpoint or complete execution plan and deterministic verification have passed.
 func RecordVerifiedStrategies(root string, model ProjectModel, plan ExecutionPlan, report ExecutionReport, lock OctoLock) error {
-	if !report.Success {
-		return nil
+	_, err := RecordVerifiedStrategiesWithLock(root, model, plan, report, lock)
+	return err
+}
+
+// RecordVerifiedStrategiesWithLock records verified strategies and returns the updated in-memory lock.
+func RecordVerifiedStrategiesWithLock(root string, model ProjectModel, plan ExecutionPlan, report ExecutionReport, lock OctoLock) (OctoLock, error) {
+	if !report.VerifiedStartup && !report.Success {
+		return lock, nil
 	}
 	lock.Spec = OctoLockSpec
 	lock.Project = model.Name
@@ -160,14 +199,14 @@ func RecordVerifiedStrategies(root string, model ProjectModel, plan ExecutionPla
 		}
 		fingerprint, err := ExecutionFingerprint(root, *component, *candidate)
 		if err != nil {
-			return err
+			return lock, err
 		}
 		entry := VerifiedStrategy{
-			Component: component.Name,
-			Candidate: candidate.ID,
-			Command: candidate.Command,
+			Component:   component.Name,
+			Candidate:   candidate.ID,
+			Command:     candidate.Command,
 			Fingerprint: fingerprint,
-			VerifiedAt: time.Now().UTC(),
+			VerifiedAt:  time.Now().UTC(),
 		}
 		for _, existing := range lock.Strategies {
 			if existing.Component == entry.Component && existing.Candidate == entry.Candidate && existing.Command == entry.Command && existing.Fingerprint == entry.Fingerprint {
@@ -190,7 +229,25 @@ func RecordVerifiedStrategies(root string, model ProjectModel, plan ExecutionPla
 	sort.Slice(lock.Strategies, func(i, j int) bool {
 		return lock.Strategies[i].Component < lock.Strategies[j].Component
 	})
-	return SaveOctoLock(root, lock)
+	if err := SaveOctoLock(root, lock); err != nil {
+		return lock, err
+	}
+	return lock, nil
+}
+
+// RecordVerifiedStartupStrategies records verified strategies from a VerifiedStartupResult.
+func RecordVerifiedStartupStrategies(root string, model ProjectModel, plan ExecutionPlan, startup VerifiedStartupResult, lock OctoLock) (OctoLock, error) {
+	rep := ExecutionReport{
+		ProjectName:     startup.ProjectName,
+		Confidence:      startup.Confidence,
+		Plan:            startup.Plan,
+		Steps:           startup.Steps,
+		Verification:    startup.Verification,
+		Decisions:       startup.Decisions,
+		ActiveProcesses: startup.ActiveProcesses,
+		VerifiedStartup: true,
+	}
+	return RecordVerifiedStrategiesWithLock(root, model, plan, rep, lock)
 }
 
 func findVerifiedStrategyComponent(components []Component, name string) *Component {

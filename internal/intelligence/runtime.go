@@ -249,15 +249,26 @@ func (ShellAdapter) Start(ctx context.Context, step ExecutionStep, env ResolvedE
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("shell step %q failed to start: %w", step.ID, err)
 	}
-	return &shellProcess{cmd: cmd}, nil
+	proc := &shellProcess{
+		cmd:      cmd,
+		waitDone: make(chan struct{}),
+	}
+	go func() {
+		proc.waitErr = cmd.Wait()
+		close(proc.waitDone)
+	}()
+	return proc, nil
 }
 
 type shellProcess struct {
-	cmd *exec.Cmd
+	cmd      *exec.Cmd
+	waitDone chan struct{}
+	waitErr  error
 }
 
 func (p *shellProcess) Wait() error {
-	return p.cmd.Wait()
+	<-p.waitDone
+	return p.waitErr
 }
 
 func (p *shellProcess) Stop() error {
@@ -265,11 +276,11 @@ func (p *shellProcess) Stop() error {
 }
 
 func (p *shellProcess) GracefulStop(timeout time.Duration) error {
-	return gracefulStopShellProcess(p.cmd, timeout)
+	return gracefulStopShellProcess(p.cmd, p.waitDone, timeout)
 }
 
 func (p *shellProcess) Pid() int {
-	if p.cmd.Process == nil {
+	if p.cmd == nil || p.cmd.Process == nil {
 		return 0
 	}
 	return p.cmd.Process.Pid
@@ -334,7 +345,6 @@ func mergedEnvironment(values map[string]string) []string {
 	}
 	return env
 }
-
 
 func mergedEnvironmentWithStep(values, stepValues map[string]string) []string {
 	merged := make(map[string]string, len(values)+len(stepValues))
