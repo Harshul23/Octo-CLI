@@ -199,11 +199,13 @@ func TestRenderTerminalSelectorHTML(t *testing.T) {
 </body>
 </html>`, htmlBody)
 
-	artifactDir := "/Users/harshul/.gemini/antigravity-ide/brain/70292177-0091-4c5a-8d4b-00db1508cfed"
-	scratchDir := filepath.Join(artifactDir, "scratch")
-	_ = os.MkdirAll(scratchDir, 0o755)
+	outDir := t.TempDir()
+	if custom := os.Getenv("OCTO_UI_EXPORT_DIR"); custom != "" {
+		outDir = custom
+		_ = os.MkdirAll(outDir, 0o755)
+	}
 
-	outPath := filepath.Join(scratchDir, "terminal_selector.html")
+	outPath := filepath.Join(outDir, "terminal_selector.html")
 	if err := os.WriteFile(outPath, []byte(htmlPage), 0o644); err != nil {
 		t.Fatalf("failed to write HTML file: %v", err)
 	}
