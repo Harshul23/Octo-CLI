@@ -234,14 +234,22 @@ func verifyPort(ctx context.Context, host string, port int, timeout time.Duratio
 	}
 	deadline := time.Now().Add(timeout)
 	var lastErr error
+	hosts := []string{host}
+	if host == "127.0.0.1" {
+		hosts = []string{"127.0.0.1", "localhost", "[::1]"}
+	} else if host == "localhost" {
+		hosts = []string{"localhost", "127.0.0.1", "[::1]"}
+	}
 	for {
 		dialer := net.Dialer{Timeout: 250 * time.Millisecond}
-		conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", host, port))
-		if err == nil {
-			_ = conn.Close()
-			return nil
+		for _, h := range hosts {
+			conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", h, port))
+			if err == nil {
+				_ = conn.Close()
+				return nil
+			}
+			lastErr = err
 		}
-		lastErr = err
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			return fmt.Errorf("TCP port %d is not reachable: %w", port, lastErr)
 		}

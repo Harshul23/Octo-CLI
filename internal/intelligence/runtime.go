@@ -261,14 +261,19 @@ func (ShellAdapter) Start(ctx context.Context, step ExecutionStep, env ResolvedE
 	}
 
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			_ = logFile.Close()
+		}
 		return nil, fmt.Errorf("shell step %q failed to start: %w", step.ID, err)
 	}
 	proc := &shellProcess{
 		cmd:      cmd,
+		logFile:  logFile,
 		waitDone: make(chan struct{}),
 	}
 	go func() {
 		proc.waitErr = cmd.Wait()
+		proc.closeLog()
 		close(proc.waitDone)
 	}()
 	return proc, nil
@@ -303,8 +308,20 @@ func (pw *prefixWriter) Write(p []byte) (n int, err error) {
 
 type shellProcess struct {
 	cmd      *exec.Cmd
+	logFile  *os.File
 	waitDone chan struct{}
 	waitErr  error
+	closeMu  sync.Mutex
+	closed   bool
+}
+
+func (p *shellProcess) closeLog() {
+	p.closeMu.Lock()
+	defer p.closeMu.Unlock()
+	if !p.closed && p.logFile != nil {
+		p.closed = true
+		_ = p.logFile.Close()
+	}
 }
 
 func (p *shellProcess) Wait() error {
@@ -326,7 +343,9 @@ func (p *shellProcess) Stop() error {
 }
 
 func (p *shellProcess) GracefulStop(timeout time.Duration) error {
-	return gracefulStopShellProcess(p.cmd, p.waitDone, timeout)
+	err := gracefulStopShellProcess(p.cmd, p.waitDone, timeout)
+	p.closeLog()
+	return err
 }
 
 func (p *shellProcess) Pid() int {
@@ -383,7 +402,13 @@ func mergedEnvironment(values map[string]string) []string {
 		replaced := false
 		prefix := name + "="
 		for i, entry := range env {
-			if strings.HasPrefix(entry, prefix) {
+			match := strings.HasPrefix(entry, prefix)
+			if !match && runtime.GOOS == "windows" {
+				if eq := strings.Index(entry, "="); eq >= 0 {
+					match = strings.EqualFold(entry[:eq+1], prefix)
+				}
+			}
+			if match {
 				env[i] = prefix + value
 				replaced = true
 				break

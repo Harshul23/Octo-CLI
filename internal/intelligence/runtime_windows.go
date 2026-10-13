@@ -3,6 +3,7 @@
 package intelligence
 
 import (
+	"fmt"
 	"os/exec"
 	"time"
 )
@@ -19,6 +20,9 @@ func gracefulStopShellProcess(cmd *exec.Cmd, waitDone <-chan struct{}, timeout t
 	case <-waitDone:
 		return nil
 	default:
+	}
+	if cmd.Process.Pid > 0 {
+		_ = exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", cmd.Process.Pid)).Run()
 	}
 	_ = cmd.Process.Kill()
 	select {
