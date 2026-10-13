@@ -347,6 +347,16 @@ func handleRunAndVerify(ctx context.Context, args map[string]interface{}) (CallT
 		Detach:  detach,
 		Silent:  true,
 		Sandbox: sandbox,
+		// Record the lock at the same verified-startup checkpoint as the CLI.
+		// A persistence failure fails the run instead of being swallowed.
+		OnVerifiedStartup: func(rep intelligence.ExecutionReport) error {
+			updated, err := intelligence.RecordVerifiedStrategiesWithLock(target, model, plan, rep, lock)
+			if err != nil {
+				return err
+			}
+			lock = updated
+			return nil
+		},
 	}
 
 	resolver := intelligence.NewRuntimeResolverWithOptions(intelligence.RuntimeResolverOptions{
@@ -355,10 +365,10 @@ func handleRunAndVerify(ctx context.Context, args map[string]interface{}) (CallT
 	})
 	report := intelligence.ExecutePlanReportWithOptions(ctx, model, plan, resolver, env, opts)
 
-	if report.Success {
-		_ = intelligence.RecordVerifiedStrategies(target, model, plan, report, lock)
-		if detach {
-			_ = intelligence.SaveDetachedState(target, report)
+	if report.Success && detach {
+		if err := intelligence.SaveDetachedState(target, report); err != nil {
+			report.Success = false
+			report.FailureReason = fmt.Sprintf("failed to save detached state: %v", err)
 		}
 	}
 

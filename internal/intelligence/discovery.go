@@ -674,6 +674,10 @@ func hasIndependentRootEntryPoint(root string) bool {
 }
 
 func disambiguateComponentNames(components []Component, services []Service) []Component {
+	originalNames := make([]string, len(components))
+	for i := range components {
+		originalNames[i] = components[i].Name
+	}
 	serviceNames := make(map[string]bool, len(services))
 	for _, s := range services {
 		serviceNames[s.Name] = true
@@ -723,6 +727,34 @@ func disambiguateComponentNames(components []Component, services []Service) []Co
 		}
 	}
 
+	return rewriteRenamedDependencies(components, originalNames)
+}
+
+// rewriteRenamedDependencies keeps component depends_on references valid when
+// disambiguation renamed a component. Only an unambiguous rename is rewritten:
+// the old name must have belonged to exactly one component.
+func rewriteRenamedDependencies(components []Component, originalNames []string) []Component {
+	oldCounts := make(map[string]int, len(originalNames))
+	for _, name := range originalNames {
+		oldCounts[name]++
+	}
+	renames := make(map[string]string)
+	for i := range components {
+		old := originalNames[i]
+		if old != components[i].Name && oldCounts[old] == 1 {
+			renames[old] = components[i].Name
+		}
+	}
+	if len(renames) == 0 {
+		return components
+	}
+	for i := range components {
+		for j, dep := range components[i].DependsOn {
+			if renamed, ok := renames[dep]; ok && renamed != components[i].Name {
+				components[i].DependsOn[j] = renamed
+			}
+		}
+	}
 	return components
 }
 

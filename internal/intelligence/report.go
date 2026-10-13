@@ -186,8 +186,18 @@ func parseComposeUpCommand(command string) (file string, service string, ok bool
 	return "", "", false
 }
 
-func isComposeServiceAlreadyRunning(composeFile, serviceName, workDir string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+type composeRunState int
+
+const (
+	composeStateUnknown composeRunState = iota
+	composeStateStopped
+	composeStateRunning
+)
+
+// composeServiceRunState reports whether a Compose service is running.
+// A failing `ps` query yields composeStateUnknown, never composeStateStopped.
+func composeServiceRunState(composeFile, serviceName, workDir string) composeRunState {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", composeFile, "ps", "--status", "running", "-q", serviceName)
@@ -195,10 +205,86 @@ func isComposeServiceAlreadyRunning(composeFile, serviceName, workDir string) bo
 		cmd.Dir = workDir
 	}
 	out, err := cmd.Output()
-	if err == nil && len(strings.TrimSpace(string(out))) > 0 {
-		return true
+	if err != nil {
+		return composeStateUnknown
 	}
-	return false
+	if len(strings.TrimSpace(string(out))) > 0 {
+		return composeStateRunning
+	}
+	return composeStateStopped
+}
+
+func hasOwnedService(owned map[string]struct{}, name string) bool {
+	_, ok := owned[name]
+	return ok
+}
+
+const (
+	defaultHealthInterval = 2 * time.Second
+	defaultHealthRetries  = 10
+	maxHealthInterval     = 30 * time.Second
+)
+
+// healthCheckForStep returns the parsed health check for a PhaseHealth step.
+func healthCheckForStep(model ProjectModel, step ExecutionStep) *HealthCheck {
+	if step.Phase != PhaseHealth {
+		return nil
+	}
+	for _, svc := range model.Services {
+		if svc.Name == step.Component && svc.HealthCheck != nil {
+			return svc.HealthCheck
+		}
+	}
+	return nil
+}
+
+// executeStep runs a step. Health steps use a bounded retry loop driven by the
+// service's declared interval, retries and timeout so a cold service is not
+// failed by a single immediate probe.
+func executeStep(ctx context.Context, adapter RuntimeAdapter, step ExecutionStep, env ResolvedEnvironment, hc *HealthCheck) error {
+	if hc == nil {
+		return adapter.Execute(ctx, step, env)
+	}
+	interval := defaultHealthInterval
+	if d, err := time.ParseDuration(strings.TrimSpace(hc.Interval)); err == nil && d > 0 {
+		interval = d
+	}
+	if interval > maxHealthInterval {
+		interval = maxHealthInterval
+	}
+	retries := hc.Retries
+	if retries <= 0 {
+		retries = defaultHealthRetries
+	}
+	var timeout time.Duration
+	if d, err := time.ParseDuration(strings.TrimSpace(hc.Timeout)); err == nil && d > 0 {
+		timeout = d
+	}
+	var lastErr error
+	for attempt := 0; attempt < retries; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(interval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+		attemptCtx, cancel := ctx, context.CancelFunc(func() {})
+		if timeout > 0 {
+			attemptCtx, cancel = context.WithTimeout(ctx, timeout)
+		}
+		lastErr = adapter.Execute(attemptCtx, step, env)
+		cancel()
+		if lastErr == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return lastErr
+		}
+	}
+	return fmt.Errorf("health check %q still failing after %d attempts: %w", step.ID, retries, lastErr)
 }
 
 func verifyProcessLiveness(ctx context.Context, process RunningProcess, duration time.Duration) error {
@@ -323,16 +409,24 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 			}
 
 			composeFile, composeSvc, isComposeStart := parseComposeUpCommand(attempt.Command)
-			wasAlreadyRunning := false
+			// Ownership is claimed only when we positively know the service was
+			// not running before. An unknown state is never treated as "not
+			// running", so cleanup cannot stop a service this run did not start.
+			canClaimOwnership := false
 			if isComposeStart {
-				wasAlreadyRunning = isComposeServiceAlreadyRunning(composeFile, composeSvc, attempt.WorkDir)
+				state := composeServiceRunState(composeFile, composeSvc, attempt.WorkDir)
+				canClaimOwnership = state == composeStateStopped
 			}
 
 			result := ExecutionStepResult{ID: id, Status: StepRunning, Adapter: adapter.Name(), CandidateID: candidate.ID}
 			// Resolve the environment at the execution boundary so component-local
 			// values are visible only to steps belonging to that component.
 			stepEnv := env.ForStep(attempt)
-			isStartable := attempt.LongRunning || (opts.Detach && attempt.Phase == PhaseStart)
+			// In detach mode, start steps run asynchronously only when the adapter
+			// can start them. Adapters that only implement Execute (Compose
+			// `up -d` already returns immediately) run synchronously.
+			_, adapterStartable := adapter.(StartableRuntimeAdapter)
+			isStartable := attempt.LongRunning || (opts.Detach && attempt.Phase == PhaseStart && adapterStartable)
 			if isStartable {
 				startable, ok := adapter.(StartableRuntimeAdapter)
 				if !ok {
@@ -444,7 +538,14 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 						Port:      port,
 					})
 				}
-			} else if err := adapter.Execute(ctx, attempt, stepEnv); err != nil {
+			} else if err := executeStep(ctx, adapter, attempt, stepEnv, healthCheckForStep(model, attempt)); err != nil {
+				if isComposeStart && canClaimOwnership && !hasOwnedService(ownedServicesMap, composeSvc) {
+					// Partial failure: record the service if Compose actually started it.
+					if composeServiceRunState(composeFile, composeSvc, attempt.WorkDir) == composeStateRunning {
+						ownedServicesMap[composeSvc] = struct{}{}
+						report.OwnedServices = append(report.OwnedServices, composeSvc)
+					}
+				}
 				result.Status = StepFailed
 				result.Reason = err.Error()
 				for i := len(report.Decisions) - 1; i >= 0; i-- {
@@ -466,7 +567,7 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 				report.FailureReason = err.Error()
 				continue
 			}
-			if isComposeStart && !wasAlreadyRunning {
+			if isComposeStart && canClaimOwnership {
 				ownedServicesMap[composeSvc] = struct{}{}
 				report.OwnedServices = append(report.OwnedServices, composeSvc)
 			}
@@ -665,7 +766,9 @@ func TeardownExecution(model ProjectModel, plan ExecutionPlan, running []Running
 	}
 
 	// 2. Stop backing Docker Compose services owned by this execution
-	if !opts.Detach && len(model.Services) > 0 {
+	// A detached run keeps healthy services running, but a failed detached
+	// run passes OwnedServices so the services it started are stopped.
+	if len(model.Services) > 0 && (!opts.Detach || opts.OwnedServices != nil) {
 		summary.ServicesStopped = stopComposeServices(model.Services, model.Root, opts.OwnedServices)
 	}
 

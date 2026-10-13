@@ -3,13 +3,10 @@ package intelligence
 import (
 	"context"
 	"net"
-	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func smokeFixtureDir(t *testing.T) string {
@@ -646,72 +643,8 @@ func TestSmokeFixtureNonInteractiveNeverPrompts(t *testing.T) {
 }
 
 // 11. Real Node/Docker integration tests (explicitly opt-in)
-func TestSmokeFixtureRealIntegrationOptIn(t *testing.T) {
-	if os.Getenv("OCTO_INTEGRATION_TESTS") != "1" {
-		t.Skip("skipping real Node/Docker integration test; set OCTO_INTEGRATION_TESTS=1 to run")
-	}
-
-	fixture := smokeFixtureDir(t)
-	// Check if docker and node are available
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker CLI not available on host")
-	}
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("node not available on host")
-	}
-
-	// Run docker compose up -d postgres
-	composeFile := filepath.Join(fixture, "docker-compose.yml")
-	upCmd := exec.Command("docker", "compose", "-f", composeFile, "up", "-d", "postgres")
-	upCmd.Dir = fixture
-	if err := upCmd.Run(); err != nil {
-		t.Fatalf("failed to start postgres container: %v", err)
-	}
-
-	// Ensure teardown of only resources created, never removing volumes
-	defer func() {
-		stopCmd := exec.Command("docker", "compose", "-f", composeFile, "stop", "postgres")
-		stopCmd.Dir = fixture
-		_ = stopCmd.Run()
-
-		// Verify volume pgdata still exists
-		volCmd := exec.Command("docker", "volume", "ls")
-		out, _ := volCmd.Output()
-		if !strings.Contains(string(out), "pgdata") {
-			t.Errorf("expected volume pgdata to be preserved, got output:\n%s", string(out))
-		}
-	}()
-
-	// Start web app locally
-	webCmd := exec.Command("node", "server.js")
-	webCmd.Dir = filepath.Join(fixture, "apps", "web")
-	webCmd.Env = append(os.Environ(), "PORT=3000", "WEB_SECRET=test-secret")
-	if err := webCmd.Start(); err != nil {
-		t.Fatalf("failed to start web app: %v", err)
-	}
-	defer func() {
-		_ = webCmd.Process.Kill()
-		_ = webCmd.Wait()
-	}()
-
-	// Verify web responds
-	var resp *http.Response
-	for i := 0; i < 15; i++ {
-		time.Sleep(200 * time.Millisecond)
-		r, err := http.Get("http://127.0.0.1:3000")
-		if err == nil {
-			resp = r
-			break
-		}
-	}
-	if resp == nil {
-		t.Fatal("web app did not respond on port 3000")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", resp.StatusCode)
-	}
-}
+// The real Node/Docker integration test now lives in cmd/octo/binary_integration_test.go
+// and drives the actual octo binary.
 
 // Helpers
 func copyDir(t *testing.T, src, dst string) {
