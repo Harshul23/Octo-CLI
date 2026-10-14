@@ -396,7 +396,7 @@ func (m componentSelectorModel) View() string {
 
 // RunTargetSelector launches the interactive selector and returns the resolved selection.
 func RunTargetSelector(model intelligence.ProjectModel) (selection intelligence.ResolvedSelection, cancelled bool, err error) {
-	if !isInteractiveTerminal() {
+	if !InteractiveTerminal() {
 		return intelligence.ResolvedSelection{}, false, fmt.Errorf("cannot run interactive target selector in non-interactive environment; specify --only <target> or --all.\nAvailable targets:\n%s", intelligence.FormatAvailableTargets(model))
 	}
 
@@ -412,32 +412,4 @@ func RunTargetSelector(model intelligence.ProjectModel) (selection intelligence.
 	}
 
 	return m.resolved, false, nil
-}
-
-// RunComponentSelector launches the interactive selector and returns the chosen components and services.
-func RunComponentSelector(model intelligence.ProjectModel) (selectedComponents []string, selectedServices []string, autoIncluded []string, cancelled bool, err error) {
-	sel, cancelled, err := RunTargetSelector(model)
-	if err != nil || cancelled {
-		return nil, nil, nil, cancelled, err
-	}
-
-	for _, c := range sel.SelectedComponents {
-		selectedComponents = append(selectedComponents, c.Name)
-	}
-	for _, s := range sel.SelectedServices {
-		selectedServices = append(selectedServices, s.Name)
-	}
-	for id, reason := range sel.ForcedDependencies {
-		autoIncluded = append(autoIncluded, fmt.Sprintf("%s (%s)", id.String(), reason))
-	}
-
-	return selectedComponents, selectedServices, autoIncluded, false, nil
-}
-
-func isInteractiveTerminal() bool {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
 }

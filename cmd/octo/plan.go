@@ -79,6 +79,7 @@ func findStep(plan intelligence.ExecutionPlan, id string) intelligence.Execution
 }
 
 func init() {
+	planCmd.GroupID = "main"
 	planCmd.Flags().BoolP("json", "j", false, "Output the ExecutionPlan as JSON")
 	rootCmd.AddCommand(planCmd)
 }

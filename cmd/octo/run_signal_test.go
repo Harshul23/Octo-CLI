@@ -44,7 +44,6 @@ components:
 	}
 
 	cmd := &cobra.Command{Use: "test"}
-	cmd.Flags().String("engine", "intelligence", "")
 	cmd.Flags().Bool("watch", false, "")
 	cmd.Flags().Bool("detach", false, "")
 	cmd.Flags().Bool("sandbox", false, "")

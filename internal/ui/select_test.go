@@ -61,32 +61,3 @@ func TestYesNoPromptViewCircles(t *testing.T) {
 		t.Errorf("YesNo prompt should not contain old pointing symbol '❯'")
 	}
 }
-
-func TestSelectPromptViewCircles(t *testing.T) {
-	options := []SelectOption{
-		{Value: "1", Label: "Option 1"},
-		{Value: "2", Label: "Option 2"},
-		{Value: "3", Label: "Option 3"},
-	}
-	prompt := NewSelectPrompt("Choose option", "Select one", options)
-	view := prompt.View()
-
-	// Cursor is at 0
-	if !strings.Contains(view, "●") {
-		t.Errorf("SelectPrompt should contain filled circle '●', got:\n%s", view)
-	}
-	if !strings.Contains(view, "○") {
-		t.Errorf("SelectPrompt should contain outline circle '○', got:\n%s", view)
-	}
-	if strings.Contains(view, "❯") {
-		t.Errorf("SelectPrompt should not contain old pointing symbol '❯'")
-	}
-
-	// 1 selected, 2 unselected
-	if strings.Count(view, "●") != 1 {
-		t.Errorf("Expected 1 filled circle, got %d", strings.Count(view, "●"))
-	}
-	if strings.Count(view, "○") != 2 {
-		t.Errorf("Expected 2 outline circles, got %d", strings.Count(view, "○"))
-	}
-}

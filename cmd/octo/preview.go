@@ -109,6 +109,7 @@ var previewCmd = &cobra.Command{
 }
 
 func init() {
+	previewCmd.GroupID = "other"
 	previewCmd.Flags().BoolP("json", "j", false, "Output machine preview as JSON")
 	rootCmd.AddCommand(previewCmd)
 }

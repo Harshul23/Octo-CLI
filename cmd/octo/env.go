@@ -98,6 +98,7 @@ var envTemplateCmd = &cobra.Command{
 }
 
 func init() {
+	envCmd.GroupID = "other"
 	envCmd.Flags().BoolP("json", "j", false, "Output environment status as JSON")
 	envCmd.AddCommand(envTemplateCmd)
 	rootCmd.AddCommand(envCmd)

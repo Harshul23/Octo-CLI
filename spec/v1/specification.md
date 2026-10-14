@@ -161,25 +161,17 @@ The built-in boundary currently includes:
 
 Adapters are selected explicitly by capability rather than by a global language switch.
 
-The execution engine validates the plan, obtains a stable topological order, resolves an adapter for each executable step, and executes steps in dependency order.
-
-The intelligence execution engine is the canonical execution path. The legacy Blueprint/Orchestrator path remains available temporarily for compatibility and feature gaps.
+The intelligence execution engine is the sole, canonical execution path. Legacy Blueprint and Orchestrator paths have been fully retired.
 
 ## Intelligence Run Engine
 
-The CLI uses the intelligence engine by default:
+The CLI uses the intelligence engine:
 
 `octo run`
 
-This path analyzes the current repository directly, builds the ProjectModel and TopologyGraph, creates a deterministic ExecutionPlan, and executes it through RuntimeAdapters.
+This path analyzes the current repository directly, builds the ProjectModel and TopologyGraph, creates a deterministic ExecutionPlan, and executes it through RuntimeAdapters with full support for interactive target selection, container sandboxing, background execution (`--detach`), and change detection (`--watch`).
 
-The legacy engine remains available explicitly:
-
-`octo run --engine legacy`
-
-The intelligence engine currently does not claim support for legacy `--watch` or `--detach` behavior. These are compatibility gaps, not reasons to make the legacy engine the default.
-
-This is an intentional migration boundary toward one canonical execution architecture.
+This is the canonical execution architecture.
 
 ## Environment Requirements
 
@@ -315,11 +307,9 @@ Execution-step explanations are included as decisions so users can understand de
 
 Decision traces contain no resolved environment values or command output.
 
-## Default Execution Engine
+## Canonical Execution Engine
 
-The intelligence execution path is the canonical Octo execution path.
-
-The CLI may retain a legacy execution engine temporarily for compatibility and feature gaps, but new execution capabilities MUST target the intelligence architecture first.
+The intelligence execution path is the sole, canonical Octo execution path. All legacy orchestrators and blueprint bridges have been retired; 100% of execution runs through the native intelligence engine.
 
 The intelligence path is responsible for analysis, planning, environment resolution, execution, verification, and reporting.
 

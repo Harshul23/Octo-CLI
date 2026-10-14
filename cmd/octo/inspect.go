@@ -13,6 +13,15 @@ var inspectCmd = &cobra.Command{
 	Short:   "Inspect how Octo understands a repository",
 	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		explain, _ := cmd.Flags().GetBool("explain")
+		if explain {
+			return explainCmd.RunE(cmd, args)
+		}
+		graph, _ := cmd.Flags().GetBool("graph")
+		if graph {
+			return graphCmd.RunE(cmd, args)
+		}
+
 		path := "."
 		if len(args) == 1 {
 			path = args[0]
@@ -124,7 +133,13 @@ func unknown(s string) string {
 }
 
 func init() {
+	inspectCmd.GroupID = "main"
+	explainCmd.GroupID = "other"
+
 	inspectCmd.Flags().BoolP("json", "j", false, "Output the ProjectModel as JSON")
+	inspectCmd.Flags().BoolP("explain", "e", false, "Explain decisions and evidence behind detected facts")
+	inspectCmd.Flags().BoolP("graph", "g", false, "Render the repository topology graph")
+
 	explainCmd.Flags().BoolP("json", "j", false, "Output decisions and evidence as JSON")
 	rootCmd.AddCommand(inspectCmd)
 	rootCmd.AddCommand(explainCmd)

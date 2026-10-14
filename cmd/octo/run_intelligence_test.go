@@ -36,10 +36,19 @@ func TestIntelligenceRunPlanningPath(t *testing.T) {
 }
 
 func TestRunCommandRegistersPhase1Flags(t *testing.T) {
-	for _, flagName := range []string{"detach", "watch", "json", "engine", "sandbox"} {
+	for _, flagName := range []string{"detach", "watch", "json", "sandbox"} {
 		flag := runCmd.Flags().Lookup(flagName)
 		if flag == nil {
 			t.Fatalf("expected flag %q to be registered on runCmd", flagName)
+		}
+	}
+}
+
+func TestRunCommandDoesNotRegisterLegacyFlags(t *testing.T) {
+	for _, flagName := range []string{"engine", "config", "env", "build"} {
+		flag := runCmd.Flags().Lookup(flagName)
+		if flag != nil {
+			t.Fatalf("expected legacy flag %q to be removed from runCmd", flagName)
 		}
 	}
 }

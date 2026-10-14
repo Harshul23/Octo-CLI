@@ -90,6 +90,7 @@ var graphCmd = &cobra.Command{
 }
 
 func init() {
+	graphCmd.GroupID = "other"
 	graphCmd.Flags().BoolP("json", "j", false, "Output the TopologyGraph as JSON")
 	rootCmd.AddCommand(graphCmd)
 }

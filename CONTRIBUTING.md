@@ -84,13 +84,13 @@ cd octo-cli
 ```
 
 ### 2. Build and Test
-Octo requires Go 1.24+ and compiles with standard Go toolchains:
+Octo requires Go 1.25+ and compiles with standard Go toolchains:
 ```bash
 # Run all tests
 go test -count=1 ./...
 
 # Build local binary
-go build -o octo ./cmd
+go build -o octo ./cmd/octo
 ```
 
 ---
@@ -118,7 +118,7 @@ test(intelligence): add regression suite for Next.js app router
 
 Before submitting your pull request:
 1. Ensure all tests pass: `go test -count=1 ./...`.
-2. Confirm the binary builds without errors: `go build -o /dev/null ./cmd`.
+2. Confirm the binary builds without errors: `go build -o /dev/null ./cmd/octo`.
 3. Fill out the PR template (`.github/pull_request_template.md`), explaining what changed and the evidence supporting it.
 4. Keep pull requests focused on a single logical change.
 

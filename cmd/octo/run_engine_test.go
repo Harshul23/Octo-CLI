@@ -2,12 +2,9 @@ package main
 
 import "testing"
 
-func TestRunDefaultsToIntelligenceEngine(t *testing.T) {
-	flag := runCmd.Flags().Lookup("engine")
-	if flag == nil {
-		t.Fatal("engine flag is not registered")
-	}
-	if flag.DefValue != "intelligence" {
-		t.Fatalf("engine default=%q, want intelligence", flag.DefValue)
+func TestRunExecutesWithIntelligenceEngine(t *testing.T) {
+	// The legacy engine flag is completely removed; runCmd executes intelligence engine directly.
+	if flag := runCmd.Flags().Lookup("engine"); flag != nil {
+		t.Fatalf("expected engine flag to be removed from runCmd, but found: %v", flag)
 	}
 }

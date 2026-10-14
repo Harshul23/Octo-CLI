@@ -152,6 +152,7 @@ func renderSingleResult(cmd *cobra.Command, res benchmark.BenchmarkResult) {
 }
 
 func init() {
+	benchmarkCmd.GroupID = "other"
 	benchmarkCmd.Flags().BoolP("suite", "s", false, "Run the canonical SWE-bench archetype benchmark suite")
 	benchmarkCmd.Flags().BoolP("json", "j", false, "Output benchmark results as JSON")
 	rootCmd.AddCommand(benchmarkCmd)

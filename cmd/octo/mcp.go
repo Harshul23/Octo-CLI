@@ -23,5 +23,6 @@ deterministic execution plans, execute and verify stacks, and diagnose failures.
 }
 
 func init() {
+	mcpCmd.GroupID = "main"
 	rootCmd.AddCommand(mcpCmd)
 }

@@ -97,4 +97,35 @@ func TestQuickFlagShorthands(t *testing.T) {
 	if sh := benchmarkCmd.Flags().ShorthandLookup("s"); sh == nil || sh.Name != "suite" {
 		t.Errorf("expected -s to map to suite on benchmarkCmd, got %v", sh)
 	}
+
+	// inspectCmd shorthands
+	if sh := inspectCmd.Flags().ShorthandLookup("e"); sh == nil || sh.Name != "explain" {
+		t.Errorf("expected -e to map to explain on inspectCmd, got %v", sh)
+	}
+	if sh := inspectCmd.Flags().ShorthandLookup("g"); sh == nil || sh.Name != "graph" {
+		t.Errorf("expected -g to map to graph on inspectCmd, got %v", sh)
+	}
+
+	// runCmd dry-run
+	if fl := runCmd.Flags().Lookup("dry-run"); fl == nil {
+		t.Error("expected --dry-run flag on runCmd")
+	}
+}
+
+func TestCommandGroupsOrganization(t *testing.T) {
+	// Verify main group commands
+	mainCommands := []*cobra.Command{runCmd, inspectCmd, planCmd, mcpCmd}
+	for _, cmd := range mainCommands {
+		if cmd.GroupID != "main" {
+			t.Errorf("expected %s command to have GroupID 'main', got %q", cmd.Name(), cmd.GroupID)
+		}
+	}
+
+	// Verify other group commands
+	otherCommands := []*cobra.Command{previewCmd, verifyCmd, envCmd, benchmarkCmd, explainCmd, graphCmd}
+	for _, cmd := range otherCommands {
+		if cmd.GroupID != "other" {
+			t.Errorf("expected %s command to have GroupID 'other', got %q", cmd.Name(), cmd.GroupID)
+		}
+	}
 }

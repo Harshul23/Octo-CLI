@@ -6,12 +6,25 @@ import (
 	"os"
 	"runtime/debug"
 
+	"github.com/Octo-sh/Octo-CLI/internal/ui"
 	"github.com/spf13/cobra"
 )
 
 // Version information (can be set at build time via ldflags)
 var (
 	version = "dev"
+)
+
+// Command groups for organizing help output
+var (
+	mainGroup = &cobra.Group{
+		ID:    "main",
+		Title: "Main Commands:",
+	}
+	otherGroup = &cobra.Group{
+		ID:    "other",
+		Title: "Other Commands:",
+	}
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -21,13 +34,7 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 	Long: `Octo is an execution intelligence CLI that analyzes codebases, detects
 runtimes and dependencies, resolves network ports, plans execution deterministically,
-and runs and verifies software stacks locally with zero configuration.
-
-Usage:
-  octo run [path]       Analyze, plan, execute, and verify a repository locally
-  octo plan [path]      Display the deterministic execution plan
-  octo inspect [path]   Inspect detected runtime facts, dependencies, and evidence
-  octo mcp              Start the Model Context Protocol (MCP) server for AI coding agents`,
+and runs and verifies software stacks locally with zero configuration.`,
 	Version: version,
 }
 
@@ -39,8 +46,16 @@ func init() {
 	}
 	rootCmd.Version = version
 
+	// Register command groups to separate main and other commands in help output
+	rootCmd.AddGroup(mainGroup)
+	rootCmd.AddGroup(otherGroup)
+
 	// Add subcommands
+	runCmd.GroupID = "main"
 	rootCmd.AddCommand(runCmd)
+
+	// Setup tasteful colorized help
+	ui.SetupColoredHelp(rootCmd)
 }
 
 func main() {

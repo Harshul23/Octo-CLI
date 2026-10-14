@@ -110,7 +110,10 @@ octo run       # or: octo r
 
 **Everyday Flag Shortcuts:**
 - `-j`: Universal shorthand for `--json` across all commands (`octo r -j`, `octo ins -j`, `octo p -j`, etc.).
-- `-k` / `--skip-env`: Shorthand for `--skip-env-check` (`octo r -k`).
+- `-e` / `--explain`: Explain decisions and evidence strength (`octo inspect -e` or `octo explain`).
+- `-g` / `--graph`: Render dependency topology graph (`octo inspect -g` or `octo graph`).
+- `--dry-run`: Preview machine mutations, ports, and processes without running (`octo run --dry-run`).
+- `-k` / `--skip-env`: Shorthand for `--skip-env-check` (`octo r -k` or `octo r --skip-env`).
 - `-T`: Shorthand for `--no-tui` (suppress dashboard for standard terminal logs).
 - `-N`: Shorthand for `--no-port-shift` (disable automatic port conflict reallocation).
 - `-i`: Interactive component selection (`octo r -i`).

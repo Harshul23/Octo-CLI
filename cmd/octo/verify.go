@@ -103,6 +103,7 @@ var verifyCmd = &cobra.Command{
 }
 
 func init() {
+	verifyCmd.GroupID = "other"
 	verifyCmd.Flags().BoolP("json", "j", false, "Output verification results as JSON")
 	rootCmd.AddCommand(verifyCmd)
 }
