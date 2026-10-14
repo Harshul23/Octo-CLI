@@ -40,7 +40,7 @@ process.on('SIGINT', () => process.exit(0));`, port)
 	}
 	t.Logf("OctoScore: %+v", result.OctoScore)
 	if !result.OctoScore.OneShotSuccess {
-		t.Fatal("expected Octo OneShotSuccess to be true")
+		t.Fatalf("expected Octo OneShotSuccess to be true; diagnostics: %+v", result.Diagnostics)
 	}
 	if result.OctoScore.HallucinationRate != 0.0 {
 		t.Fatalf("Octo HallucinationRate = %v, want 0.0", result.OctoScore.HallucinationRate)

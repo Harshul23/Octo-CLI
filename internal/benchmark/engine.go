@@ -68,7 +68,7 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 	// Perform live readiness verification checks against active ports/sockets
 	var checkResults []intelligence.VerificationResult
 	var verifyErr error
-	if len(checks) > 0 {
+	if report.Success && len(checks) > 0 {
 		checkResults, verifyErr = intelligence.Verify(execCtx, checks)
 	}
 
@@ -91,7 +91,8 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 	}
 
 	realSuccess := report.Success && (len(checks) == 0 || (verifyErr == nil && allChecksPassed))
-	verifiedReadiness := len(checks) > 0 && verifyErr == nil && allChecksPassed
+	verifiedReadiness := report.Success && len(checks) > 0 && verifyErr == nil && allChecksPassed
+	diagnostics := failedExecutionDiagnostics(report, checkResults, verifyErr, execCtx.Err())
 
 	octoScore := ScoreMetrics{
 		OneShotSuccess:       realSuccess,
@@ -135,6 +136,7 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 
 	return BenchmarkResult{
 		Repository:    filepath.Base(repoPath),
+		Diagnostics:   diagnostics,
 		Archetype:     archetype,
 		Timestamp:     time.Now(),
 		OctoScore:     octoScore,
@@ -411,7 +413,7 @@ func simulateRawAgentBaseline(model intelligence.ProjectModel, plan intelligence
 	// 1. Run `ls -la` and `cat` manifests (150-300 tokens)
 	// 2. Propose trial command; often fails if dependencies/Compose are unstarted
 	// 3. Receive failure, read logs, retry
-	estimatedTokens := 1800 // Typical multi-turn agent context consumption for startup trial-and-error
+	estimatedTokens := 1800  // Typical multi-turn agent context consumption for startup trial-and-error
 	latencyMs := int64(3500) // Multi-turn roundtrip latency
 
 	oneShot := true
@@ -443,4 +445,42 @@ func simulateRawAgentBaseline(model intelligence.ProjectModel, plan intelligence
 		PortConflictsAvoided: 0,
 		EvidenceSignals:      1,
 	}
+}
+
+func failedExecutionDiagnostics(report intelligence.ExecutionReport, checks []intelligence.VerificationResult, verifyErr, contextErr error) *ExecutionDiagnostics {
+	if report.Success && verifyErr == nil {
+		allPassed := true
+		for _, check := range checks {
+			if !check.Passed {
+				allPassed = false
+			}
+		}
+		if allPassed {
+			return nil
+		}
+	}
+	d := &ExecutionDiagnostics{
+		FailureReason: report.FailureReason,
+		Steps:         append([]intelligence.ExecutionStepResult(nil), report.Steps...),
+		Verification:  append([]intelligence.VerificationResult(nil), report.Verification...),
+	}
+	d.Verification = append(d.Verification, checks...)
+	if d.FailureReason == "" && verifyErr != nil {
+		d.FailureReason = verifyErr.Error()
+	}
+	if d.FailureReason == "" {
+		for _, check := range checks {
+			if !check.Passed {
+				d.FailureReason = fmt.Sprintf("verification %q failed: %s", check.CheckID, check.Reason)
+				break
+			}
+		}
+	}
+	if d.FailureReason == "" {
+		d.FailureReason = "execution did not succeed"
+	}
+	if contextErr != nil {
+		d.ContextError = contextErr.Error()
+	}
+	return d
 }
