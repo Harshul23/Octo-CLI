@@ -13,6 +13,85 @@ import (
 	"github.com/Octo-sh/Octo-CLI/internal/intelligence"
 )
 
+// SetupBudget bounds the prepare, provision, install and setup phases of a
+// benchmark execution. StartBudget bounds the start phase and the readiness
+// verification that follows it. They are variables so tests and callers can
+// tune them; the shared 10 second budget they replace was too small for a
+// Windows runner, where npm install alone took 7 seconds or more.
+var (
+	SetupBudget = 5 * time.Minute
+	StartBudget = 30 * time.Second
+)
+
+func isSetupPhase(p intelligence.ExecutionPhase) bool {
+	switch p {
+	case intelligence.PhasePrepare, intelligence.PhaseProvision, intelligence.PhaseInstall, intelligence.PhaseSetup:
+		return true
+	}
+	return false
+}
+
+// splitPlanByPhase returns one plan with only setup-phase steps and one with
+// the remaining steps. Dependencies on steps that live in the other plan are
+// dropped, because the setup plan always runs to completion first.
+func splitPlanByPhase(plan intelligence.ExecutionPlan) (setup, start intelligence.ExecutionPlan) {
+	setup, start = plan, plan
+	setup.Steps, start.Steps = nil, nil
+	inSetup := map[string]bool{}
+	for _, st := range plan.Steps {
+		inSetup[st.ID] = isSetupPhase(st.Phase)
+	}
+	for _, st := range plan.Steps {
+		var deps []string
+		for _, d := range st.DependsOn {
+			if inSetup[d] == inSetup[st.ID] {
+				deps = append(deps, d)
+			}
+		}
+		st.DependsOn = deps
+		if inSetup[st.ID] {
+			setup.Steps = append(setup.Steps, st)
+		} else {
+			start.Steps = append(start.Steps, st)
+		}
+	}
+	// The setup plan starts nothing, so it has no ports to probe.
+	setup.Ports = nil
+	return setup, start
+}
+
+// executeWithPhaseBudgets runs the setup phases under SetupBudget and then the
+// start phases under StartBudget. The returned context is the start-phase
+// context, to be used for readiness verification; the caller must call cancel.
+// The final error is the setup-phase context error when setup failed.
+func executeWithPhaseBudgets(ctx context.Context, model intelligence.ProjectModel, plan intelligence.ExecutionPlan, resolver intelligence.RuntimeResolver, env intelligence.ResolvedEnvironment, opts intelligence.ExecutionOptions) (intelligence.ExecutionReport, context.Context, context.CancelFunc, error) {
+	setupPlan, startPlan := splitPlanByPhase(plan)
+
+	var setupReport intelligence.ExecutionReport
+	if len(setupPlan.Steps) > 0 {
+		setupCtx, setupCancel := context.WithTimeout(ctx, SetupBudget)
+		// Verification belongs to the start phase, so the setup run sees a model
+		// without services or custom checks.
+		setupModel := model
+		setupModel.Services = nil
+		setupModel.CustomVerification = nil
+		setupReport = intelligence.ExecutePlanReportWithOptions(setupCtx, setupModel, setupPlan, resolver, env, opts)
+		setupErr := setupCtx.Err()
+		setupCancel()
+		if !setupReport.Success {
+			setupReport.Plan = plan
+			return setupReport, ctx, func() {}, setupErr
+		}
+	}
+
+	startCtx, startCancel := context.WithTimeout(ctx, StartBudget)
+	startReport := intelligence.ExecutePlanReportWithOptions(startCtx, model, startPlan, resolver, env, opts)
+	startReport.Plan = plan
+	startReport.Steps = append(append([]intelligence.ExecutionStepResult(nil), setupReport.Steps...), startReport.Steps...)
+	startReport.Decisions = append(append([]intelligence.DecisionTraceEntry(nil), setupReport.Decisions...), startReport.Decisions...)
+	return startReport, startCtx, startCancel, nil
+}
+
 func getFreePort() int {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -55,15 +134,17 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 	})
 	env, _ := intelligence.ResolveProjectEnvironment(repoPath, model)
 
-	execCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
+	// Installation and setup can legitimately take minutes on a cold CI runner
+	// (for example npm on Windows), so they get their own generous budget.
+	// Startup and readiness verification keep a separate, tighter budget so a
+	// hung server is still reported as a failure.
 	opts := intelligence.ExecutionOptions{
 		Detach: true,
 		Silent: true,
 	}
 
-	report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, resolver, env, opts)
+	report, execCtx, cancel, phaseErr := executeWithPhaseBudgets(ctx, model, plan, resolver, env, opts)
+	defer cancel()
 
 	// Perform live readiness verification checks against active ports/sockets
 	var checkResults []intelligence.VerificationResult
@@ -92,7 +173,11 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 
 	realSuccess := report.Success && (len(checks) == 0 || (verifyErr == nil && allChecksPassed))
 	verifiedReadiness := report.Success && len(checks) > 0 && verifyErr == nil && allChecksPassed
-	diagnostics := failedExecutionDiagnostics(report, checkResults, verifyErr, execCtx.Err())
+	contextErr := phaseErr
+	if contextErr == nil {
+		contextErr = execCtx.Err()
+	}
+	diagnostics := failedExecutionDiagnostics(report, checkResults, verifyErr, contextErr)
 
 	octoScore := ScoreMetrics{
 		OneShotSuccess:       realSuccess,
