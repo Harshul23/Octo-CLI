@@ -3,6 +3,7 @@ package intelligence
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -119,6 +120,10 @@ func isSandboxEnv() bool {
 
 // ExecutionReport is the canonical result of an intelligence execution.
 type ExecutionReport struct {
+	// runningProcesses retains ownership of live runtime handles in this process.
+	// It is deliberately private: serialized reports contain only PID metadata.
+	runningProcesses []RunningProcess
+
 	ProjectName       string                `json:"project_name" yaml:"project_name"`
 	Confidence        float64               `json:"confidence" yaml:"confidence"`
 	Plan              ExecutionPlan         `json:"plan" yaml:"plan"`
@@ -527,6 +532,7 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 				}
 				if la, ok := process.(interface{ IsAlive() bool }); !ok || la.IsAlive() {
 					running = append(running, process)
+					report.runningProcesses = append(report.runningProcesses, process)
 					pid := 0
 					if p, ok := process.(interface{ Pid() int }); ok {
 						pid = p.Pid()
@@ -784,13 +790,22 @@ func TeardownExecution(model ProjectModel, plan ExecutionPlan, running []Running
 	return summary
 }
 
-// StopActiveProcesses terminates all active processes tracked in an ExecutionReport.
-func StopActiveProcesses(report ExecutionReport) {
-	for _, proc := range report.ActiveProcesses {
-		if proc.PID > 0 {
-			if p, err := os.FindProcess(proc.PID); err == nil {
-				_ = p.Kill()
-			}
-		}
+// StopActiveProcesses stops and reaps processes owned by this live report.
+// Killing a saved PID alone bypasses adapter-specific process-tree termination
+// and cannot wait for the original command's log handles to close.
+func StopActiveProcesses(report ExecutionReport) error {
+	if len(report.runningProcesses) == 0 && len(report.ActiveProcesses) > 0 {
+		return fmt.Errorf("cannot safely stop processes from a serialized report: runtime handles are unavailable")
 	}
+	var errs []error
+	for _, process := range report.runningProcesses {
+		if err := process.Stop(); err != nil {
+			errs = append(errs, fmt.Errorf("stop process %d: %w", process.Pid(), err))
+			continue
+		}
+		// A killed command normally returns an exit-status error. The important
+		// guarantee here is that Wait has completed, including output/log cleanup.
+		_ = process.Wait()
+	}
+	return errors.Join(errs...)
 }

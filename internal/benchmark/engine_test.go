@@ -3,6 +3,7 @@ package benchmark
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,6 +55,21 @@ process.on('SIGINT', () => process.exit(0));`, port)
 	}
 	if result.Comparison.TokenReductionPct <= 0 {
 		t.Fatalf("expected positive token reduction, got %v%%", result.Comparison.TokenReductionPct)
+	}
+	assertBenchmarkReleasedResources(t, root, port)
+}
+
+// Check immediately, without retries: EvaluateRepository owns cleanup and must
+// finish it before returning, including inherited child log-file handles.
+func assertBenchmarkReleasedResources(t *testing.T, root string, port int) {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
+	if err == nil {
+		conn.Close()
+		t.Fatalf("benchmark child still serves port %d after return", port)
+	}
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatalf("benchmark still owns temporary files: %v", err)
 	}
 }
 
@@ -119,6 +135,7 @@ process.on('SIGINT', () => process.exit(0));`, port)
 	if !result.OctoScore.OneShotSuccess || !result.OctoScore.VerifiedReadiness {
 		t.Fatalf("slow install should succeed under the setup budget; diagnostics: %+v", result.Diagnostics)
 	}
+	assertBenchmarkReleasedResources(t, root, port)
 }
 
 // A hung start must still fail within the start budget, with the deadline recorded.
@@ -179,5 +196,22 @@ func TestSplitPlanByPhase(t *testing.T) {
 	}
 	if len(start.Steps[0].DependsOn) != 0 {
 		t.Fatalf("cross-plan dependency kept: %v", start.Steps[0].DependsOn)
+	}
+}
+
+func TestBenchmarkTeardownRejectsOpenListener(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	defer listener.Close()
+	report := intelligence.ExecutionReport{ActiveProcesses: []intelligence.ActiveProcess{{Port: port}}}
+	if err := waitForBenchmarkPortsClosed(report, 25*time.Millisecond); err == nil {
+		t.Fatal("an open benchmark listener must be a teardown failure")
+	}
+	listener.Close()
+	if err := waitForBenchmarkPortsClosed(report, time.Second); err != nil {
+		t.Fatal(err)
 	}
 }

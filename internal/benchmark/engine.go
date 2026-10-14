@@ -155,7 +155,14 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 
 	// Clean process teardown: never orphan background processes or hold ports
 	if len(report.ActiveProcesses) > 0 {
-		intelligence.StopActiveProcesses(report)
+		if err := intelligence.StopActiveProcesses(report); err != nil {
+			return BenchmarkResult{}, fmt.Errorf("benchmark process teardown: %w", err)
+		}
+		// Process exit and kernel socket release are not atomic. Confirm that
+		// benchmark-owned listeners have closed before returning to the caller.
+		if err := waitForBenchmarkPortsClosed(report, 2*time.Second); err != nil {
+			return BenchmarkResult{}, fmt.Errorf("benchmark process teardown: %w", err)
+		}
 	}
 
 	latency := time.Since(start).Milliseconds()
@@ -232,6 +239,30 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 			SafetyAdvantage:   safetyAdvantage,
 		},
 	}, nil
+}
+
+// waitForBenchmarkPortsClosed is a bounded shutdown confirmation, not a test
+// or filesystem-cleanup retry. A listener that remains open is a teardown error.
+func waitForBenchmarkPortsClosed(report intelligence.ExecutionReport, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for _, proc := range report.ActiveProcesses {
+		if proc.Port <= 0 {
+			continue
+		}
+		address := net.JoinHostPort("127.0.0.1", fmt.Sprint(proc.Port))
+		for {
+			conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
+			if err != nil {
+				break
+			}
+			conn.Close()
+			if time.Now().After(deadline) {
+				return fmt.Errorf("process listener %s remains open after termination", address)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	return nil
 }
 
 // RunBuiltinSuite runs the benchmark evaluation suite across canonical repository archetypes.

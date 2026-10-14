@@ -359,9 +359,9 @@ func (p *shellProcess) Stop() error {
 }
 
 func (p *shellProcess) GracefulStop(timeout time.Duration) error {
-	err := gracefulStopShellProcess(p.cmd, p.waitDone, timeout)
-	p.closeLog()
-	return err
+	// The wait goroutine closes the log before signaling completion. Do not
+	// close it here while cmd.Wait may still be draining output.
+	return gracefulStopShellProcess(p.cmd, p.waitDone, timeout)
 }
 
 func (p *shellProcess) Pid() int {
