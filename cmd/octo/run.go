@@ -321,7 +321,7 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 			All:  allFlag,
 		})
 		if err != nil {
-			return err
+			return selectionFailure(jsonOutput, "invalid_selection", err, model)
 		}
 		selection = sel
 	} else {
@@ -344,7 +344,7 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 			}
 			selection = sel
 		} else {
-			return fmt.Errorf("multiple runnable targets detected; specify --only <target> or --all in non-interactive mode.\nAvailable targets:\n%s", intelligence.FormatAvailableTargets(model))
+			return selectionFailure(jsonOutput, "selection_required", fmt.Errorf("multiple runnable targets detected; specify --only <target> or --all in non-interactive mode.\nAvailable targets:\n%s", intelligence.FormatAvailableTargets(model)), model)
 		}
 	}
 
@@ -765,4 +765,41 @@ func printExecutionReport(report intelligence.ExecutionReport) {
 			}
 		}
 	}
+}
+
+// reportedError is an error whose details were already written to stdout as
+// structured JSON; main must not print it again.
+type reportedError struct{ err error }
+
+func (e reportedError) Error() string { return e.err.Error() }
+func (e reportedError) Unwrap() error { return e.err }
+
+type selectionErrorJSON struct {
+	Success bool               `json:"success"`
+	Error   selectionErrorBody `json:"error"`
+}
+
+type selectionErrorBody struct {
+	Code             string   `json:"code"`
+	Message          string   `json:"message"`
+	AvailableTargets []string `json:"available_targets,omitempty"`
+}
+
+// selectionFailure returns err unchanged for human output. With --json it
+// writes a structured error object to stdout and returns a reportedError so the
+// exit code stays non-zero without extra plain-text noise.
+func selectionFailure(jsonOutput bool, code string, err error, model intelligence.ProjectModel) error {
+	if !jsonOutput {
+		return err
+	}
+	body := selectionErrorBody{Code: code, Message: err.Error()}
+	for _, target := range intelligence.RunnableTargets(model) {
+		body.AvailableTargets = append(body.AvailableTargets, target.ID.String())
+	}
+	data, marshalErr := json.MarshalIndent(selectionErrorJSON{Success: false, Error: body}, "", "  ")
+	if marshalErr != nil {
+		return err
+	}
+	fmt.Println(string(data))
+	return reportedError{err: err}
 }

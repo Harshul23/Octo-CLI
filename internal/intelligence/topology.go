@@ -126,7 +126,8 @@ func BuildTopologyGraph(model ProjectModel) (TopologyGraph, error) {
 	for _, service := range services {
 		from := topologyID(NodeService, service.Name)
 		for _, dep := range service.DependsOn {
-			target := topologyID(NodeService, dep)
+			// Accept both bare ("postgres") and typed ("service:postgres") IDs.
+			target := topologyID(NodeService, strings.TrimPrefix(dep, string(NodeService)+":"))
 			evidence := dependencyEvidence(nodeEvidence[from], dep, "Service dependency is explicitly declared in the Compose configuration.")
 			if err := addEdge(from, target, RelationshipDependsOn, 0.99, evidence); err != nil {
 				return TopologyGraph{}, fmt.Errorf("service %q: %w", service.Name, err)

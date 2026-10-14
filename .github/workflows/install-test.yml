@@ -1,35 +1,45 @@
 name: Install Test
 
+# Events created with GITHUB_TOKEN (such as a release published by the Release
+# workflow) do not start new workflow runs, so a `release: published` trigger
+# never fires for our own releases. Instead we use:
+#   - workflow_run: starts after the Release workflow completes successfully
+#   - workflow_dispatch: manual run with an explicit tag
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to test (e.g. v1.2.2; defaults to latest)'
-        required: false
-        default: ''
+        description: 'Release tag to test (e.g. v1.2.3). Required.'
+        required: true
 
 jobs:
   resolve-tag:
     name: Resolve Release Tag
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     outputs:
       tag: ${{ steps.get-tag.outputs.tag }}
     steps:
       - name: Determine target release tag
         id: get-tag
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          TAG="${{ inputs.tag }}"
           if [ -z "$TAG" ]; then
-            REDIRECT_URL="$(curl -fssIL -o /dev/null -w '%{url_effective}' "https://github.com/Octo-sh/Octo-CLI/releases/latest" 2>/dev/null || true)"
-            TAG="$(basename "$REDIRECT_URL" 2>/dev/null || true)"
+            # workflow_run: the Release workflow runs on the tag ref
+            TAG="${{ github.event.workflow_run.head_branch }}"
           fi
-          if [ -z "$TAG" ] || [ "$TAG" = "latest" ]; then
-            TAG="$(curl -fsSL "https://api.github.com/repos/Octo-sh/Octo-CLI/releases/latest" 2>/dev/null | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)"
-          fi
-          if [ -z "$TAG" ]; then
-            echo "Error: Unable to resolve release tag" >&2
+          case "$TAG" in
+            v[0-9]*) ;;
+            *)
+              echo "Error: '$TAG' is not a release tag (expected vX.Y.Z)" >&2
+              exit 1
+              ;;
+          esac
+          if ! curl -fsSLI -o /dev/null "https://github.com/Octo-sh/Octo-CLI/releases/tag/$TAG"; then
+            echo "Error: release $TAG does not exist" >&2
             exit 1
           fi
           echo "Resolved release tag: $TAG"
@@ -42,7 +52,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, macos-13, ubuntu-latest, windows-latest]
+        include:
+          - os: macos-latest   # Apple Silicon
+          - os: macos-15-intel # Intel
+          - os: ubuntu-latest
+          - os: windows-latest
     env:
       TAG: ${{ needs.resolve-tag.outputs.tag }}
       OCTO_VERSION: ${{ needs.resolve-tag.outputs.tag }}
@@ -87,7 +101,13 @@ jobs:
     steps:
       - name: Tap repository, install octo, and verify version
         run: |
-          brew tap Octo-sh/tap && brew install octo && octo --version
+          brew tap Octo-sh/tap
+          FORMULA_VERSION="$(brew info --json=v1 Octo-sh/tap/octo | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["versions"]["stable"])')"
+          if [ "v$FORMULA_VERSION" != "$TAG" ] && [ "$FORMULA_VERSION" != "$TAG" ]; then
+            echo "Error: tap formula is at $FORMULA_VERSION, expected $TAG. Bump the tap first." >&2
+            exit 1
+          fi
+          brew install Octo-sh/tap/octo
           VERSION_OUTPUT="$(octo --version)"
           echo "octo --version output: $VERSION_OUTPUT"
           TAG_CLEAN="${TAG#v}"
@@ -113,7 +133,13 @@ jobs:
               $env:Path = "$scoopShim;$env:Path"
               echo "$scoopShim" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           }
-          scoop install https://raw.githubusercontent.com/Octo-sh/Octo-CLI/main/bucket/octo.json
+          $manifestUrl = "https://raw.githubusercontent.com/Octo-sh/Octo-CLI/main/bucket/octo.json"
+          $manifest = Invoke-RestMethod $manifestUrl
+          if ("v$($manifest.version)" -ne $env:TAG -and $manifest.version -ne $env:TAG) {
+              Write-Error "Scoop manifest is at $($manifest.version), expected $($env:TAG). Bump the manifest first."
+              exit 1
+          }
+          scoop install $manifestUrl
           $versionOutput = octo --version
           Write-Host "octo --version output: $versionOutput"
           $cleanTag = $env:TAG.TrimStart('v')

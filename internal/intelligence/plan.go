@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -146,7 +147,7 @@ func (d DeterministicPlanner) Plan(ctx context.Context, model ProjectModel) (Exe
 				provisionID := prefix + ".provision"
 				steps = append(steps, ExecutionStep{
 					ID: provisionID, Component: component.Name, NodeID: nodeID, Phase: PhaseProvision,
-					Command: "command -v " + requirement.Name, WorkDir: compWorkDir,
+					Command: provisionCheckCommand(requirement.Name), WorkDir: compWorkDir,
 					DependsOn: []string{prepareID},
 					Explanation: "Verify the required package manager is available before installation.",
 				})
@@ -640,4 +641,12 @@ func isComponentServiceWrapper(service Service, components []Component) bool {
 	}
 	return false
 }
+
+func provisionCheckCommand(name string) string {
+	if runtime.GOOS == "windows" {
+		return "where " + name
+	}
+	return "command -v " + name
+}
+
 

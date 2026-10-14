@@ -105,7 +105,7 @@ type recordingAdapterForReport struct {
 	executed []ExecutionStep
 }
 
-func (a *recordingAdapterForReport) Name() string { return "recording" }
+func (a *recordingAdapterForReport) Name() string                     { return "recording" }
 func (a *recordingAdapterForReport) Supports(step ExecutionStep) bool { return true }
 func (a *recordingAdapterForReport) Execute(_ context.Context, step ExecutionStep, env ResolvedEnvironment) error {
 	a.executed = append(a.executed, step)
@@ -119,7 +119,6 @@ func (a *recordingAdapterForReport) Execute(_ context.Context, step ExecutionSte
 	a.seen[step.ID] = values
 	return nil
 }
-
 
 func TestExecutePlanReportFallsBackToNextEvidenceBackedCandidate(t *testing.T) {
 	adapter := &fallbackAdapterForReport{}
@@ -162,7 +161,7 @@ func TestExecutePlanReportFallsBackToNextEvidenceBackedCandidate(t *testing.T) {
 
 type fallbackAdapterForReport struct{}
 
-func (a *fallbackAdapterForReport) Name() string { return "fallback-test" }
+func (a *fallbackAdapterForReport) Name() string                     { return "fallback-test" }
 func (a *fallbackAdapterForReport) Supports(step ExecutionStep) bool { return step.Command != "" }
 func (a *fallbackAdapterForReport) Execute(_ context.Context, step ExecutionStep, _ ResolvedEnvironment) error {
 	if step.Command == "bad-command" {
@@ -175,7 +174,7 @@ type mockStartableAdapter struct {
 	startedProcess *mockRunningProcess
 }
 
-func (m *mockStartableAdapter) Name() string { return "mock-startable" }
+func (m *mockStartableAdapter) Name() string                     { return "mock-startable" }
 func (m *mockStartableAdapter) Supports(step ExecutionStep) bool { return step.Command != "" }
 func (m *mockStartableAdapter) Execute(_ context.Context, step ExecutionStep, _ ResolvedEnvironment) error {
 	if step.Command == "failing-command" {
@@ -202,7 +201,7 @@ func (p *mockRunningProcess) Stop() error {
 func (p *mockRunningProcess) GracefulStop(_ time.Duration) error {
 	return p.Stop()
 }
-func (p *mockRunningProcess) Pid() int { return p.pid }
+func (p *mockRunningProcess) Pid() int      { return p.pid }
 func (p *mockRunningProcess) IsAlive() bool { return !p.stopped }
 
 func TestExecutePlanReportDetachedMode(t *testing.T) {
@@ -395,5 +394,50 @@ func TestExecutePlanReportAppendsPassthroughArgs(t *testing.T) {
 	}
 }
 
+// Stop must use the live adapter handle and join its wait path, not a saved PID.
+func TestStopActiveProcessesUsesRuntimeHandleAndWaits(t *testing.T) {
+	process := &teardownRecordingProcess{}
+	report := ExecutionReport{
+		ActiveProcesses:  []ActiveProcess{{PID: 0}},
+		runningProcesses: []RunningProcess{process},
+	}
+	if err := StopActiveProcesses(report); err != nil {
+		t.Fatal(err)
+	}
+	if !process.stopped || !process.waited {
+		t.Fatalf("stop=%v wait=%v", process.stopped, process.waited)
+	}
+}
 
+type teardownRecordingProcess struct {
+	stopped, waited bool
+	stopErr         error
+}
 
+func (p *teardownRecordingProcess) Pid() int                         { return 0 }
+func (p *teardownRecordingProcess) Stop() error                      { p.stopped = true; return p.stopErr }
+func (p *teardownRecordingProcess) GracefulStop(time.Duration) error { return p.Stop() }
+func (p *teardownRecordingProcess) Wait() error {
+	if !p.stopped {
+		return fmt.Errorf("Wait called before Stop")
+	}
+	p.waited = true
+	return fmt.Errorf("expected killed-process exit status")
+}
+
+func TestStopActiveProcessesReportsStopFailure(t *testing.T) {
+	process := &teardownRecordingProcess{stopErr: fmt.Errorf("tree termination failed")}
+	err := StopActiveProcesses(ExecutionReport{runningProcesses: []RunningProcess{process}})
+	if err == nil {
+		t.Fatal("expected teardown error")
+	}
+	if process.waited {
+		t.Fatal("must not block in Wait after a failed Stop")
+	}
+}
+
+func TestStopActiveProcessesRejectsPIDOnlyReport(t *testing.T) {
+	if err := StopActiveProcesses(ExecutionReport{ActiveProcesses: []ActiveProcess{{PID: 4242}}}); err == nil {
+		t.Fatal("PID metadata cannot provide safe adapter teardown")
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Octo-sh/Octo-CLI/internal/benchmark"
+	"github.com/spf13/cobra"
 )
 
 func getFreePort(t *testing.T) int {
@@ -38,7 +39,7 @@ func TestBenchmarkCommandSingleRepo(t *testing.T) {
 	serverCode := fmt.Sprintf(`const http = require('http');
 const port = process.env.PORT || %d;
 const server = http.createServer((req, res) => { res.writeHead(200); res.end('OK'); });
-server.listen(port, () => {});
+server.listen(port, '0.0.0.0', () => {});
 process.on('SIGTERM', () => process.exit(0));
 process.on('SIGINT', () => process.exit(0));`, port)
 	if err := os.WriteFile(filepath.Join(root, "server.js"), []byte(serverCode), 0644); err != nil {
@@ -63,7 +64,7 @@ process.on('SIGINT', () => process.exit(0));`, port)
 	}
 
 	if !res.OctoScore.OneShotSuccess {
-		t.Fatal("expected Octo OneShotSuccess to be true")
+		t.Fatalf("expected Octo OneShotSuccess to be true; diagnostics: %+v", res.Diagnostics)
 	}
 	if res.OctoScore.HallucinationRate != 0.0 {
 		t.Fatalf("expected 0.0 hallucination rate, got %v", res.OctoScore.HallucinationRate)
@@ -118,5 +119,21 @@ func TestBenchmarkCommandHumanOutput(t *testing.T) {
 	}
 	if !strings.Contains(output, "100.0%") {
 		t.Fatalf("expected 100.0%% pass rate in output, got:\n%s", output)
+	}
+}
+
+func TestBenchmarkFailureReasonInHumanOutput(t *testing.T) {
+	result := benchmark.BenchmarkResult{Diagnostics: &benchmark.ExecutionDiagnostics{FailureReason: "npm install failed: exit status 1"}}
+	cmd := &cobra.Command{}
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	renderSingleResult(cmd, result)
+	if !strings.Contains(out.String(), result.Diagnostics.FailureReason) {
+		t.Fatalf("missing failure reason: %s", out.String())
+	}
+	out.Reset()
+	renderSuiteReport(cmd, benchmark.BenchmarkSuiteReport{Results: []benchmark.BenchmarkResult{result}})
+	if !strings.Contains(out.String(), result.Diagnostics.FailureReason) {
+		t.Fatalf("missing suite failure reason: %s", out.String())
 	}
 }

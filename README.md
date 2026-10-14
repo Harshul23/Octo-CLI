@@ -67,7 +67,7 @@ scoop install octo
 scoop install https://raw.githubusercontent.com/Octo-sh/Octo-CLI/main/bucket/octo.json
 ```
 
-### 5. Go Install (Any Platform with Go 1.22+)
+### 5. Go Install (Any Platform with Go 1.25.6+)
 Build and install from source:
 ```bash
 go install github.com/Octo-sh/Octo-CLI/cmd/octo@latest

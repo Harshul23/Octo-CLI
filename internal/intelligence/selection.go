@@ -559,6 +559,7 @@ func ResolveSelectionTargets(model ProjectModel, requested []TargetID) (Resolved
 	}
 	filteredModel.CustomVerification = filteredChecks
 
+	filteredModel.Environment.Variables = filterEnvironmentVariables(model.Environment.Variables, model.Components, selectedComponents)
 	filteredModel.Environment.Resolutions = ResolveEnvironmentBindings(filteredModel)
 
 	return ResolvedSelection{
@@ -579,4 +580,55 @@ func isServiceWrappingComponent(svc Service, comp Component) bool {
 	buildPath := filepath.Clean(svc.Build)
 	compPath := filepath.Clean(comp.Path)
 	return buildPath == compPath || (compPath == "." && (buildPath == "." || buildPath == ""))
+}
+
+// filterEnvironmentVariables drops variable sources that belong to components
+// omitted from the selection, and drops variables left with no source. Sources
+// outside every component (root or shared files) and source-less legacy
+// variables are kept. Without this, an omitted component's required variable
+// would be reinterpreted as a root requirement.
+func filterEnvironmentVariables(variables []EnvironmentVariable, all, selected []Component) []EnvironmentVariable {
+	if len(variables) == 0 || len(all) == len(selected) {
+		return variables
+	}
+	selectedPaths := make(map[string]bool, len(selected))
+	for _, c := range selected {
+		selectedPaths[filepath.ToSlash(filepath.Clean(c.Path))] = true
+	}
+	owner := func(source string) (string, bool) {
+		source = filepath.ToSlash(filepath.Clean(source))
+		best := ""
+		for _, c := range all {
+			path := filepath.ToSlash(filepath.Clean(c.Path))
+			if path == "" || path == "." {
+				continue
+			}
+			if source == path || strings.HasPrefix(source, path+"/") {
+				if len(path) > len(best) {
+					best = path
+				}
+			}
+		}
+		return best, best != ""
+	}
+	out := make([]EnvironmentVariable, 0, len(variables))
+	for _, v := range variables {
+		if len(v.Sources) == 0 {
+			out = append(out, v)
+			continue
+		}
+		kept := make([]string, 0, len(v.Sources))
+		for _, src := range v.Sources {
+			if path, ok := owner(src); ok && !selectedPaths[path] {
+				continue
+			}
+			kept = append(kept, src)
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		v.Sources = kept
+		out = append(out, v)
+	}
+	return out
 }

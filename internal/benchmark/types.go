@@ -2,16 +2,19 @@ package benchmark
 
 import (
 	"time"
+
+	"github.com/Octo-sh/Octo-CLI/internal/intelligence"
 )
 
 // BenchmarkResult records the autonomous evaluation metrics for a single repository.
 type BenchmarkResult struct {
-	Repository     string            `json:"repository"`
-	Archetype      string            `json:"archetype"`
-	Timestamp      time.Time         `json:"timestamp"`
-	OctoScore      ScoreMetrics      `json:"octo_score"`
-	BaselineScore  ScoreMetrics      `json:"baseline_score"`
-	Comparison     ComparisonMetrics `json:"comparison"`
+	Repository    string                `json:"repository"`
+	Archetype     string                `json:"archetype"`
+	Timestamp     time.Time             `json:"timestamp"`
+	OctoScore     ScoreMetrics          `json:"octo_score"`
+	BaselineScore ScoreMetrics          `json:"baseline_score"`
+	Comparison    ComparisonMetrics     `json:"comparison"`
+	Diagnostics   *ExecutionDiagnostics `json:"diagnostics,omitempty"`
 }
 
 // ScoreMetrics captures execution efficiency, reliability, and safety.
@@ -45,4 +48,13 @@ type BenchmarkSuiteReport struct {
 	AvgLatencyMs               int64             `json:"avg_latency_ms"`
 	ZeroHallucinationConfirmed bool              `json:"zero_hallucination_confirmed"`
 	Results                    []BenchmarkResult `json:"results"`
+}
+
+// ExecutionDiagnostics preserves failed execution evidence without serializing
+// the project model, environment, or entire execution plan.
+type ExecutionDiagnostics struct {
+	FailureReason string                             `json:"failure_reason"`
+	ContextError  string                             `json:"context_error,omitempty"`
+	Steps         []intelligence.ExecutionStepResult `json:"steps,omitempty"`
+	Verification  []intelligence.VerificationResult  `json:"verification,omitempty"`
 }

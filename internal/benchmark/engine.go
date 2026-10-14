@@ -13,6 +13,85 @@ import (
 	"github.com/Octo-sh/Octo-CLI/internal/intelligence"
 )
 
+// SetupBudget bounds the prepare, provision, install and setup phases of a
+// benchmark execution. StartBudget bounds the start phase and the readiness
+// verification that follows it. They are variables so tests and callers can
+// tune them; the shared 10 second budget they replace was too small for a
+// Windows runner, where npm install alone took 7 seconds or more.
+var (
+	SetupBudget = 5 * time.Minute
+	StartBudget = 30 * time.Second
+)
+
+func isSetupPhase(p intelligence.ExecutionPhase) bool {
+	switch p {
+	case intelligence.PhasePrepare, intelligence.PhaseProvision, intelligence.PhaseInstall, intelligence.PhaseSetup:
+		return true
+	}
+	return false
+}
+
+// splitPlanByPhase returns one plan with only setup-phase steps and one with
+// the remaining steps. Dependencies on steps that live in the other plan are
+// dropped, because the setup plan always runs to completion first.
+func splitPlanByPhase(plan intelligence.ExecutionPlan) (setup, start intelligence.ExecutionPlan) {
+	setup, start = plan, plan
+	setup.Steps, start.Steps = nil, nil
+	inSetup := map[string]bool{}
+	for _, st := range plan.Steps {
+		inSetup[st.ID] = isSetupPhase(st.Phase)
+	}
+	for _, st := range plan.Steps {
+		var deps []string
+		for _, d := range st.DependsOn {
+			if inSetup[d] == inSetup[st.ID] {
+				deps = append(deps, d)
+			}
+		}
+		st.DependsOn = deps
+		if inSetup[st.ID] {
+			setup.Steps = append(setup.Steps, st)
+		} else {
+			start.Steps = append(start.Steps, st)
+		}
+	}
+	// The setup plan starts nothing, so it has no ports to probe.
+	setup.Ports = nil
+	return setup, start
+}
+
+// executeWithPhaseBudgets runs the setup phases under SetupBudget and then the
+// start phases under StartBudget. The returned context is the start-phase
+// context, to be used for readiness verification; the caller must call cancel.
+// The final error is the setup-phase context error when setup failed.
+func executeWithPhaseBudgets(ctx context.Context, model intelligence.ProjectModel, plan intelligence.ExecutionPlan, resolver intelligence.RuntimeResolver, env intelligence.ResolvedEnvironment, opts intelligence.ExecutionOptions) (intelligence.ExecutionReport, context.Context, context.CancelFunc, error) {
+	setupPlan, startPlan := splitPlanByPhase(plan)
+
+	var setupReport intelligence.ExecutionReport
+	if len(setupPlan.Steps) > 0 {
+		setupCtx, setupCancel := context.WithTimeout(ctx, SetupBudget)
+		// Verification belongs to the start phase, so the setup run sees a model
+		// without services or custom checks.
+		setupModel := model
+		setupModel.Services = nil
+		setupModel.CustomVerification = nil
+		setupReport = intelligence.ExecutePlanReportWithOptions(setupCtx, setupModel, setupPlan, resolver, env, opts)
+		setupErr := setupCtx.Err()
+		setupCancel()
+		if !setupReport.Success {
+			setupReport.Plan = plan
+			return setupReport, ctx, func() {}, setupErr
+		}
+	}
+
+	startCtx, startCancel := context.WithTimeout(ctx, StartBudget)
+	startReport := intelligence.ExecutePlanReportWithOptions(startCtx, model, startPlan, resolver, env, opts)
+	startReport.Plan = plan
+	startReport.Steps = append(append([]intelligence.ExecutionStepResult(nil), setupReport.Steps...), startReport.Steps...)
+	startReport.Decisions = append(append([]intelligence.DecisionTraceEntry(nil), setupReport.Decisions...), startReport.Decisions...)
+	return startReport, startCtx, startCancel, nil
+}
+
 func getFreePort() int {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -55,26 +134,35 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 	})
 	env, _ := intelligence.ResolveProjectEnvironment(repoPath, model)
 
-	execCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
+	// Installation and setup can legitimately take minutes on a cold CI runner
+	// (for example npm on Windows), so they get their own generous budget.
+	// Startup and readiness verification keep a separate, tighter budget so a
+	// hung server is still reported as a failure.
 	opts := intelligence.ExecutionOptions{
 		Detach: true,
 		Silent: true,
 	}
 
-	report := intelligence.ExecutePlanReportWithOptions(execCtx, model, plan, resolver, env, opts)
+	report, execCtx, cancel, phaseErr := executeWithPhaseBudgets(ctx, model, plan, resolver, env, opts)
+	defer cancel()
 
 	// Perform live readiness verification checks against active ports/sockets
 	var checkResults []intelligence.VerificationResult
 	var verifyErr error
-	if len(checks) > 0 {
+	if report.Success && len(checks) > 0 {
 		checkResults, verifyErr = intelligence.Verify(execCtx, checks)
 	}
 
 	// Clean process teardown: never orphan background processes or hold ports
 	if len(report.ActiveProcesses) > 0 {
-		intelligence.StopActiveProcesses(report)
+		if err := intelligence.StopActiveProcesses(report); err != nil {
+			return BenchmarkResult{}, fmt.Errorf("benchmark process teardown: %w", err)
+		}
+		// Process exit and kernel socket release are not atomic. Confirm that
+		// benchmark-owned listeners have closed before returning to the caller.
+		if err := waitForBenchmarkPortsClosed(report, 2*time.Second); err != nil {
+			return BenchmarkResult{}, fmt.Errorf("benchmark process teardown: %w", err)
+		}
 	}
 
 	latency := time.Since(start).Milliseconds()
@@ -91,7 +179,12 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 	}
 
 	realSuccess := report.Success && (len(checks) == 0 || (verifyErr == nil && allChecksPassed))
-	verifiedReadiness := len(checks) > 0 && verifyErr == nil && allChecksPassed
+	verifiedReadiness := report.Success && len(checks) > 0 && verifyErr == nil && allChecksPassed
+	contextErr := phaseErr
+	if contextErr == nil {
+		contextErr = execCtx.Err()
+	}
+	diagnostics := failedExecutionDiagnostics(report, checkResults, verifyErr, contextErr)
 
 	octoScore := ScoreMetrics{
 		OneShotSuccess:       realSuccess,
@@ -135,6 +228,7 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 
 	return BenchmarkResult{
 		Repository:    filepath.Base(repoPath),
+		Diagnostics:   diagnostics,
 		Archetype:     archetype,
 		Timestamp:     time.Now(),
 		OctoScore:     octoScore,
@@ -145,6 +239,30 @@ func EvaluateRepository(ctx context.Context, repoPath, archetype string) (Benchm
 			SafetyAdvantage:   safetyAdvantage,
 		},
 	}, nil
+}
+
+// waitForBenchmarkPortsClosed is a bounded shutdown confirmation, not a test
+// or filesystem-cleanup retry. A listener that remains open is a teardown error.
+func waitForBenchmarkPortsClosed(report intelligence.ExecutionReport, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for _, proc := range report.ActiveProcesses {
+		if proc.Port <= 0 {
+			continue
+		}
+		address := net.JoinHostPort("127.0.0.1", fmt.Sprint(proc.Port))
+		for {
+			conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
+			if err != nil {
+				break
+			}
+			conn.Close()
+			if time.Now().After(deadline) {
+				return fmt.Errorf("process listener %s remains open after termination", address)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	return nil
 }
 
 // RunBuiltinSuite runs the benchmark evaluation suite across canonical repository archetypes.
@@ -171,7 +289,7 @@ func RunBuiltinSuite(ctx context.Context) (BenchmarkSuiteReport, error) {
 				serverCode := fmt.Sprintf(`const http = require('http');
 const port = process.env.PORT || %d;
 const server = http.createServer((req, res) => { res.writeHead(200); res.end('OK'); });
-server.listen(port, () => {});
+server.listen(port, '0.0.0.0', () => {});
 process.on('SIGTERM', () => process.exit(0));
 process.on('SIGINT', () => process.exit(0));`, port)
 				return os.WriteFile(filepath.Join(dir, "server.js"), []byte(serverCode), 0644)
@@ -240,7 +358,7 @@ verification:
 				workerCode := fmt.Sprintf(`const http = require('http');
 const port = process.env.PORT || %d;
 const server = http.createServer((req, res) => { res.writeHead(200); res.end('OK'); });
-server.listen(port, () => {});
+server.listen(port, '0.0.0.0', () => {});
 process.on('SIGTERM', () => process.exit(0));
 process.on('SIGINT', () => process.exit(0));`, port)
 				return os.WriteFile(filepath.Join(dir, "worker.js"), []byte(workerCode), 0644)
@@ -306,7 +424,7 @@ const server = http.createServer((req, res) => {
   if (req.url === '/health') { res.writeHead(200); res.end('OK'); }
   else { res.writeHead(404); res.end('Not Found'); }
 });
-server.listen(%d, () => {});
+server.listen(%d, '0.0.0.0', () => {});
 process.on('SIGTERM', () => process.exit(0));
 process.on('SIGINT', () => process.exit(0));`, port)
 				_ = os.WriteFile(filepath.Join(dir, "custom.js"), []byte(customJS), 0644)
@@ -411,7 +529,7 @@ func simulateRawAgentBaseline(model intelligence.ProjectModel, plan intelligence
 	// 1. Run `ls -la` and `cat` manifests (150-300 tokens)
 	// 2. Propose trial command; often fails if dependencies/Compose are unstarted
 	// 3. Receive failure, read logs, retry
-	estimatedTokens := 1800 // Typical multi-turn agent context consumption for startup trial-and-error
+	estimatedTokens := 1800  // Typical multi-turn agent context consumption for startup trial-and-error
 	latencyMs := int64(3500) // Multi-turn roundtrip latency
 
 	oneShot := true
@@ -443,4 +561,42 @@ func simulateRawAgentBaseline(model intelligence.ProjectModel, plan intelligence
 		PortConflictsAvoided: 0,
 		EvidenceSignals:      1,
 	}
+}
+
+func failedExecutionDiagnostics(report intelligence.ExecutionReport, checks []intelligence.VerificationResult, verifyErr, contextErr error) *ExecutionDiagnostics {
+	if report.Success && verifyErr == nil {
+		allPassed := true
+		for _, check := range checks {
+			if !check.Passed {
+				allPassed = false
+			}
+		}
+		if allPassed {
+			return nil
+		}
+	}
+	d := &ExecutionDiagnostics{
+		FailureReason: report.FailureReason,
+		Steps:         append([]intelligence.ExecutionStepResult(nil), report.Steps...),
+		Verification:  append([]intelligence.VerificationResult(nil), report.Verification...),
+	}
+	d.Verification = append(d.Verification, checks...)
+	if d.FailureReason == "" && verifyErr != nil {
+		d.FailureReason = verifyErr.Error()
+	}
+	if d.FailureReason == "" {
+		for _, check := range checks {
+			if !check.Passed {
+				d.FailureReason = fmt.Sprintf("verification %q failed: %s", check.CheckID, check.Reason)
+				break
+			}
+		}
+	}
+	if d.FailureReason == "" {
+		d.FailureReason = "execution did not succeed"
+	}
+	if contextErr != nil {
+		d.ContextError = contextErr.Error()
+	}
+	return d
 }

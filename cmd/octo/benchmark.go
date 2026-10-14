@@ -98,6 +98,9 @@ func renderSuiteReport(cmd *cobra.Command, report benchmark.BenchmarkSuiteReport
 			res.Comparison.TokenReductionPct,
 			res.Comparison.SafetyAdvantage,
 		)
+		if res.Diagnostics != nil {
+			fmt.Fprintf(out, "    Failure: %s\n", res.Diagnostics.FailureReason)
+		}
 	}
 	fmt.Fprintln(out)
 }
@@ -136,6 +139,10 @@ func renderSingleResult(cmd *cobra.Command, res benchmark.BenchmarkResult) {
 	fmt.Fprintf(out, "  %-24s %-20s %-20s\n", "Planning Latency",
 		fmt.Sprintf("%d ms", res.OctoScore.LatencyMs),
 		fmt.Sprintf("%d ms", res.BaselineScore.LatencyMs))
+
+	if res.Diagnostics != nil {
+		fmt.Fprintf(out, "\nExecution failure: %s\n", res.Diagnostics.FailureReason)
+	}
 
 	fmt.Fprintln(out, "\n💡 Key Advantages (vs Estimated Baseline):")
 	fmt.Fprintf(out, "  • Context Token Reduction: %s (estimated)\n", ui.SuccessStyle.Render(fmt.Sprintf("%.1f%%", res.Comparison.TokenReductionPct)))

@@ -66,6 +66,9 @@ components:
 		blockCh:   blockCh,
 	}
 	intelligence.RegisterRuntimeAdapter(adapter)
+	t.Cleanup(func() {
+		intelligence.UnregisterRuntimeAdapter(adapter)
+	})
 
 	done := make(chan error, 1)
 	go func() {
@@ -127,7 +130,7 @@ type testBlockingStartableAdapter struct {
 
 func (a *testBlockingStartableAdapter) Name() string { return "test-blocking" }
 func (a *testBlockingStartableAdapter) Supports(step intelligence.ExecutionStep) bool {
-	return true
+	return step.Component == "test-app"
 }
 func (a *testBlockingStartableAdapter) Execute(_ context.Context, _ intelligence.ExecutionStep, _ intelligence.ResolvedEnvironment) error {
 	return nil
