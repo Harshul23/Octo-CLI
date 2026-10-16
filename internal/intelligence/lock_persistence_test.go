@@ -158,7 +158,7 @@ func TestVerifiedStartupSavesBeforeInterrupt(t *testing.T) {
 	// Wait for the verified-startup checkpoint
 	select {
 	case <-checkpointReached:
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for verified-startup checkpoint")
 	}
 

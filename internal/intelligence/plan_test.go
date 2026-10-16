@@ -13,8 +13,8 @@ func TestDeterministicPlannerCreatesStableSingleComponentPlan(t *testing.T) {
 		SetupCommand: "npm run build",
 		Components: []Component{{
 			Name: "demo", Path: ".", Language: "Node",
-			PackageManager: "pnpm", RunCommand: "pnpm dev",
-			ExecutionCandidates: []ExecutionCandidate{{ID: "node.script.dev", Command: "pnpm dev", Confidence: 0.82}},
+			PackageManager: "pnpm", RunCommand: "pnpm build",
+			ExecutionCandidates: []ExecutionCandidate{{ID: "node.script.build", Command: "pnpm build", Confidence: 0.82}},
 		}},
 	}
 
@@ -31,7 +31,7 @@ func TestDeterministicPlannerCreatesStableSingleComponentPlan(t *testing.T) {
 		t.Fatalf("unexpected topology nodes: %+v", plan.Topology.Nodes)
 	}
 	start := findExecutionStep(plan, "component.demo.start")
-	if start == nil || start.SelectedCandidate != "node.script.dev" || len(start.Candidates) != 1 {
+	if start == nil || start.SelectedCandidate != "node.script.build" || len(start.Candidates) != 1 {
 		t.Fatalf("start candidates=%+v", start)
 	}
 	if start.LongRunning {
@@ -343,6 +343,148 @@ func TestInstallCommandPipUsesVirtualenv(t *testing.T) {
 	}
 	if npmCmd := installCommand("npm"); npmCmd != "npm install" {
 		t.Fatalf("expected npm install, got %q", npmCmd)
+	}
+}
+
+func TestPortlessDevServersMarkedLongRunning(t *testing.T) {
+	tests := []struct {
+		name        string
+		component   Component
+		wantLongRun bool
+	}{
+		{
+			name: "Flask",
+			component: Component{
+				Name: "flask-demo", Path: ".", Language: "Python",
+				Framework: "Flask", PackageManager: "pip",
+				RunCommand: ".venv/bin/python -m flask run",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "python.flask", Command: ".venv/bin/python -m flask run", Confidence: 0.95},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "FastAPI",
+			component: Component{
+				Name: "fastapi-demo", Path: ".", Language: "Python",
+				Framework: "FastAPI", PackageManager: "pip",
+				RunCommand: ".venv/bin/python -m uvicorn app.main:app",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "python.fastapi.app", Command: ".venv/bin/python -m uvicorn app.main:app", Confidence: 0.95},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "gunicorn",
+			component: Component{
+				Name: "wsgi-demo", Path: ".", Language: "Python",
+				RunCommand: "gunicorn app:app",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "python.gunicorn", Command: "gunicorn app:app", Confidence: 0.9},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "http.server",
+			component: Component{
+				Name: "http-server-demo", Path: ".", Language: "Python",
+				RunCommand: "python -m http.server 8000",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "python.entry", Command: "python -m http.server 8000", Confidence: 0.8},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "one-shot python entry guard",
+			component: Component{
+				Name: "cli-tool", Path: ".", Language: "Python",
+				RunCommand: "python main.py",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "python.entry", Command: "python main.py", Confidence: 0.75},
+				},
+			},
+			wantLongRun: false,
+		},
+		{
+			name: "pnpm dev",
+			component: Component{
+				Name: "node-dev-app", Path: ".", Language: "Node",
+				PackageManager: "pnpm", RunCommand: "pnpm dev",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "node.script.dev", Command: "pnpm dev", Confidence: 0.82},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "npm start",
+			component: Component{
+				Name: "node-start-app", Path: ".", Language: "Node",
+				PackageManager: "npm", RunCommand: "npm start",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "node.script.start", Command: "npm start", Confidence: 0.94},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "vite",
+			component: Component{
+				Name: "vite-app", Path: ".", Language: "Node",
+				RunCommand: "vite dev",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "node.entry", Command: "vite dev", Confidence: 0.8},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "node server.js",
+			component: Component{
+				Name: "node-server-app", Path: ".", Language: "Node",
+				RunCommand: "node server.js",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "node.entry", Command: "node server.js", Confidence: 0.8},
+				},
+			},
+			wantLongRun: false,
+		},
+		{
+			name: "pnpm build",
+			component: Component{
+				Name: "node-build-app", Path: ".", Language: "Node",
+				PackageManager: "pnpm", RunCommand: "pnpm build",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "node.script.build", Command: "pnpm build", Confidence: 0.82},
+				},
+			},
+			wantLongRun: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			model := ProjectModel{
+				Name:       tc.component.Name,
+				Root:       "/tmp/test",
+				Components: []Component{tc.component},
+			}
+			plan, err := (DeterministicPlanner{}).Plan(context.Background(), model)
+			if err != nil {
+				t.Fatalf("unexpected plan error: %v", err)
+			}
+			startStep := findExecutionStep(plan, "component."+tc.component.Name+".start")
+			if startStep == nil {
+				t.Fatalf("start step not found in plan: %+v", plan.Steps)
+			}
+			if startStep.LongRunning != tc.wantLongRun {
+				t.Errorf("step %s LongRunning = %v, want %v", startStep.ID, startStep.LongRunning, tc.wantLongRun)
+			}
+		})
 	}
 }
 

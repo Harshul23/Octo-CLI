@@ -2,9 +2,11 @@ package intelligence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -520,4 +522,153 @@ func TestExecutePlanReportGoComponentCrashesDuringLiveness(t *testing.T) {
 		t.Fatalf("expected FailureClassPortConflict, got %q", report.Failures[0].Classification)
 	}
 }
+
+func TestVerifyProcessLiveness(t *testing.T) {
+	t.Run("alive through window", func(t *testing.T) {
+		proc := &mockGoExitingProcess{alive: true}
+		window := 60 * time.Millisecond
+		start := time.Now()
+		err := verifyProcessLiveness(context.Background(), proc, window)
+		elapsed := time.Since(start)
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if elapsed < 40*time.Millisecond {
+			t.Fatalf("expected to wait approximately full window, took %v", elapsed)
+		}
+	})
+
+	t.Run("dies non-zero mid-window", func(t *testing.T) {
+		proc := &mockGoExitingProcess{
+			alive:   false,
+			waitErr: fmt.Errorf("exit status 1"),
+			output:  "fatal: syntax error on line 42",
+		}
+		err := verifyProcessLiveness(context.Background(), proc, 100*time.Millisecond)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "fatal: syntax error on line 42") {
+			t.Fatalf("expected recent output in error, got %q", err.Error())
+		}
+		if errors.Is(err, ErrProcessExitedCleanly) {
+			t.Fatal("expected non-clean exit error")
+		}
+	})
+
+	t.Run("exits 0 mid-window", func(t *testing.T) {
+		proc := &mockGoExitingProcess{
+			alive:   false,
+			waitErr: nil,
+		}
+		err := verifyProcessLiveness(context.Background(), proc, 100*time.Millisecond)
+		if !errors.Is(err, ErrProcessExitedCleanly) {
+			t.Fatalf("expected ErrProcessExitedCleanly, got %v", err)
+		}
+	})
+}
+
+func TestExecutePlanReportPortlessProcessExitsCleanly(t *testing.T) {
+	proc := &mockGoExitingProcess{
+		alive:   false,
+		waitErr: nil,
+	}
+	adapter := &mockGoStartableAdapter{proc: proc}
+
+	model := ProjectModel{
+		Name:     "tool",
+		Language: "Node",
+		Components: []Component{{
+			Name:       "tool",
+			Path:       ".",
+			Language:   "Node",
+			RunCommand: "npm run start",
+		}},
+	}
+	plan := ExecutionPlan{
+		ProjectName: "tool",
+		Steps: []ExecutionStep{{
+			ID:          "component.tool.start",
+			Component:   "tool",
+			NodeID:      "component:tool",
+			Phase:       PhaseStart,
+			Command:     "npm run start",
+			LongRunning: true,
+		}},
+	}
+
+	report := ExecutePlanReportWithOptions(
+		context.Background(),
+		model,
+		plan,
+		RuntimeResolver{adapters: []RuntimeAdapter{adapter}},
+		ResolvedEnvironment{Values: map[string]string{}},
+		ExecutionOptions{},
+	)
+
+	if !report.Success {
+		t.Fatalf("expected report.Success = true, got failure: %s", report.FailureReason)
+	}
+	if len(report.ActiveProcesses) != 0 {
+		t.Fatalf("expected 0 active processes for clean-exited process, got %d", len(report.ActiveProcesses))
+	}
+	foundCleanNote := false
+	for _, note := range report.Notes {
+		if strings.Contains(note, "exited cleanly (code 0) during the startup window") {
+			foundCleanNote = true
+			break
+		}
+	}
+	if !foundCleanNote {
+		t.Fatalf("expected clean exit note in report.Notes, got %+v", report.Notes)
+	}
+}
+
+func TestExecutePlanReportPortlessProcessExitsNonZero(t *testing.T) {
+	proc := &mockGoExitingProcess{
+		alive:   false,
+		waitErr: fmt.Errorf("exit status 1"),
+		output:  "Vite dev server failed to resolve entrypoint",
+	}
+	adapter := &mockGoStartableAdapter{proc: proc}
+
+	model := ProjectModel{
+		Name:     "frontend",
+		Language: "Node",
+		Components: []Component{{
+			Name:       "frontend",
+			Path:       ".",
+			Language:   "Node",
+			RunCommand: "pnpm dev",
+		}},
+	}
+	plan := ExecutionPlan{
+		ProjectName: "frontend",
+		Steps: []ExecutionStep{{
+			ID:          "component.frontend.start",
+			Component:   "frontend",
+			NodeID:      "component:frontend",
+			Phase:       PhaseStart,
+			Command:     "pnpm dev",
+			LongRunning: true,
+		}},
+	}
+
+	report := ExecutePlanReportWithOptions(
+		context.Background(),
+		model,
+		plan,
+		RuntimeResolver{adapters: []RuntimeAdapter{adapter}},
+		ResolvedEnvironment{Values: map[string]string{}},
+		ExecutionOptions{},
+	)
+
+	if report.Success {
+		t.Fatal("expected report.Success to be false for process that failed during startup window")
+	}
+	if !strings.Contains(report.FailureReason, "Vite dev server failed to resolve entrypoint") {
+		t.Fatalf("expected recent output in failure reason, got %q", report.FailureReason)
+	}
+}
+
 
