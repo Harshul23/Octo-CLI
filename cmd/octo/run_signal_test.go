@@ -49,7 +49,6 @@ components:
 	cmd.Flags().Bool("sandbox", false, "")
 	cmd.Flags().Bool("json", true, "")
 	cmd.Flags().Bool("no-tui", true, "")
-	cmd.Flags().Bool("select", false, "")
 	cmd.Flags().Bool("skip-env-check", true, "")
 	cmd.Flags().Bool("skip-env", true, "")
 

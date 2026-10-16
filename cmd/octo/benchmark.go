@@ -16,7 +16,8 @@ var benchmarkCmd = &cobra.Command{
 	Short:   "Benchmark autonomous execution reliability and token efficiency against raw shell baselines",
 	Long: `Benchmark autonomous agent execution against raw shell interaction.
 Measures Pass@1 reliability, hallucination rate, token consumption, and readiness verification.`,
-	Args: cobra.MaximumNArgs(1),
+	Hidden: true,
+	Args:   cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		suiteFlag, err := cmd.Flags().GetBool("suite")
 		if err != nil {
