@@ -53,6 +53,9 @@ jobs:
           test -n "$ok" || { echo "Flask app never served on :5000"; cat "$RUNNER_TEMP/flask.log"; kill -INT $OCTO_PID 2>/dev/null || true; exit 1; }
           test -d "$DEMO/.venv" || { echo "No .venv created"; exit 1; }
           "$DEMO/.venv/bin/python" -c 'import flask' || { echo "flask not installed inside .venv"; exit 1; }
+          # Port-less starts are verified after a ~3s stability window and the
+          # lock is written at that checkpoint, so wait for it before interrupting.
+          for i in $(seq 1 30); do [ -f "$DEMO/.octo.lock" ] && break; sleep 1; done
           kill -INT $OCTO_PID 2>/dev/null || true
           wait $OCTO_PID 2>/dev/null || true
           # The lock is written at the verified-startup checkpoint, so it must
