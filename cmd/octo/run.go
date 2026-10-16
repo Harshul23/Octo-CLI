@@ -579,6 +579,10 @@ func printExecutionReport(report intelligence.ExecutionReport) {
 		}
 	}
 
+	for _, note := range report.Notes {
+		fmt.Println(ui.Muted.Render(note))
+	}
+
 	if report.Success || report.VerifiedStartup {
 		seenPortless := make(map[string]bool)
 		for _, proc := range report.ActiveProcesses {

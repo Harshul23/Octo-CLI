@@ -133,6 +133,7 @@ type ExecutionReport struct {
 	Decisions         []DecisionTraceEntry  `json:"decisions,omitempty" yaml:"decisions,omitempty"`
 	ActiveProcesses   []ActiveProcess       `json:"active_processes,omitempty" yaml:"active_processes,omitempty"`
 	OwnedServices     []string              `json:"owned_services,omitempty" yaml:"owned_services,omitempty"`
+	Notes             []string              `json:"notes,omitempty" yaml:"notes,omitempty"`
 	TeardownPerformed bool                  `json:"teardown_performed,omitempty" yaml:"teardown_performed,omitempty"`
 	VerifiedStartup   bool                  `json:"verified_startup" yaml:"verified_startup"`
 	Success           bool                  `json:"success" yaml:"success"`
@@ -149,6 +150,7 @@ type VerifiedStartupResult struct {
 	Decisions       []DecisionTraceEntry  `json:"decisions,omitempty" yaml:"decisions,omitempty"`
 	ActiveProcesses []ActiveProcess       `json:"active_processes,omitempty" yaml:"active_processes,omitempty"`
 	OwnedServices   []string              `json:"owned_services,omitempty" yaml:"owned_services,omitempty"`
+	Notes           []string              `json:"notes,omitempty" yaml:"notes,omitempty"`
 }
 
 // StartupResult returns an immutable snapshot of the verified startup state.
@@ -163,6 +165,8 @@ func (r ExecutionReport) StartupResult() VerifiedStartupResult {
 	copy(procs, r.ActiveProcesses)
 	owned := make([]string, len(r.OwnedServices))
 	copy(owned, r.OwnedServices)
+	notes := make([]string, len(r.Notes))
+	copy(notes, r.Notes)
 	return VerifiedStartupResult{
 		ProjectName:     r.ProjectName,
 		Confidence:      r.Confidence,
@@ -172,6 +176,7 @@ func (r ExecutionReport) StartupResult() VerifiedStartupResult {
 		Decisions:       decisions,
 		ActiveProcesses: procs,
 		OwnedServices:   owned,
+		Notes:           notes,
 	}
 }
 
@@ -292,6 +297,13 @@ func executeStep(ctx context.Context, adapter RuntimeAdapter, step ExecutionStep
 	return fmt.Errorf("health check %q still failing after %d attempts: %w", step.ID, retries, lastErr)
 }
 
+// ErrProcessExitedCleanly indicates that a process exited with exit status 0 during the stability window.
+var ErrProcessExitedCleanly = errors.New("process exited cleanly with code 0")
+
+// portlessStabilityWindow trades ~3s of startup latency for catching early crashes
+// (e.g. late import errors, compilation failures, or immediate exit) across all port-less services.
+const portlessStabilityWindow = 3 * time.Second
+
 func verifyProcessLiveness(ctx context.Context, process RunningProcess, duration time.Duration) error {
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
@@ -309,6 +321,9 @@ func verifyProcessLiveness(ctx context.Context, process RunningProcess, duration
 			if la, ok := process.(interface{ IsAlive() bool }); ok {
 				if !la.IsAlive() {
 					err := process.Wait()
+					if err == nil {
+						return ErrProcessExitedCleanly
+					}
 					// shellProcess logs output to .octo/logs/<component>.log and exposes
 					// it via LastOutput(). If available, include recent output so callers
 					// and failure classifiers can detect root causes (e.g. port bind conflicts).
@@ -316,12 +331,7 @@ func verifyProcessLiveness(ctx context.Context, process RunningProcess, duration
 					if lo, ok := process.(interface{ LastOutput() string }); ok {
 						output = lo.LastOutput()
 					}
-					msg := "process exited prematurely"
-					if err != nil {
-						msg = fmt.Sprintf("process exited prematurely: %v", err)
-					} else {
-						msg = "process exited prematurely with code 0"
-					}
+					msg := fmt.Sprintf("process exited prematurely: %v", err)
 					if output != "" {
 						msg = fmt.Sprintf("%s\n%s", msg, output)
 					}
@@ -478,6 +488,7 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 					continue
 				}
 				port := portForComponent(plan.Ports, attempt.Component)
+				cleanExited := false
 				if port > 0 {
 					if err := verifyPortWithProcess(ctx, "127.0.0.1", port, 5*time.Second, process); err != nil {
 						_ = process.Stop()
@@ -500,18 +511,19 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 						continue
 					}
 				} else if attempt.LongRunning {
-					livenessWindow := 200 * time.Millisecond
-					if strings.HasPrefix(strings.TrimSpace(attempt.Command), "go run") {
-						// For Go services started via "go run", compilation takes longer than 200ms.
-						// Extend the liveness window to 3 seconds so startup crashes (e.g. port conflicts)
-						// are caught before declaring execution success.
-						livenessWindow = 3 * time.Second
-					}
-					if err := verifyProcessLiveness(ctx, process, livenessWindow); err != nil {
+					livenessErr := verifyProcessLiveness(ctx, process, portlessStabilityWindow)
+					if errors.Is(livenessErr, ErrProcessExitedCleanly) {
+						cleanExited = true
+						compName := attempt.Component
+						if compName == "" {
+							compName = id
+						}
+						report.Notes = append(report.Notes, fmt.Sprintf("note: %s exited cleanly (code 0) during the startup window; treating it as a finished command, not a server.", compName))
+					} else if livenessErr != nil {
 						_ = process.Stop()
 						_ = process.Wait()
 						result.Status = StepFailed
-						result.Reason = err.Error()
+						result.Reason = livenessErr.Error()
 						for i := len(report.Decisions) - 1; i >= 0; i-- {
 							if report.Decisions[i].Name == "execution."+id && report.Decisions[i].OptionID == candidate.ID {
 								report.Decisions[i].Outcome = "failed"
@@ -519,12 +531,12 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 							}
 						}
 						report.Steps = append(report.Steps, result)
-						classification := ClassifyExecutionFailure("Startup verification failed: "+err.Error(), err)
+						classification := ClassifyExecutionFailure("Startup verification failed: "+livenessErr.Error(), livenessErr)
 						report.Failures = append(report.Failures, ExecutionFailure{
-							StepID: id, CandidateID: candidate.ID, Classification: classification, Reason: err.Error(),
-							Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: fmt.Sprintf("[%s] Startup verification failed: %s", classification, err.Error()), Strength: 1},
+							StepID: id, CandidateID: candidate.ID, Classification: classification, Reason: livenessErr.Error(),
+							Evidence: Evidence{Kind: EvidenceExecutionFailure, Path: id, Detail: fmt.Sprintf("[%s] Startup verification failed: %s", classification, livenessErr.Error()), Strength: 1},
 						})
-						report.FailureReason = err.Error()
+						report.FailureReason = livenessErr.Error()
 						continue
 					}
 				} else {
@@ -550,19 +562,21 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 						}
 					}
 				}
-				if la, ok := process.(interface{ IsAlive() bool }); !ok || la.IsAlive() {
-					running = append(running, process)
-					report.runningProcesses = append(report.runningProcesses, process)
-					pid := 0
-					if p, ok := process.(interface{ Pid() int }); ok {
-						pid = p.Pid()
+				if !cleanExited {
+					if la, ok := process.(interface{ IsAlive() bool }); !ok || la.IsAlive() {
+						running = append(running, process)
+						report.runningProcesses = append(report.runningProcesses, process)
+						pid := 0
+						if p, ok := process.(interface{ Pid() int }); ok {
+							pid = p.Pid()
+						}
+						report.ActiveProcesses = append(report.ActiveProcesses, ActiveProcess{
+							StepID:    id,
+							Component: attempt.Component,
+							PID:       pid,
+							Port:      port,
+						})
 					}
-					report.ActiveProcesses = append(report.ActiveProcesses, ActiveProcess{
-						StepID:    id,
-						Component: attempt.Component,
-						PID:       pid,
-						Port:      port,
-					})
 				}
 			} else if err := executeStep(ctx, adapter, attempt, stepEnv, healthCheckForStep(model, attempt)); err != nil {
 				if isComposeStart && canClaimOwnership && !hasOwnedService(ownedServicesMap, composeSvc) {
@@ -638,6 +652,7 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 		checkpointReport.Decisions = append([]DecisionTraceEntry(nil), report.Decisions...)
 		checkpointReport.ActiveProcesses = append([]ActiveProcess(nil), report.ActiveProcesses...)
 		checkpointReport.OwnedServices = append([]string(nil), report.OwnedServices...)
+		checkpointReport.Notes = append([]string(nil), report.Notes...)
 
 		if err := opts.OnVerifiedStartup(checkpointReport); err != nil {
 			report.FailureReason = fmt.Sprintf("verified-startup hook failed: %v", err)

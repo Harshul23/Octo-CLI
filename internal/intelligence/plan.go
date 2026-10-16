@@ -502,6 +502,7 @@ func isLongRunningComponent(component *Component, command string, hasPort bool) 
 	devServerTokens := []string{
 		"flask run", "uvicorn", "gunicorn", "http.server", "streamlit run",
 		"rails server", "artisan serve", "nodemon", "manage.py runserver",
+		"vite", "next dev", "nuxt", "ng serve", "astro dev", "remix dev",
 	}
 	for _, tok := range devServerTokens {
 		if strings.Contains(cmdLower, tok) {
@@ -533,6 +534,14 @@ func isLongRunningComponent(component *Component, command string, hasPort bool) 
 	for _, candidate := range component.ExecutionCandidates {
 		if candidate.Command == command {
 			idLower := strings.ToLower(candidate.ID)
+			if strings.HasPrefix(idLower, "node.script.") {
+				scriptName := strings.TrimPrefix(idLower, "node.script.")
+				for _, allowed := range []string{"dev", "start", "serve", "preview", "watch"} {
+					if scriptName == allowed {
+						return true
+					}
+				}
+			}
 			for _, tok := range []string{
 				"worker", "daemon", "queue", "server", "serve",
 				"flask", "fastapi", "uvicorn", "gunicorn", "django",

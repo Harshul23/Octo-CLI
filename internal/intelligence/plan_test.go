@@ -13,8 +13,8 @@ func TestDeterministicPlannerCreatesStableSingleComponentPlan(t *testing.T) {
 		SetupCommand: "npm run build",
 		Components: []Component{{
 			Name: "demo", Path: ".", Language: "Node",
-			PackageManager: "pnpm", RunCommand: "pnpm dev",
-			ExecutionCandidates: []ExecutionCandidate{{ID: "node.script.dev", Command: "pnpm dev", Confidence: 0.82}},
+			PackageManager: "pnpm", RunCommand: "pnpm build",
+			ExecutionCandidates: []ExecutionCandidate{{ID: "node.script.build", Command: "pnpm build", Confidence: 0.82}},
 		}},
 	}
 
@@ -31,7 +31,7 @@ func TestDeterministicPlannerCreatesStableSingleComponentPlan(t *testing.T) {
 		t.Fatalf("unexpected topology nodes: %+v", plan.Topology.Nodes)
 	}
 	start := findExecutionStep(plan, "component.demo.start")
-	if start == nil || start.SelectedCandidate != "node.script.dev" || len(start.Candidates) != 1 {
+	if start == nil || start.SelectedCandidate != "node.script.build" || len(start.Candidates) != 1 {
 		t.Fatalf("start candidates=%+v", start)
 	}
 	if start.LongRunning {
@@ -405,6 +405,61 @@ func TestPortlessDevServersMarkedLongRunning(t *testing.T) {
 				RunCommand: "python main.py",
 				ExecutionCandidates: []ExecutionCandidate{
 					{ID: "python.entry", Command: "python main.py", Confidence: 0.75},
+				},
+			},
+			wantLongRun: false,
+		},
+		{
+			name: "pnpm dev",
+			component: Component{
+				Name: "node-dev-app", Path: ".", Language: "Node",
+				PackageManager: "pnpm", RunCommand: "pnpm dev",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "node.script.dev", Command: "pnpm dev", Confidence: 0.82},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "npm start",
+			component: Component{
+				Name: "node-start-app", Path: ".", Language: "Node",
+				PackageManager: "npm", RunCommand: "npm start",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "node.script.start", Command: "npm start", Confidence: 0.94},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "vite",
+			component: Component{
+				Name: "vite-app", Path: ".", Language: "Node",
+				RunCommand: "vite dev",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "node.entry", Command: "vite dev", Confidence: 0.8},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "node server.js",
+			component: Component{
+				Name: "node-server-app", Path: ".", Language: "Node",
+				RunCommand: "node server.js",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "node.entry", Command: "node server.js", Confidence: 0.8},
+				},
+			},
+			wantLongRun: false,
+		},
+		{
+			name: "pnpm build",
+			component: Component{
+				Name: "node-build-app", Path: ".", Language: "Node",
+				PackageManager: "pnpm", RunCommand: "pnpm build",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "node.script.build", Command: "pnpm build", Confidence: 0.82},
 				},
 			},
 			wantLongRun: false,
