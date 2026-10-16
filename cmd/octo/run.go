@@ -579,6 +579,22 @@ func printExecutionReport(report intelligence.ExecutionReport) {
 		}
 	}
 
+	if report.Success || report.VerifiedStartup {
+		seenPortless := make(map[string]bool)
+		for _, proc := range report.ActiveProcesses {
+			if proc.Port == 0 {
+				name := proc.Component
+				if name == "" {
+					name = proc.StepID
+				}
+				if !seenPortless[name] {
+					seenPortless[name] = true
+					fmt.Println(ui.Muted.Render(fmt.Sprintf("note: no port was discoverable for %s; startup verification means the process stayed alive, not that it responds to HTTP.", name)))
+				}
+			}
+		}
+	}
+
 	if len(report.Decisions) > 0 {
 		fmt.Println()
 		fmt.Println(ui.HeadingStyle.Render("Decision trace"))

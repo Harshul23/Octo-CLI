@@ -1,0 +1,108 @@
+name: macOS Smoke
+
+# Functional smoke test for `octo run` on a real Mac runner.
+# Unit tests (Test workflow) and install checks (Install Test workflow) do not
+# exercise a real run on macOS; this does. Safe to add: it introduces a new
+# workflow and does not change any existing job names required by the ruleset.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  macos-smoke:
+    name: macOS run smoke (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build Octo
+        run: go build -o "$RUNNER_TEMP/octo" ./cmd/octo
+
+      # Homebrew Python on macOS is PEP 668 externally-managed, exactly the
+      # case the .venv fix targets. This proves a pip-based Flask repo gets a
+      # .venv, installs inside it, and serves on a real Mac.
+      # It also exercises the port-less dev-server fix: `flask run` has no
+      # discoverable port, and without the fix octo hangs in the start step,
+      # never reaches verified startup and never writes .octo.lock (the curl
+      # and .venv checks below pass either way, because Flask itself serves
+      # fine while octo is stuck - only the lock check catches the hang).
+      # Note: on personal Macs, AirPlay Receiver can hold port 5000
+      # (System Settings > AirDrop & Handoff). GitHub runners are unaffected.
+      - name: Flask .venv smoke (PEP 668 Homebrew Python)
+        run: |
+          set -e
+          DEMO="$RUNNER_TEMP/flask-demo"
+          mkdir -p "$DEMO"
+          printf 'from flask import Flask\napp = Flask(__name__)\n\n@app.route("/")\ndef hello():\n    return "Hello from macOS"\n' > "$DEMO/app.py"
+          printf 'flask\n' > "$DEMO/requirements.txt"
+          "$RUNNER_TEMP/octo" run "$DEMO" --no-tui > "$RUNNER_TEMP/flask.log" 2>&1 &
+          OCTO_PID=$!
+          ok=""
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:5000/ > /dev/null 2>&1; then ok=1; break; fi
+            sleep 2
+          done
+          test -n "$ok" || { echo "Flask app never served on :5000"; cat "$RUNNER_TEMP/flask.log"; kill -INT $OCTO_PID 2>/dev/null || true; exit 1; }
+          test -d "$DEMO/.venv" || { echo "No .venv created"; exit 1; }
+          "$DEMO/.venv/bin/python" -c 'import flask' || { echo "flask not installed inside .venv"; exit 1; }
+          kill -INT $OCTO_PID 2>/dev/null || true
+          wait $OCTO_PID 2>/dev/null || true
+          # The lock is written at the verified-startup checkpoint, so it must
+          # exist even though we interrupted.
+          test -f "$DEMO/.octo.lock" || { echo "No .octo.lock: octo never reached verified startup (port-less start-step hang?)"; cat "$RUNNER_TEMP/flask.log"; exit 1; }
+          grep -q "Wrap-up complete" "$RUNNER_TEMP/flask.log" || { echo "octo did not report a clean wrap-up after Ctrl+C"; cat "$RUNNER_TEMP/flask.log"; exit 1; }
+          echo "Flask served from .venv on macOS"
+
+      # Go app with a literal port exercises source port discovery, the
+      # verified-startup checkpoint and the .octo.lock write on macOS.
+      - name: Go literal-port + .octo.lock smoke
+        run: |
+          set -e
+          DEMO="$RUNNER_TEMP/go-demo"
+          mkdir -p "$DEMO"
+          printf 'module demo\n\ngo 1.23\n' > "$DEMO/go.mod"
+          printf 'package main\n\nimport (\n\t"fmt"\n\t"net/http"\n)\n\nfunc main() {\n\thttp.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "ok") })\n\t_ = http.ListenAndServe(":18080", nil)\n}\n' > "$DEMO/main.go"
+          "$RUNNER_TEMP/octo" run "$DEMO" --no-tui > "$RUNNER_TEMP/go.log" 2>&1 &
+          OCTO_PID=$!
+          ok=""
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:18080/ > /dev/null 2>&1; then ok=1; break; fi
+            sleep 2
+          done
+          test -n "$ok" || { echo "Go app never served on :18080"; cat "$RUNNER_TEMP/go.log"; kill -INT $OCTO_PID 2>/dev/null || true; exit 1; }
+          kill -INT $OCTO_PID 2>/dev/null || true
+          wait $OCTO_PID 2>/dev/null || true
+          test -f "$DEMO/.octo.lock" || { echo "No .octo.lock written after verified startup"; cat "$RUNNER_TEMP/go.log"; exit 1; }
+          echo "Go app verified and .octo.lock written on macOS"
+
+      # With the port already taken, octo must fail and must never print
+      # "Execution verified successfully".
+      - name: Go port-conflict must fail
+        run: |
+          set -e
+          DEMO="$RUNNER_TEMP/go-demo-busy"
+          mkdir -p "$DEMO"
+          printf 'module demobusy\n\ngo 1.23\n' > "$DEMO/go.mod"
+          printf 'package main\n\nimport (\n\t"fmt"\n\t"net/http"\n)\n\nfunc main() {\n\thttp.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "ok") })\n\t_ = http.ListenAndServe(":18081", nil)\n}\n' > "$DEMO/main.go"
+          python3 -m http.server 18081 > /dev/null 2>&1 &
+          BLOCKER_PID=$!
+          sleep 2
+          set +e
+          "$RUNNER_TEMP/octo" run "$DEMO" --no-tui > "$RUNNER_TEMP/busy.log" 2>&1
+          CODE=$?
+          set -e
+          kill $BLOCKER_PID 2>/dev/null || true
+          cat "$RUNNER_TEMP/busy.log"
+          test $CODE -ne 0 || { echo "octo exited 0 despite the port conflict"; exit 1; }
+          if grep -q "Execution verified successfully" "$RUNNER_TEMP/busy.log"; then
+            echo "octo printed a false success despite the port conflict"; exit 1
+          fi
+          echo "Port conflict correctly reported as failure on macOS"

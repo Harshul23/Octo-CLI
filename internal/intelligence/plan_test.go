@@ -346,3 +346,90 @@ func TestInstallCommandPipUsesVirtualenv(t *testing.T) {
 	}
 }
 
+func TestPortlessDevServersMarkedLongRunning(t *testing.T) {
+	tests := []struct {
+		name        string
+		component   Component
+		wantLongRun bool
+	}{
+		{
+			name: "Flask",
+			component: Component{
+				Name: "flask-demo", Path: ".", Language: "Python",
+				Framework: "Flask", PackageManager: "pip",
+				RunCommand: ".venv/bin/python -m flask run",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "python.flask", Command: ".venv/bin/python -m flask run", Confidence: 0.95},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "FastAPI",
+			component: Component{
+				Name: "fastapi-demo", Path: ".", Language: "Python",
+				Framework: "FastAPI", PackageManager: "pip",
+				RunCommand: ".venv/bin/python -m uvicorn app.main:app",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "python.fastapi.app", Command: ".venv/bin/python -m uvicorn app.main:app", Confidence: 0.95},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "gunicorn",
+			component: Component{
+				Name: "wsgi-demo", Path: ".", Language: "Python",
+				RunCommand: "gunicorn app:app",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "python.gunicorn", Command: "gunicorn app:app", Confidence: 0.9},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "http.server",
+			component: Component{
+				Name: "http-server-demo", Path: ".", Language: "Python",
+				RunCommand: "python -m http.server 8000",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "python.entry", Command: "python -m http.server 8000", Confidence: 0.8},
+				},
+			},
+			wantLongRun: true,
+		},
+		{
+			name: "one-shot python entry guard",
+			component: Component{
+				Name: "cli-tool", Path: ".", Language: "Python",
+				RunCommand: "python main.py",
+				ExecutionCandidates: []ExecutionCandidate{
+					{ID: "python.entry", Command: "python main.py", Confidence: 0.75},
+				},
+			},
+			wantLongRun: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			model := ProjectModel{
+				Name:       tc.component.Name,
+				Root:       "/tmp/test",
+				Components: []Component{tc.component},
+			}
+			plan, err := (DeterministicPlanner{}).Plan(context.Background(), model)
+			if err != nil {
+				t.Fatalf("unexpected plan error: %v", err)
+			}
+			startStep := findExecutionStep(plan, "component."+tc.component.Name+".start")
+			if startStep == nil {
+				t.Fatalf("start step not found in plan: %+v", plan.Steps)
+			}
+			if startStep.LongRunning != tc.wantLongRun {
+				t.Errorf("step %s LongRunning = %v, want %v", startStep.ID, startStep.LongRunning, tc.wantLongRun)
+			}
+		})
+	}
+}
+

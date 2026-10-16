@@ -498,6 +498,17 @@ func isLongRunningComponent(component *Component, command string, hasPort bool) 
 	nameLower := strings.ToLower(component.Name)
 	pathLower := strings.ToLower(component.Path)
 
+	// Known dev-server / WSGI / ASGI commands
+	devServerTokens := []string{
+		"flask run", "uvicorn", "gunicorn", "http.server", "streamlit run",
+		"rails server", "artisan serve", "nodemon", "manage.py runserver",
+	}
+	for _, tok := range devServerTokens {
+		if strings.Contains(cmdLower, tok) {
+			return true
+		}
+	}
+
 	// Framework dev servers or watch scripts
 	if component.Framework != "" {
 		for _, devToken := range []string{"dev", "start", "serve", "server", "watch"} {
@@ -522,7 +533,10 @@ func isLongRunningComponent(component *Component, command string, hasPort bool) 
 	for _, candidate := range component.ExecutionCandidates {
 		if candidate.Command == command {
 			idLower := strings.ToLower(candidate.ID)
-			for _, tok := range []string{"worker", "daemon", "queue", "server", "serve"} {
+			for _, tok := range []string{
+				"worker", "daemon", "queue", "server", "serve",
+				"flask", "fastapi", "uvicorn", "gunicorn", "django",
+			} {
 				if strings.Contains(idLower, tok) && !strings.HasPrefix(idLower, "node.script.") {
 					return true
 				}
