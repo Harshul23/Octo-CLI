@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/Octo-sh/Octo-CLI/internal/intelligence"
@@ -265,6 +266,47 @@ func waitForBenchmarkPortsClosed(report intelligence.ExecutionReport, timeout ti
 	return nil
 }
 
+type pythonCandidate struct {
+	name string
+	cmd  string
+	args []string
+}
+
+func findWorkingPythonInterpreter(ctx context.Context) (string, error) {
+	candidates := []pythonCandidate{
+		{name: "python3", cmd: "python3"},
+		{name: "python", cmd: "python"},
+	}
+	if runtime.GOOS == "windows" {
+		candidates = append(candidates, pythonCandidate{
+			name: "py -3",
+			cmd:  "py",
+			args: []string{"-3"},
+		})
+	}
+	return findWorkingPythonInterpreterFromCandidates(ctx, candidates)
+}
+
+func findWorkingPythonInterpreterFromCandidates(ctx context.Context, candidates []pythonCandidate) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for _, c := range candidates {
+		if _, err := exec.LookPath(c.cmd); err != nil {
+			continue
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		args := append(append([]string(nil), c.args...), "--version")
+		cmd := exec.CommandContext(checkCtx, c.cmd, args...)
+		err := cmd.Run()
+		cancel()
+		if err == nil {
+			return c.name, nil
+		}
+	}
+	return "", fmt.Errorf("no working python interpreter found")
+}
+
 // RunBuiltinSuite runs the benchmark evaluation suite across canonical repository archetypes.
 func RunBuiltinSuite(ctx context.Context) (BenchmarkSuiteReport, error) {
 	tempRoot, err := os.MkdirTemp("", "octo-benchmark-*")
@@ -272,6 +314,17 @@ func RunBuiltinSuite(ctx context.Context) (BenchmarkSuiteReport, error) {
 		return BenchmarkSuiteReport{}, err
 	}
 	defer os.RemoveAll(tempRoot)
+
+	var workingPython string
+	var pythonChecked bool
+	var pythonErr error
+	getPython := func() (string, error) {
+		if !pythonChecked {
+			pythonChecked = true
+			workingPython, pythonErr = findWorkingPythonInterpreter(ctx)
+		}
+		return workingPython, pythonErr
+	}
 
 	fixtures := []struct {
 		name         string
@@ -322,6 +375,7 @@ func main() {
 			archetype:    "Python API Service",
 			requiredTool: "python3",
 			setup: func(dir string) error {
+				pyCmd, _ := getPython()
 				port := getFreePort()
 				_ = os.MkdirAll(filepath.Join(dir, "app"), 0755)
 				pyCode := fmt.Sprintf(`import http.server, os, socketserver, signal, sys
@@ -338,13 +392,13 @@ with socketserver.TCPServer(("", port), Handler) as httpd:
 				octoYAML := fmt.Sprintf(`spec: octo.dev/v1
 components:
   api:
-    run_command: "python3 app/main.py"
+    run_command: "%s app/main.py"
     port: %d
 verification:
   - component: api
     kind: port
     port: %d
-`, port, port)
+`, pyCmd, port, port)
 				return os.WriteFile(filepath.Join(dir, ".octo.yaml"), []byte(octoYAML), 0644)
 			},
 		},
@@ -378,6 +432,7 @@ process.on('SIGINT', () => process.exit(0));`, port)
 			archetype:    "Python Background Worker",
 			requiredTool: "python3",
 			setup: func(dir string) error {
+				pyCmd, _ := getPython()
 				port := getFreePort()
 				workerPy := fmt.Sprintf(`import http.server, os, socketserver, signal, sys
 port = int(os.environ.get("PORT", %d))
@@ -393,13 +448,13 @@ with socketserver.TCPServer(("", port), Handler) as httpd:
 				octoYAML := fmt.Sprintf(`spec: octo.dev/v1
 components:
   worker:
-    run_command: "python3 worker.py"
+    run_command: "%s worker.py"
     port: %d
 verification:
   - component: worker
     kind: port
     port: %d
-`, port, port)
+`, pyCmd, port, port)
 				return os.WriteFile(filepath.Join(dir, ".octo.yaml"), []byte(octoYAML), 0644)
 			},
 		},
@@ -458,7 +513,12 @@ verification:
 	totalLatency := int64(0)
 
 	for _, f := range fixtures {
-		if f.requiredTool != "" {
+		if f.requiredTool == "python3" || f.requiredTool == "python" {
+			if _, err := getPython(); err != nil {
+				// Python interpreter not available or non-functional on host environment, skip gracefully
+				continue
+			}
+		} else if f.requiredTool != "" {
 			if _, err := exec.LookPath(f.requiredTool); err != nil {
 				// Toolchain not available on host environment, skip gracefully
 				continue
