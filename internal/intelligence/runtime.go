@@ -262,7 +262,8 @@ func (ShellAdapter) Start(ctx context.Context, step ExecutionStep, env ResolvedE
 		stderrW = pw
 	}
 
-	logFile, err := os.OpenFile(filepath.Join(logDir, logName+".log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	logFilePath := filepath.Join(logDir, logName+".log")
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err == nil {
 		if stdoutW == io.Discard {
 			cmd.Stdout = logFile
@@ -285,6 +286,7 @@ func (ShellAdapter) Start(ctx context.Context, step ExecutionStep, env ResolvedE
 	proc := &shellProcess{
 		cmd:      cmd,
 		logFile:  logFile,
+		logPath:  logFilePath,
 		waitDone: make(chan struct{}),
 	}
 	go func() {
@@ -325,10 +327,28 @@ func (pw *prefixWriter) Write(p []byte) (n int, err error) {
 type shellProcess struct {
 	cmd      *exec.Cmd
 	logFile  *os.File
+	logPath  string
 	waitDone chan struct{}
 	waitErr  error
 	closeMu  sync.Mutex
 	closed   bool
+}
+
+// LastOutput returns the final lines of the process log file if available,
+// aiding failure diagnosis (e.g. port bind collision or compilation panic).
+func (p *shellProcess) LastOutput() string {
+	if p.logPath == "" {
+		return ""
+	}
+	data, err := os.ReadFile(p.logPath)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\r\n"), "\n")
+	if len(lines) > 5 {
+		lines = lines[len(lines)-5:]
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func (p *shellProcess) closeLog() {

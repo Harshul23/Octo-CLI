@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -72,6 +73,95 @@ func TestPythonExecutionCandidateProviderUsesPackageManagerRunner(t *testing.T) 
 	if len(candidates) != 1 { t.Fatalf("candidates=%d, want 1", len(candidates)) }
 	if candidates[0].Command != "uv run python main.py" { t.Fatalf("command=%q, want uv run python main.py", candidates[0].Command) }
 }
+
+func TestPythonExecutionCandidateProviderPipUsesVenvInterpreter(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "requirements.txt"), []byte("flask\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "app.py"), []byte("print('flask app')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Pip with conventional main/app file
+	candidates, err := (PythonExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{
+		Name: "demo", Language: "Python", Path: ".", PackageManager: "pip",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) < 1 {
+		t.Fatalf("expected at least 1 candidate, got %d", len(candidates))
+	}
+	wantPrefix := ".venv/bin/"
+	if runtime.GOOS == "windows" {
+		wantPrefix = `.venv\Scripts\`
+	}
+	wantCmd := wantPrefix + "python app.py"
+	if candidates[0].Command != wantCmd {
+		t.Fatalf("command=%q, want %q", candidates[0].Command, wantCmd)
+	}
+
+	// 2. Pip with Flask framework
+	flaskCandidates, err := (PythonExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{
+		Name: "demo", Language: "Python", Path: ".", PackageManager: "pip", Framework: "Flask",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFlask := wantPrefix + "python -m flask run"
+	foundFlask := false
+	for _, c := range flaskCandidates {
+		if c.Command == wantFlask {
+			foundFlask = true
+			break
+		}
+	}
+	if !foundFlask {
+		t.Fatalf("expected flask command %q in candidates: %+v", wantFlask, flaskCandidates)
+	}
+
+	// 3. Pip with FastAPI
+	fastapiCandidates, err := (PythonExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{
+		Name: "demo", Language: "Python", Path: ".", PackageManager: "pip", Framework: "FastAPI",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFastAPI := wantPrefix + "python -m uvicorn app:app"
+	foundFastAPI := false
+	for _, c := range fastapiCandidates {
+		if c.Command == wantFastAPI {
+			foundFastAPI = true
+			break
+		}
+	}
+	if !foundFastAPI {
+		t.Fatalf("expected fastapi command %q in candidates: %+v", wantFastAPI, fastapiCandidates)
+	}
+
+	// 4. Poetry and Pipenv runners remain unchanged
+	poetryCandidates, err := (PythonExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{
+		Name: "demo", Language: "Python", Path: ".", PackageManager: "poetry",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if poetryCandidates[0].Command != "poetry run python app.py" {
+		t.Fatalf("poetry command=%q, want poetry run python app.py", poetryCandidates[0].Command)
+	}
+
+	pipenvCandidates, err := (PythonExecutionCandidateProvider{}).Candidates(context.Background(), root, Component{
+		Name: "demo", Language: "Python", Path: ".", PackageManager: "pipenv",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pipenvCandidates[0].Command != "pipenv run python app.py" {
+		t.Fatalf("pipenv command=%q, want pipenv run python app.py", pipenvCandidates[0].Command)
+	}
+}
+
 
 
 func TestRustExecutionCandidateProviderUsesCargoRun(t *testing.T) {

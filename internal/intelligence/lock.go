@@ -302,7 +302,10 @@ func ExecutionFingerprint(root string, component Component, candidate ExecutionC
 			continue
 		}
 		full := filepath.Join(root, p)
-		if _, err := os.Stat(full); err == nil {
+		if st, err := os.Stat(full); err == nil {
+			if st.IsDir() {
+				continue
+			}
 			rel, err := filepath.Rel(componentRoot, full)
 			if err == nil && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
 				files[filepath.ToSlash(rel)] = struct{}{}

@@ -2,6 +2,7 @@ package intelligence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -248,10 +249,21 @@ func verifyPortWithProcess(ctx context.Context, host string, port int, timeout t
 	for {
 		if process != nil {
 			if la, ok := process.(interface{ IsAlive() bool }); ok && !la.IsAlive() {
-				if err := process.Wait(); err != nil {
-					return fmt.Errorf("process exited prematurely: %w", err)
+				err := process.Wait()
+				var output string
+				if lo, ok := process.(interface{ LastOutput() string }); ok {
+					output = lo.LastOutput()
 				}
-				return fmt.Errorf("process exited prematurely with code 0")
+				msg := "process exited prematurely"
+				if err != nil {
+					msg = fmt.Sprintf("process exited prematurely: %v", err)
+				} else {
+					msg = "process exited prematurely with code 0"
+				}
+				if output != "" {
+					msg = fmt.Sprintf("%s\n%s", msg, output)
+				}
+				return errors.New(msg)
 			}
 		}
 		dialer := net.Dialer{Timeout: 250 * time.Millisecond}

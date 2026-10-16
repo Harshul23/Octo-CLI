@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -255,6 +256,18 @@ func (PythonExecutionCandidateProvider) Candidates(ctx context.Context, root str
 		runPrefix = "poetry run "
 	case "pipenv":
 		runPrefix = "pipenv run "
+	case "pip":
+		venvDir := ".venv"
+		if _, err := os.Stat(filepath.Join(componentRoot, "venv")); err == nil {
+			if _, errDot := os.Stat(filepath.Join(componentRoot, ".venv")); os.IsNotExist(errDot) {
+				venvDir = "venv"
+			}
+		}
+		if runtime.GOOS == "windows" {
+			runPrefix = venvDir + `\Scripts\`
+		} else {
+			runPrefix = venvDir + "/bin/"
+		}
 	}
 
 	// 1. Django: check for manage.py
@@ -289,6 +302,9 @@ func (PythonExecutionCandidateProvider) Candidates(ctx context.Context, root str
 		for _, entry := range fastapiEntries {
 			if _, err := os.Stat(filepath.Join(componentRoot, entry.relPath)); err == nil {
 				uvicornCmd := runPrefix + "uvicorn " + entry.module
+				if component.PackageManager == "pip" {
+					uvicornCmd = runPrefix + "python -m uvicorn " + entry.module
+				}
 				candidates = append(candidates, ExecutionCandidate{
 					ID:         "python.fastapi." + strings.ReplaceAll(filepath.Dir(entry.relPath), "/", "."),
 					Command:    uvicornCmd,
@@ -310,9 +326,13 @@ func (PythonExecutionCandidateProvider) Candidates(ctx context.Context, root str
 		flaskEntries := []string{"app.py", "wsgi.py", "main.py"}
 		for _, file := range flaskEntries {
 			if _, err := os.Stat(filepath.Join(componentRoot, file)); err == nil {
+				flaskCmd := runPrefix + "flask run"
+				if component.PackageManager == "pip" {
+					flaskCmd = runPrefix + "python -m flask run"
+				}
 				candidates = append(candidates, ExecutionCandidate{
 					ID:         "python.flask",
-					Command:    runPrefix + "flask run",
+					Command:    flaskCmd,
 					Confidence: 0.95,
 					Evidence: []Evidence{{
 						Kind:     EvidenceConfig,

@@ -872,3 +872,70 @@ func indexOf(slice []string, val string) int {
 	}
 	return -1
 }
+
+func TestRecordVerifiedStrategiesWithLockSubComponentDirectoryEvidence(t *testing.T) {
+	root := t.TempDir()
+	chatDir := filepath.Join(root, "services", "realtime-chat")
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chatDir, "go.mod"), []byte("module example.com/chat\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chatDir, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	candidate := ExecutionCandidate{
+		ID:      "go.package",
+		Command: "go run .",
+		Evidence: []Evidence{
+			{Kind: EvidenceConfig, Path: "services/realtime-chat", Detail: "directory path", Strength: 0.96},
+			{Kind: EvidenceSignalFile, Path: "services/realtime-chat/go.mod", Detail: "go.mod", Strength: 0.95},
+		},
+	}
+	component := Component{
+		Name:                "realtime-chat",
+		Path:                "services/realtime-chat",
+		Language:            "Go",
+		ExecutionCandidates: []ExecutionCandidate{candidate},
+	}
+	model := ProjectModel{
+		Name:       "monorepo",
+		Root:       root,
+		Components: []Component{component},
+	}
+	plan := ExecutionPlan{
+		ProjectName: "monorepo",
+		Root:        root,
+		Steps: []ExecutionStep{{
+			ID:                "component.realtime-chat.start",
+			Component:         "realtime-chat",
+			Candidates:        []ExecutionCandidate{candidate},
+			SelectedCandidate: "go.package",
+			Command:           "go run .",
+		}},
+	}
+	report := ExecutionReport{
+		ProjectName:     "monorepo",
+		Success:         true,
+		VerifiedStartup: true,
+		Steps: []ExecutionStepResult{{
+			ID:          "component.realtime-chat.start",
+			Status:      StepSucceeded,
+			CandidateID: "go.package",
+		}},
+	}
+	lock := OctoLock{Project: "monorepo"}
+	updatedLock, err := RecordVerifiedStrategiesWithLock(root, model, plan, report, lock)
+	if err != nil {
+		t.Fatalf("expected RecordVerifiedStrategiesWithLock to succeed with directory evidence, got: %v", err)
+	}
+	if len(updatedLock.Strategies) != 1 {
+		t.Fatalf("expected 1 recorded strategy, got %d", len(updatedLock.Strategies))
+	}
+	if updatedLock.Strategies[0].Candidate != "go.package" {
+		t.Fatalf("expected strategy candidate go.package, got %s", updatedLock.Strategies[0].Candidate)
+	}
+}
+
