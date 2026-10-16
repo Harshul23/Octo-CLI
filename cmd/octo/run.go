@@ -65,11 +65,13 @@ func init() {
 	runCmd.Flags().Bool("skip-env", false, "Alias for --skip-env-check")
 	runCmd.Flags().BoolP("no-tui", "T", false, "Disable TUI dashboard (use plain scrolling output)")
 	runCmd.Flags().BoolP("sandbox", "s", false, "Execute application inside an ephemeral container (Docker/Podman) for environment isolation")
-	runCmd.Flags().BoolP("select", "i", false, "Interactively select which components and services to run")
 	runCmd.Flags().StringArrayP("only", "o", nil, "Run only specific targets (e.g. --only component:web --only service:postgres); repeatable, mutually exclusive with --all")
 	runCmd.Flags().Bool("all", false, "Run all discovered components and services without prompting; mutually exclusive with --only")
 	runCmd.Flags().BoolP("json", "j", false, "Output the ExecutionReport as JSON")
 	runCmd.Flags().Bool("dry-run", false, "Preview machine changes, ports, and execution impact without running (alias for octo preview)")
+
+	_ = runCmd.Flags().MarkHidden("only")
+	_ = runCmd.Flags().MarkHidden("all")
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -136,16 +138,9 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 	onlyFlags, _ := cmd.Flags().GetStringArray("only")
 	allFlag, _ := cmd.Flags().GetBool("all")
 	noTUI, _ := cmd.Flags().GetBool("no-tui")
-	selectComponents, _ := cmd.Flags().GetBool("select")
 	noPortShift, _ := cmd.Flags().GetBool("no-port-shift")
 	portOverride, _ := cmd.Flags().GetInt("port")
 
-	if selectComponents && (len(onlyFlags) > 0 || allFlag) {
-		return fmt.Errorf("cannot combine --select with --only or --all")
-	}
-	if selectComponents && (noTUI || jsonOutput || detach || !ui.InteractiveTerminal()) {
-		return fmt.Errorf("interactive component selection requires an interactive terminal and cannot be used with --detach, --json, or --no-tui")
-	}
 	if len(onlyFlags) > 0 && allFlag {
 		return fmt.Errorf("cannot combine --only and --all; choose either specific targets with --only or use --all")
 	}
@@ -164,7 +159,7 @@ func runWithIntelligence(cmd *cobra.Command, args []string) error {
 		runnable := intelligence.RunnableTargets(model)
 		isInteractive := !noTUI && !jsonOutput && !detach && ui.InteractiveTerminal()
 
-		if len(runnable) <= 1 && !selectComponents {
+		if len(runnable) <= 1 {
 			sel, err := intelligence.ResolveSelection(model, intelligence.SelectionOptions{})
 			if err != nil {
 				return err
