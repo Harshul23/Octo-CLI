@@ -95,6 +95,9 @@ func ClassifyExecutionFailure(reason string, err error) FailureClassification {
 	if strings.Contains(lower, "cannot find module") ||
 		strings.Contains(lower, "modulenotfounderror") ||
 		strings.Contains(lower, "no module named") ||
+		strings.Contains(lower, "python3-venv") ||
+		strings.Contains(lower, "venv module") ||
+		strings.Contains(lower, "ensurepip is not available") ||
 		strings.Contains(lower, "package not found") ||
 		strings.Contains(lower, "command not found") ||
 		strings.Contains(lower, "not installed") ||

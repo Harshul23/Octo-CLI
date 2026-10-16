@@ -309,10 +309,23 @@ func verifyProcessLiveness(ctx context.Context, process RunningProcess, duration
 			if la, ok := process.(interface{ IsAlive() bool }); ok {
 				if !la.IsAlive() {
 					err := process.Wait()
-					if err != nil {
-						return fmt.Errorf("process exited prematurely: %w", err)
+					// shellProcess logs output to .octo/logs/<component>.log and exposes
+					// it via LastOutput(). If available, include recent output so callers
+					// and failure classifiers can detect root causes (e.g. port bind conflicts).
+					var output string
+					if lo, ok := process.(interface{ LastOutput() string }); ok {
+						output = lo.LastOutput()
 					}
-					return fmt.Errorf("process exited prematurely with code 0")
+					msg := "process exited prematurely"
+					if err != nil {
+						msg = fmt.Sprintf("process exited prematurely: %v", err)
+					} else {
+						msg = "process exited prematurely with code 0"
+					}
+					if output != "" {
+						msg = fmt.Sprintf("%s\n%s", msg, output)
+					}
+					return errors.New(msg)
 				}
 			}
 		}
@@ -487,7 +500,14 @@ func ExecutePlanReportWithOptions(ctx context.Context, model ProjectModel, plan 
 						continue
 					}
 				} else if attempt.LongRunning {
-					if err := verifyProcessLiveness(ctx, process, 200*time.Millisecond); err != nil {
+					livenessWindow := 200 * time.Millisecond
+					if strings.HasPrefix(strings.TrimSpace(attempt.Command), "go run") {
+						// For Go services started via "go run", compilation takes longer than 200ms.
+						// Extend the liveness window to 3 seconds so startup crashes (e.g. port conflicts)
+						// are caught before declaring execution success.
+						livenessWindow = 3 * time.Second
+					}
+					if err := verifyProcessLiveness(ctx, process, livenessWindow); err != nil {
 						_ = process.Stop()
 						_ = process.Wait()
 						result.Status = StepFailed

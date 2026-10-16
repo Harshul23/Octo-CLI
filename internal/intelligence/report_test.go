@@ -441,3 +441,83 @@ func TestStopActiveProcessesRejectsPIDOnlyReport(t *testing.T) {
 		t.Fatal("PID metadata cannot provide safe adapter teardown")
 	}
 }
+
+type mockGoExitingProcess struct {
+	alive   bool
+	waitErr error
+	output  string
+}
+
+func (p *mockGoExitingProcess) Pid() int                         { return 9999 }
+func (p *mockGoExitingProcess) Stop() error                      { return nil }
+func (p *mockGoExitingProcess) GracefulStop(time.Duration) error { return nil }
+func (p *mockGoExitingProcess) Wait() error                      { return p.waitErr }
+func (p *mockGoExitingProcess) IsAlive() bool                    { return p.alive }
+func (p *mockGoExitingProcess) LastOutput() string               { return p.output }
+
+type mockGoStartableAdapter struct {
+	proc RunningProcess
+}
+
+func (a *mockGoStartableAdapter) Name() string                     { return "mock-go" }
+func (a *mockGoStartableAdapter) Supports(step ExecutionStep) bool { return true }
+func (a *mockGoStartableAdapter) Execute(ctx context.Context, step ExecutionStep, env ResolvedEnvironment) error {
+	return nil
+}
+func (a *mockGoStartableAdapter) Start(ctx context.Context, step ExecutionStep, env ResolvedEnvironment) (RunningProcess, error) {
+	return a.proc, nil
+}
+
+func TestExecutePlanReportGoComponentCrashesDuringLiveness(t *testing.T) {
+	proc := &mockGoExitingProcess{
+		alive:   false,
+		waitErr: fmt.Errorf("exit status 1"),
+		output:  "listen tcp :8080: bind: address already in use",
+	}
+	adapter := &mockGoStartableAdapter{proc: proc}
+
+	model := ProjectModel{
+		Name:     "backend",
+		Language: "Go",
+		Components: []Component{{
+			Name:       "backend",
+			Path:       ".",
+			Language:   "Go",
+			RunCommand: "go run .",
+		}},
+	}
+	plan := ExecutionPlan{
+		ProjectName: "backend",
+		Steps: []ExecutionStep{{
+			ID:          "component.backend.start",
+			Component:   "backend",
+			NodeID:      "component:backend",
+			Phase:       PhaseStart,
+			Command:     "go run .",
+			LongRunning: true,
+		}},
+	}
+
+	report := ExecutePlanReportWithOptions(
+		context.Background(),
+		model,
+		plan,
+		RuntimeResolver{adapters: []RuntimeAdapter{adapter}},
+		ResolvedEnvironment{Values: map[string]string{}},
+		ExecutionOptions{},
+	)
+
+	if report.Success {
+		t.Fatal("expected report.Success to be false for Go component that crashed during liveness")
+	}
+	if report.FailureReason == "" {
+		t.Fatal("expected report.FailureReason to be set")
+	}
+	if len(report.Failures) == 0 {
+		t.Fatal("expected at least 1 recorded failure")
+	}
+	if report.Failures[0].Classification != FailureClassPortConflict {
+		t.Fatalf("expected FailureClassPortConflict, got %q", report.Failures[0].Classification)
+	}
+}
+

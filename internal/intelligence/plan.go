@@ -365,7 +365,10 @@ func installCommand(packageManager string) string {
 	case "bun":
 		return "bun install"
 	case "pip":
-		return "pip install -r requirements.txt"
+		if runtime.GOOS == "windows" {
+			return `if not exist .venv if not exist venv (python -m venv .venv) && if exist venv\Scripts\python.exe (venv\Scripts\python.exe -m pip install -r requirements.txt) else (.venv\Scripts\python.exe -m pip install -r requirements.txt)`
+		}
+		return `if [ ! -d ".venv" ] && [ ! -d "venv" ]; then (python3 -m venv .venv || python -m venv .venv || { echo "Python virtualenv module (venv) is missing. On Debian/Ubuntu, install python3-venv: sudo apt install python3-venv" >&2; exit 1; }); fi && if [ -d "venv" ] && [ ! -d ".venv" ]; then venv/bin/python -m pip install -r requirements.txt; else .venv/bin/python -m pip install -r requirements.txt; fi`
 	case "uv":
 		return "uv sync"
 	case "poetry":

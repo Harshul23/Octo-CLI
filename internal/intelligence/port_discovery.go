@@ -53,6 +53,14 @@ func discoverComponentPort(root string, component Component, command string) (in
 		}
 	}
 
+	if component.Language == "Go" {
+		if port, evidence, err := discoverGoSourcePort(componentRoot, component.Path); err != nil {
+			return 0, nil, false, err
+		} else if port > 0 {
+			return port, evidence, true, nil
+		}
+	}
+
 	if port, evidence, err := discoverComposePort(root, component); err != nil {
 		return 0, nil, false, err
 	} else if port > 0 {
@@ -250,5 +258,71 @@ func discoverEnvFilePort(root, componentPath string) (int, []Evidence, error) {
 		}
 	}
 	return 0, nil, nil
+}
+
+var goPortPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`ListenAndServe\(\s*"([^"\n:]*:)?(\d{1,5})"`),
+	regexp.MustCompile(`\b[a-zA-Z0-9_]+\.Run\(\s*"([^"\n:]*:)?(\d{1,5})"`),
+	regexp.MustCompile(`\b[a-zA-Z0-9_]+\.Start\(\s*"([^"\n:]*:)?(\d{1,5})"`),
+}
+
+var goPackageMainPattern = regexp.MustCompile(`(?m)^\s*package\s+main\b`)
+
+func discoverGoSourcePort(root, componentPath string) (int, []Evidence, error) {
+	var discoveredPort int
+	var discoveredEvidence []Evidence
+
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path != root && (ignoredExecutionDir(d.Name()) || strings.HasPrefix(d.Name(), ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go") {
+			return nil
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+
+		if !goPackageMainPattern.Match(data) {
+			return nil
+		}
+
+		content := string(data)
+		for _, pattern := range goPortPatterns {
+			matches := pattern.FindStringSubmatch(content)
+			if len(matches) >= 3 {
+				port, err := strconv.Atoi(matches[2])
+				if err == nil && port > 0 && port < 65536 {
+					rel, relErr := filepath.Rel(root, path)
+					if relErr != nil {
+						rel = d.Name()
+					}
+					evidencePath := filepath.ToSlash(filepath.Join(componentPath, rel))
+					discoveredPort = port
+					discoveredEvidence = []Evidence{{
+						Kind:     EvidenceScript,
+						Path:     evidencePath,
+						Detail:   "Go main package source declares TCP port " + strconv.Itoa(port) + ".",
+						Strength: 0.95,
+					}}
+					return filepath.SkipAll
+				}
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return 0, nil, err
+	}
+	return discoveredPort, discoveredEvidence, nil
 }
 

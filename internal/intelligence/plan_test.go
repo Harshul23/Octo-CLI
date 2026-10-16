@@ -2,6 +2,7 @@ package intelligence
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -322,3 +323,26 @@ func TestPlannerReturnsStructuredFailureForMissingExecutable(t *testing.T) {
         t.Fatalf("summary=%q", failure.Summary)
     }
 }
+
+func TestInstallCommandPipUsesVirtualenv(t *testing.T) {
+	cmd := installCommand("pip")
+	if !strings.Contains(cmd, ".venv") {
+		t.Fatalf("expected pip install command to reference .venv, got %q", cmd)
+	}
+	if !strings.Contains(cmd, "python -m pip install -r requirements.txt") &&
+		!strings.Contains(cmd, "python.exe -m pip install -r requirements.txt") {
+		t.Fatalf("expected pip install command to use venv python interpreter, got %q", cmd)
+	}
+
+	// Verify uv, poetry remain untouched
+	if uvCmd := installCommand("uv"); uvCmd != "uv sync" {
+		t.Fatalf("expected uv sync, got %q", uvCmd)
+	}
+	if poetryCmd := installCommand("poetry"); poetryCmd != "poetry install" {
+		t.Fatalf("expected poetry install, got %q", poetryCmd)
+	}
+	if npmCmd := installCommand("npm"); npmCmd != "npm install" {
+		t.Fatalf("expected npm install, got %q", npmCmd)
+	}
+}
+

@@ -250,3 +250,43 @@ func TestRecordVerifiedStrategiesRecordsSuccessfulFallbackCandidate(t *testing.T
 	}
 }
 
+func TestExecutionFingerprintWithDirectoryEvidence(t *testing.T) {
+	root := t.TempDir()
+	subApp := filepath.Join(root, "apps", "realtime-chat")
+	if err := os.MkdirAll(subApp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subApp, "go.mod"), []byte("module example.com/chat\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subApp, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	component := Component{Name: "realtime-chat", Path: "apps/realtime-chat", Language: "Go"}
+	candidate := ExecutionCandidate{
+		ID:      "go.package",
+		Command: "go run .",
+		Evidence: []Evidence{
+			{Kind: EvidenceConfig, Path: "apps/realtime-chat", Detail: "directory evidence path", Strength: 0.96},
+			{Kind: EvidenceSignalFile, Path: "apps/realtime-chat/go.mod", Detail: "module file", Strength: 0.95},
+		},
+	}
+
+	fp1, err := ExecutionFingerprint(root, component, candidate)
+	if err != nil {
+		t.Fatalf("expected no error from ExecutionFingerprint with directory evidence, got: %v", err)
+	}
+	if fp1 == "" {
+		t.Fatal("expected non-empty fingerprint")
+	}
+
+	fp2, err := ExecutionFingerprint(root, component, candidate)
+	if err != nil {
+		t.Fatalf("expected no error on second call, got: %v", err)
+	}
+	if fp1 != fp2 {
+		t.Fatalf("expected stable fingerprint across calls, got %q vs %q", fp1, fp2)
+	}
+}
+

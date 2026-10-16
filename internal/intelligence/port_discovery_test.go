@@ -101,3 +101,97 @@ func TestAnalyzeStrictPortFromNodeScript(t *testing.T) {
 		t.Fatal("expected Node script port to be strict")
 	}
 }
+
+func TestDiscoverGoSourcePort(t *testing.T) {
+	// Case 1: ListenAndServe(":8080")
+	t.Run("ListenAndServe", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/srv\ngo 1.25\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		src := `package main
+
+import "net/http"
+
+func main() {
+	http.ListenAndServe(":8080", nil)
+}
+`
+		if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		model, err := Analyze(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if model.Port != 8080 {
+			t.Fatalf("port=%d, want 8080", model.Port)
+		}
+		if len(model.Components) != 1 || model.Components[0].Port != 8080 || !model.Components[0].PortStrict {
+			t.Fatalf("component port=%d, strict=%v", model.Components[0].Port, model.Components[0].PortStrict)
+		}
+	})
+
+	// Case 2: r.Run(":9000")
+	t.Run("RouterRun", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/ginapp\ngo 1.25\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		src := `package main
+
+type Router struct{}
+func (r *Router) Run(addr string) error { return nil }
+
+func main() {
+	r := &Router{}
+	r.Run(":9000")
+}
+`
+		if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		model, err := Analyze(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if model.Port != 9000 {
+			t.Fatalf("port=%d, want 9000", model.Port)
+		}
+	})
+
+	// Case 3: No literal (port 0)
+	t.Run("NoLiteral", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\ngo 1.25\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		src := `package main
+
+import (
+	"fmt"
+	"net/http"
+	"os"
+)
+
+func main() {
+	port := os.Getenv("PORT")
+	http.ListenAndServe(fmt.Sprintf(":%s", port), nil)
+}
+`
+		if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		model, err := Analyze(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if model.Port != 0 {
+			t.Fatalf("port=%d, want 0", model.Port)
+		}
+	})
+}
+
