@@ -215,3 +215,48 @@ func TestBenchmarkTeardownRejectsOpenListener(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestFindWorkingPythonInterpreter(t *testing.T) {
+	py, err := findWorkingPythonInterpreter(context.Background())
+	if err != nil {
+		t.Skipf("no working python interpreter on host: %v", err)
+	}
+	if py == "" {
+		t.Fatal("expected non-empty interpreter name")
+	}
+	if py != "python3" && py != "python" && py != "py -3" {
+		t.Fatalf("unexpected python candidate: %q", py)
+	}
+}
+
+func TestFindWorkingPythonInterpreterFromCandidates(t *testing.T) {
+	// Rejects nonexistent command
+	_, err := findWorkingPythonInterpreterFromCandidates(context.Background(), []pythonCandidate{
+		{name: "nonexistent", cmd: "nonexistent-python-interpreter-xyz"},
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent candidate")
+	}
+
+	// Falls back when first candidate fails
+	candidates := []pythonCandidate{
+		{name: "nonexistent", cmd: "nonexistent-python-interpreter-xyz"},
+	}
+	if current, err := findWorkingPythonInterpreter(context.Background()); err == nil {
+		cmd := current
+		var args []string
+		if current == "py -3" {
+			cmd = "py"
+			args = []string{"-3"}
+		}
+		candidates = append(candidates, pythonCandidate{name: current, cmd: cmd, args: args})
+		got, err := findWorkingPythonInterpreterFromCandidates(context.Background(), candidates)
+		if err != nil {
+			t.Fatalf("expected fallback to succeed, got %v", err)
+		}
+		if got != current {
+			t.Fatalf("got %q, want %q", got, current)
+		}
+	}
+}
+
